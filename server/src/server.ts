@@ -240,51 +240,51 @@ connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
 });
 
 // 处理语义令牌请求：使用正则表达式匹配关键字，避免局部匹配问题
-connection.languages.semanticTokens.on((params: SemanticTokensParams): SemanticTokens => {
-  const document = documents.get(params.textDocument.uri);
-  if (!document) {
-    return { data: [] };
-  }
-  const text = document.getText();
-  const lines = text.split(/\r?\n/);
+// connection.languages.semanticTokens.on((params: SemanticTokensParams): SemanticTokens => {
+//   const document = documents.get(params.textDocument.uri);
+//   if (!document) {
+//     return { data: [] };
+//   }
+//   const text = document.getText();
+//   const lines = text.split(/\r?\n/);
   
-  // 为防止短关键字覆盖长关键字，先降序排序
-  const sortedKeywords = [...keywords].sort((a, b) => b.keyword.length - a.keyword.length);
-  // 构造正则表达式，确保匹配单词边界
-  const regex = new RegExp(`\\b(${sortedKeywords.map(item => item.keyword).join('|')})\\b`, 'g');
+//   // 为防止短关键字覆盖长关键字，先降序排序
+//   const sortedKeywords = [...keywords].sort((a, b) => b.keyword.length - a.keyword.length);
+//   // 构造正则表达式，确保匹配单词边界
+//   const regex = new RegExp(`\\b(${sortedKeywords.map(item => item.keyword).join('|')})\\b`, 'g');
   
-  const tokens: { line: number; start: number; length: number }[] = [];
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex];
-    regex.lastIndex = 0; // 每行开始前重置状态
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(line)) !== null) {
-      tokens.push({
-        line: lineIndex,
-        start: match.index,
-        length: match[0].length
-      });
-    }
-  }
+//   const tokens: { line: number; start: number; length: number }[] = [];
+//   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+//     const line = lines[lineIndex];
+//     regex.lastIndex = 0; // 每行开始前重置状态
+//     let match: RegExpExecArray | null;
+//     while ((match = regex.exec(line)) !== null) {
+//       tokens.push({
+//         line: lineIndex,
+//         start: match.index,
+//         length: match[0].length
+//       });
+//     }
+//   }
   
-  // 按文档中顺序排序，然后进行 delta 编码
-  tokens.sort((a, b) => {
-    if (a.line === b.line) {
-      return a.start - b.start;
-    }
-    return a.line - b.line;
-  });
+//   // 按文档中顺序排序，然后进行 delta 编码
+//   tokens.sort((a, b) => {
+//     if (a.line === b.line) {
+//       return a.start - b.start;
+//     }
+//     return a.line - b.line;
+//   });
   
-  const data: number[] = [];
-  let prevLine = 0;
-  let prevChar = 0;
-  for (const token of tokens) {
-    const deltaLine = token.line - prevLine;
-    const deltaChar = deltaLine === 0 ? token.start - prevChar : token.start;
-    data.push(deltaLine, deltaChar, token.length, 0, 0);
-    prevLine = token.line;
-    prevChar = token.start;
-  }
+//   const data: number[] = [];
+//   let prevLine = 0;
+//   let prevChar = 0;
+//   for (const token of tokens) {
+//     const deltaLine = token.line - prevLine;
+//     const deltaChar = deltaLine === 0 ? token.start - prevChar : token.start;
+//     data.push(deltaLine, deltaChar, token.length, 0, 0);
+//     prevLine = token.line;
+//     prevChar = token.start;
+//   }
   
-  return { data };
-});
+//   return { data };
+// });

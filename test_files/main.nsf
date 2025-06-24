@@ -1,4 +1,246 @@
-UPPERCASE ERROR
-TecVan
-float
-float
+#include "../shaderlib/common.hlsl"
+#include "../shaderlib/sfx_light.hlsl"
+
+texture Tex0: DiffuseMap;
+SamplerState s_diffuse;
+texture NormalMap : NormalMap;
+SamplerState s_normalmap;
+texture TexFlow
+<
+    string SasUiLabel = "流光图";
+    string SasUiControl = "FilePicker";
+    string TextureFile= "shader\\core\\texture\\t_scanlight_noise01.tga";
+>;
+SamplerState s_flow;
+for
+float u_xspeed
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "xspeed";
+    string SasUiControl = "FloatPicker";
+> = 0.0f;
+float u_yspeed
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "yspeed";
+    string SasUiControl = "FloatPicker";
+> = 3.0f;
+float u_xscale
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "xscale";
+    string SasUiControl = "FloatPicker";
+> = 0.2f;
+float u_yscale
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "yscale";
+    string SasUiControl = "FloatPicker";
+> = 0.2f;
+float u_zscale
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "zscale";
+    string SasUiControl = "FloatPicker";
+> = 0.2f;
+
+float4 u_flow_color
+<    
+    string SasUiGroup="流光";
+    string SasUiLabel = "流光颜色";
+    string SasUiControl = "ColorPicker";  
+> = { 0.0f, 0.349f, 1.0f, 0.5f };
+
+float u_flow_exp
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "流光范围";
+    string SasUiControl = "FloatPicker"; 
+> = 2.0f;
+
+float u_flow_intensity
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "流光强度";
+    string SasUiControl = "FloatPicker"; 
+> = 3.0f;
+
+float u_TriplanarBlendSharpness
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "流光法线锐化";
+    string SasUiControl = "FloatPicker";
+> = 1.0f;
+
+float u_flow_speed
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "流光速度";
+    string SasUiControl = "FloatPicker";
+> = 2.0f;
+
+float u_flow_color_intensity
+<
+    string SasUiGroup="流光";
+    string SasUiLabel = "流光颜色强度";
+    string SasUiControl = "FloatPicker";
+> = 1.0f;
+
+float u_fresnel_color_intensity
+<
+    string SasUiGroup="整体菲涅尔";
+    string SasUiLabel = "菲涅尔颜色强度";
+    string SasUiControl = "ColorPicker";
+> = 1.0f;
+
+float4 u_fresnel_color
+<
+    string SasUiGroup="整体菲涅尔";
+    string SasUiLabel = "菲涅尔颜色";
+    string SasUiControl = "ColorPicker";
+> = { 0.0f, 0.349f, 1.0f, 0.5f };
+
+float u_fresnel_exp
+<
+    string SasUiGroup="整体菲涅尔";
+    string SasUiLabel = "菲涅尔范围";
+    string SasUiControl = "FloatPicker";
+> = 1.0f;
+
+float u_fresnel_pulse_week
+<
+    string SasUiGroup="整体菲涅尔";
+    string SasUiLabel = "菲涅尔频闪弱";
+    string SasUiControl = "FloatPicker";
+> = 0.2f;
+
+float u_fresnel_pulse_strong
+<
+    string SasUiGroup="整体菲涅尔";
+    string SasUiLabel = "菲涅尔频闪强";
+    string SasUiControl = "FloatPicker";
+> = 3.0f;
+
+float u_fresnel_pulse_speed
+<
+    string SasUiGroup="整体菲涅尔";
+    string SasUiLabel = "菲涅尔频闪速度";
+    string SasUiControl = "FloatPicker";
+> = 2.0f;
+// 定义了一个通用的VS_INPUT
+
+#include "../shaderlib/vs_input.hlsl"
+struct PS_INPUT
+{
+	float4 final_position: SV_Position;
+	float4 texcoord0: TEXCOORD0; //xy: diffuse uv   z: fresnel
+	float4 flowuv: TEXCOORD1;
+    float4 world_position:TEXCOORD2;
+	float4 world_normal: TEXCOORD3;
+    float3 world_tangent:TEXCOORD4;
+    float3 world_binormal:TEXCOORD5;
+};
+// 定义了一些vertex shader会用到的函数，依赖VS_INPUT
+#include "../shaderlib/vertex_functions.hlsl"
+
+
+
+PS_INPUT vs_main(VS_INPUT input)
+{
+	VertexData v = (VertexData)0;
+	// 基础的坐标变换
+	ComputeVertexDataInstance(input,v);
+	// 输出
+	PS_INPUT output = (PS_INPUT) 0;
+	output.final_position = v.screen_position;
+	output.texcoord0.xy = input.texcoord0.xy;
+
+
+    output.world_position = v.world_position;
+
+	//output.flowuv.xy = rotate_uv * float2(u_scale, v_scale) + u_frame_time * float2(u_speed, v_speed) * 0.1;
+
+	output.flowuv.xyz = v.local_position.xyz;
+	output.world_normal.xyz = v.world_normal.xyz;
+
+	return output;
+	
+}
+
+half4 ps_main(PS_INPUT input) : SV_Target0
+{
+	half4 diffuse_color = Tex0.Sample(s_diffuse, input.texcoord0.xy);
+    half4 normal_texture = NormalMap.Sample(s_normalmap, input.texcoord0.xy);
+    float2 normal_offset = normal_texture.xy * 2.0 -1.0;
+
+    half3 normal = normalize(half3(normal_offset, 1.0h));
+    float3x3 tangent_to_world = float3x3(input.world_tangent, input.world_binormal, input.world_normal);
+	//float3 world_normal = NormalizedTangentVectorToWorld(tangent_to_world, normal);
+    float3 world_normal = normalize(normal.xzy + input.world_normal);
+
+
+	half diffuse_opacity = diffuse_color.a;
+	
+
+#if ALPHA_TEST_ENABLE
+    if (diffuse_color.a < u_alpha_ref)
+        discard;
+#endif
+	
+//流动光
+	half flow_intensity = lerp(0.0, u_flow_intensity, abs(sin(u_frame_time * u_flow_speed)));
+
+	float colorx = frac(input.flowuv.x * u_xscale);
+	float colory = frac(input.flowuv.y * u_yscale);
+	float colorz = frac(input.flowuv.z * u_zscale);
+
+	float3 bWeight = (pow(abs(normalize(world_normal.xyz)), u_TriplanarBlendSharpness));
+	bWeight=bWeight/(bWeight.x+bWeight.y+bWeight.z);
+
+	half3 flow_color_x = TexFlow.Sample(s_flow, float2(colorz,colory)+ u_frame_time * float2(u_xspeed, u_yspeed) * 0.1);
+	half3 flow_color_y = TexFlow.Sample(s_flow, float2(colorx,colorz));
+	half3 flow_color_z = TexFlow.Sample(s_flow, float2(colorx,colory) + u_frame_time * float2(u_xspeed, u_yspeed) * 0.1);
+	half3 flow_color = flow_color_x* bWeight.x+ flow_color_y *bWeight.y+ flow_color_z *bWeight.z;
+	flow_color = pow(flow_color, u_flow_exp);
+	flow_color = flow_color * flow_intensity * half3(u_flow_color.rgb)* u_flow_color_intensity;
+
+//菲涅尔
+    //fresnel
+	float3 pos_to_camera = u_camera_pos.xyz - input.world_position.xyz;
+    float3 view_vec = normalize(pos_to_camera);
+	half NoV = saturate(dot(world_normal,view_vec));
+    
+    half fresnel_pulse = lerp(u_fresnel_pulse_week, u_fresnel_pulse_strong, abs(sin(u_frame_time * u_fresnel_pulse_speed)));
+
+    //float fresnel = Fresnel(MaterialParameters, 1.0, 0.0);
+    half fresnel = saturate(pow((1.0 - NoV), u_fresnel_exp));
+    half3 fresnel_color = half3(u_fresnel_color.rgb) * fresnel_pulse * fresnel * half(u_fresnel_color_intensity);
+
+
+    //flow_color * (1.0 - pow(1.0 - input.texcoord0.z, 1.0)) 
+	half3 color = flow_color  + fresnel_color;
+	return half4(color * half(u_hdr_encode.w), 1.0);
+
+}
+
+technique TShader
+<
+	string Description = "scanlight_fresnel";
+>
+{
+	pass p0
+	{
+        ZWriteEnable = TRUE;
+        DepthBias = -1E-07;
+        SlopeScaleDepthBias = -1E-08;
+        AlphaBlendEnable = TRUE;
+        SrcBlend = SRCCOLOR;
+        DestBlend = ONE;
+        SrcBlendAlpha = ONE;
+        DestBlendAlpha = ONE;
+        SeparateAlphaBlendEnable = TRUE;
+
+		VertexShader = vs_main;
+		PixelShader = ps_main;
+	}
+}

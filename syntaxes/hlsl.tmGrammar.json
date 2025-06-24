@@ -1,0 +1,127 @@
+{
+    "scopeName": "source.hlsl",
+    "fileTypes": [
+        "hlsl",
+        "fx",
+        "usf",
+        "ush",
+        "nsf"
+    ],
+    "patterns": [
+        {
+            "include": "#comment"
+        },
+        {
+            "include": "#string"
+        },
+        {
+            "include": "#number"
+        },
+        {
+            "include": "#keyword"
+        },
+        {
+            "include": "#type"
+        },
+        {
+            "include": "#function"
+        },
+        {
+            "include": "#paren-expression"
+        },
+        {
+            "include": "#identifier"
+        }
+    ],
+    "repository": {
+        "comment": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.hlsl",
+                    "match": "//.*$"
+                },
+                {
+                    "name": "comment.block.hlsl",
+                    "begin": "/\\*",
+                    "end": "\\*/"
+                }
+            ]
+        },
+        "string": {
+            "name": "string.quoted.double.hlsl",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.hlsl",
+                    "match": "\\\\."
+                }
+            ]
+        },
+        "number": {
+            "name": "constant.numeric.hlsl",
+            "match": "\\b\\d+(?:\\.\\d+)?(?:[fF])?\\b"
+        },
+        "keyword": {
+            "name": "keyword.control.hlsl",
+            "match": "\\b(?:if|else|for|while|return|break|continue|struct|cbuffer|cboundary|SamplerState|Texture2D)\\b"
+        },
+        "type": {
+            "name": "storage.type.hlsl",
+            "match": "\\b(?:void|bool|int(?:[1-4])?|uint(?:[1-4])?|float(?:[1-4])?(?:x[1-4])?|half(?:[1-4])?)\\b"
+        },
+        "function": {
+            "name": "entity.name.function.hlsl",
+            "match": "\\b[_A-Za-z]\\w*(?=\\s*\\()"
+        },
+        "identifier": {
+            "name": "variable.other.hlsl",
+            "match": "\\b[_A-Za-z]\\w*\\b"
+        },
+        "paren-expression": {
+            "name": "meta.group.hlsl",
+            "begin": "\\(",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.parenthesis.open.hlsl"
+                }
+            },
+            "end": "\\)",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.parenthesis.close.hlsl"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#expression"
+                }
+            ]
+        },
+        "expression": {
+            "patterns": [
+                {
+                    "include": "#keyword"
+                },
+                {
+                    "include": "#type"
+                },
+                {
+                    "include": "#function"
+                },
+                {
+                    "include": "#number"
+                },
+                {
+                    "include": "#string"
+                },
+                {
+                    "include": "#paren-expression"
+                },
+                {
+                    "include": "#identifier"
+                }
+            ]
+        }
+    }
+}
