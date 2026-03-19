@@ -1,0 +1,13 @@
+float u_b_max_random_distance
+<
+  string SasUiLabel = "最大随机距离";
+  string SasUiControl = "FloatSlider";
+  float SasUiMin = 0.0;
+  float SasUiMax = 100.0;
+> = 400.0f;
+
+float4 ps_main() : SV_Target0
+{
+  float x = u_b_max_random_distance;
+  return float4(x, 0, 0, 1);
+}

@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": ["version", "entries"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "targetFamilies": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "minArgs": { "type": "integer" },
+          "maxArgs": { "type": "integer" },
+          "returnType": { "type": "string", "minLength": 1 },
+          "documentation": { "type": "string", "minLength": 1 },
+          "signatures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["labelTemplate"],
+              "properties": {
+                "labelTemplate": { "type": "string", "minLength": 1 },
+                "parameterTemplates": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "hoverSignatureTemplate": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "disabled": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

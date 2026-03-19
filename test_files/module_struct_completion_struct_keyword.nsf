@@ -1,0 +1,11 @@
+struct SuiteKeywordStruct
+{
+    float3 normal;
+    float roughness;
+};
+
+float4 SuiteKeywordMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    struct SuiteKeywordStruct instance;
+    return instance.
+}

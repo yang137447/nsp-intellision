@@ -1,0 +1,16 @@
+struct PixelData
+{
+    half4 char_sky_light_multiplier;
+};
+
+#define GET_LIGHTING_MULTIPLIER_DEF(Type, Name, Value) Type Get##Name##Multiplier(PixelData p) { return Value; }
+GET_LIGHTING_MULTIPLIER_DEF(half3, SkyLightColor, p.char_sky_light_multiplier.xyz)
+
+float4 MacroGeneratedFunctionDiagnostics(float2 uv : TEXCOORD0) : SV_Target0
+{
+    PixelData p;
+    p.char_sky_light_multiplier = half4(1.0, 1.0, 1.0, 1.0);
+    half3 ok = GetSkyLightColorMultiplier(p);
+    half3 bad = GetSkyLightColorMultiplier(float3(1.0, 2.0, 3.0));
+    return float4(ok + bad, 1.0);
+}

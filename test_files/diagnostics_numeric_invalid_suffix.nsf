@@ -1,0 +1,6 @@
+void test()
+{
+    float a = 1.0u;
+    float b = 1.0H;
+    float c = 1.0q;
+}

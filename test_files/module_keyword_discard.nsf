@@ -1,0 +1,9 @@
+float4 DiscardKeywordMain(float2 uv : TEXCOORD0) : SV_Target
+{
+    if (uv.x < 0.5)
+    {
+        discard;
+    }
+
+    return float4(1.0, 0.0, 0.0, 1.0);
+}

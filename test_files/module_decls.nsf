@@ -1,0 +1,18 @@
+Texture2D<float4> SuiteTemplateTex;
+
+float SuiteMultiA = 0, SuiteMultiB = 1;
+
+float4 SuiteParamFunc(
+    float4 SuiteParamValue,
+    float3x3 SuiteParamMatrix
+)
+{
+    float localValue = SuiteMultiB;
+    float4 sampleValue = SuiteTemplateTex.Sample(SuiteTemplateTex, float2(0.0, 0.0));
+    return SuiteParamValue + sampleValue + SuiteParamMatrix[0].xxxx + localValue;
+}
+
+float4 SuiteUndeclaredUse()
+{
+    return UndeclaredSymbol + UndeclaredSymbol;
+}

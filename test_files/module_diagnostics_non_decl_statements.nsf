@@ -1,0 +1,15 @@
+struct PixelMaterialParameters
+{
+    float3 world_normal;
+    float3 world_tangent;
+    float3 world_binormal;
+};
+
+float4 TestDiagnosticsNonDeclStatements(float2 uv : TEXCOORD0) : SV_Target0
+{
+    PixelMaterialParameters MaterialParameters = (PixelMaterialParameters)0;
+    MaterialParameters.world_normal = float3(0.0, 0.0, 1.0);
+    MaterialParameters.world_binormal = cross(MaterialParameters.world_tangent, MaterialParameters.world_normal);
+    float3 p = float3(1.0, 2.0, 3.0);
+    return float4(p, 1.0);
+}

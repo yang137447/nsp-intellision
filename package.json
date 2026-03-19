@@ -1,26 +1,35 @@
 {
-	"name": "vscode-lsp-sample",
-	"description": "A language server example",
-	"author": "Tecvan",
+	"name": "nsf-lsp",
+	"description": "NSF LSP extension and language server",
+	"author": "YYB",
+	"publisher": "nsp",
 	"license": "MIT",
 	"version": "1.0.0",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/Tecvan-fe/vscode-lsp-sample"
-	},
 	"categories": [],
 	"engines": {
 		"vscode": "^1.43.0"
 	},
 	"activationEvents": [
-		"onLanguage:plaintext"
+		"onLanguage:nsf",
+		"onLanguage:hlsl",
+		"onCommand:nsf.checkStatus",
+		"onCommand:nsf.restartServer"
 	],
 	"main": "./client/out/extension",
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -b",
+		"test": "npm run test:client",
+		"test:client": "npm run compile && node .\\out\\test\\runCodeTests.js",
+		"test:client:repo": "npm run compile && node .\\out\\test\\runCodeTests.js --mode repo",
+		"test:client:real": "npm run compile && node .\\out\\test\\runCodeTests.js --mode real --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\"",
+		"test:client:all": "npm run compile && node .\\out\\test\\runCodeTests.js --mode repo && node .\\out\\test\\runCodeTests.js --mode real --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\"",
+		"builtins:update": "node .\\scripts\\builtins\\update_hlsl_intrinsics_manifest.js",
+		"json:validate": "node .\\scripts\\json\\validate_resources.js",
+		"gate:d3": "powershell -ExecutionPolicy Bypass -File .\\scripts\\gate\\d3-gate.ps1",
+		"package:vsix": "powershell -ExecutionPolicy Bypass -File .\\scripts\\package\\package_vsix.ps1",
 		"watch": "tsc -b -w",
-		"postinstall": "cd client && npm install && cd ../server && npm install && cd .."
+		"postinstall": "cd client && npm install && cd .."
 	},
 	"devDependencies": {
 		"@types/mocha": "^8.2.2",
@@ -32,19 +41,122 @@
 		"typescript": "^4.3.2"
 	},
 	"contributes": {
+		"commands": [
+			{
+				"command": "nsf.checkStatus",
+				"title": "NSF: Check LSP Status"
+			},
+			{
+				"command": "nsf.restartServer",
+				"title": "NSF: Restart LSP Server"
+			},
+			{
+				"command": "nsf.selectUnit",
+				"title": "NSF: Select Unit"
+			}
+		],
 		"languages": [
 			{
-				"id": "hlsl",
+				"id": "nsf",
+				"aliases": [
+					"NSF Shader"
+				],
 				"extensions": [
-					".nsf"
+					".nsf",
+					".hlsl",
+					".fx",
+					".usf",
+					".ush"
 				]
 			}
 		],
 		"grammars": [
 			{
-				"language": "hlsl",
-				"scopeName": "source.hlsl",
+				"language": "nsf",
+				"scopeName": "source.nsf",
 				"path": "./syntaxes/hlsl.tmGrammar.json"
+			}
+		],
+		"configuration": [
+			{
+				"title": "NSF",
+				"properties": {
+					"nsf.includePaths": {
+						"type": "array",
+						"default": [],
+						"items": {
+							"type": "string"
+						},
+						"description": "额外的 #include 搜索路径（相对路径以工作区根目录为基准）"
+					},
+					"nsf.include.validUnderline": {
+						"type": "boolean",
+						"default": true,
+						"description": "对可解析且真实存在的 #include 路径显示下划线"
+					},
+					"nsf.shaderFileExtensions": {
+						"type": "array",
+						"default": [
+							".nsf",
+							".hlsl",
+							".fx",
+							".usf",
+							".ush"
+						],
+						"items": {
+							"type": "string"
+						},
+						"description": "用于索引与包含解析的文件扩展名"
+					},
+					"nsf.defines": {
+						"type": "array",
+						"default": [],
+						"items": {
+							"type": "string"
+						},
+						"description": "预处理宏定义列表（支持 -DNAME 或 -DNAME=VALUE 或 NAME=VALUE）"
+					},
+					"nsf.inlayHints.enabled": {
+						"type": "boolean",
+						"default": true,
+						"description": "启用 Inlay Hints"
+					},
+					"nsf.inlayHints.parameterNames": {
+						"type": "boolean",
+						"default": true,
+						"description": "显示函数调用参数名提示"
+					},
+					"nsf.semanticTokens.enabled": {
+						"type": "boolean",
+						"default": true,
+						"description": "启用语义高亮计算"
+					},
+					"nsf.diagnostics.mode": {
+						"type": "string",
+						"enum": [
+							"basic",
+							"balanced",
+							"full"
+						],
+						"enumDescriptions": [
+							"偏保守，减少昂贵规则和后台开销。",
+							"默认模式，在准确率和响应速度之间取平衡。",
+							"偏完整，尽量启用更多诊断能力。"
+						],
+						"default": "balanced",
+						"description": "诊断模式。建议普通用户优先调整这一项，而不是修改底层诊断预算参数。"
+					}
+				}
+			},
+			{
+				"title": "NSF (Advanced)",
+				"properties": {
+					"nsf.serverPath": {
+						"type": "string",
+						"default": "",
+						"markdownDescription": "高级设置：覆盖插件内置的 C++ 语言服务器路径。普通用户应保持为空。"
+					}
+				}
 			}
 		]
 	}

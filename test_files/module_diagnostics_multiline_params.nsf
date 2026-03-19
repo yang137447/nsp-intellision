@@ -1,0 +1,8 @@
+float4 MultiLineParamFunc(
+    float3 WorldPositionRelativeToCamera,
+    float ExcludeDistance
+)
+{
+    float3 CameraToReceiver = WorldPositionRelativeToCamera;
+    return float4(CameraToReceiver + ExcludeDistance.xxx, 1.0);
+}

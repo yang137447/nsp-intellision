@@ -1,0 +1,4 @@
+cbuffer Globals
+{
+  float4 u_value2;
+}

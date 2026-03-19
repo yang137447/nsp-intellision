@@ -1,0 +1,14 @@
+#if SHADINGMODELID != SHADINGMODELID_UNLIT
+float4 PreprocNestMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    #if !DEFERRED_GBUFFER_GEN
+        float v = 1.0;
+        #if !HAS_TWO_SIDE
+            v = v + 1.0;
+        #else
+            v = v + 2.0;
+        #endif
+    #endif
+    return float4(uv, 0.0, 1.0);
+}
+#endif

@@ -1,0 +1,16 @@
+Texture2D gTex;
+Texture2D gTexArr[2];
+SamplerState gSampler;
+#define GET_TEX(baseTex) (baseTex)
+#define WRAP_TEX(texExpr) GET_TEX(texExpr)
+
+float4 MemberSigComplex(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float4 a = gTexArr[0].Sample(gSampler, uv);
+    float4 b = (gTex).Sample(gSampler, uv);
+    float4 c = (gTexArr[0]).Sample(gSampler, uv);
+    float4 d = GET_TEX(gTex).Sample(gSampler, uv);
+    float4 e = WRAP_TEX(gTexArr[0]).Sample(gSampler, uv);
+    float4 f = ((gTexArr[0])).Sample(gSampler, uv);
+    return a + b + c + d + e + f;
+}

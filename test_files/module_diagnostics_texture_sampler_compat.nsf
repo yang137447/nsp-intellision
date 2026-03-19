@@ -1,0 +1,12 @@
+half4 SampleColorTextureBias(Texture2D tex, sampler sam, float2 uv, float bias)
+{
+    return half4(0.0, 0.0, 0.0, 1.0);
+}
+
+texture t_diffuse;
+SamplerState s_diffuse;
+
+half4 TextureSamplerCompatEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return SampleColorTextureBias(t_diffuse, s_diffuse, uv, -0.5);
+}

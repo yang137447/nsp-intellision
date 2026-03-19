@@ -1,0 +1,8 @@
+float4 ParenthesizedIdentifierEntry() : SV_Target0
+{
+    float3 InscatteringColor = float3(1.0, 1.0, 1.0);
+    float ExpFogFactor = 0.5;
+    float3 DirectionalInscattering = float3(0.0, 0.0, 0.0);
+    float3 FogColor = (InscatteringColor) * (1 - ExpFogFactor) + DirectionalInscattering;
+    return float4(FogColor, 1.0);
+}

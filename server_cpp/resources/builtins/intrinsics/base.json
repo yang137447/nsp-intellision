@@ -1,0 +1,2935 @@
+{
+  "source": "Microsoft Learn",
+  "sourceUrls": [
+    "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-intrinsic-functions",
+    "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/d3d11-graphics-reference-sm5-intrinsics"
+  ],
+  "generatedAtUtc": "2026-03-16T18:42:36.083Z",
+  "count": 134,
+  "entries": [
+    {
+      "name": "abort",
+      "signatures": [
+        {
+          "display": "abort()",
+          "params": [],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/abort"
+      ],
+      "shaderModels": [
+        "4"
+      ],
+      "summary": "Submits an error message to the information queue and terminates the current draw or dispatch call being executed."
+    },
+    {
+      "name": "abs",
+      "signatures": [
+        {
+          "display": "abs(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-abs"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the absolute value of the specified value."
+    },
+    {
+      "name": "acos",
+      "signatures": [
+        {
+          "display": "acos(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-acos"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the arccosine of the specified value."
+    },
+    {
+      "name": "all",
+      "signatures": [
+        {
+          "display": "all(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-all"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Determines if all components of the specified value are non-zero."
+    },
+    {
+      "name": "AllMemoryBarrier",
+      "signatures": [
+        {
+          "display": "AllMemoryBarrier()",
+          "params": [],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/allmemorybarrier"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Blocks execution of all threads in a group until all memory accesses have been completed."
+    },
+    {
+      "name": "AllMemoryBarrierWithGroupSync",
+      "signatures": [
+        {
+          "display": "AllMemoryBarrierWithGroupSync()",
+          "params": [],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/allmemorybarrierwithgroupsync"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Blocks execution of all threads in a group until all memory accesses have been completed and all threads in the group have reached this call."
+    },
+    {
+      "name": "any",
+      "signatures": [
+        {
+          "display": "any(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-any"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Determines if any components of the specified value are non-zero."
+    },
+    {
+      "name": "asdouble",
+      "signatures": [
+        {
+          "display": "asdouble(lowbits, highbits)",
+          "params": [
+            "lowbits",
+            "highbits"
+          ],
+          "kind": "double"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/asdouble"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Reinterprets a cast value (two 32-bit values) into a double."
+    },
+    {
+      "name": "asfloat",
+      "signatures": [
+        {
+          "display": "asfloat(bool)",
+          "params": [
+            "bool"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "asfloat(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-asfloat"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Interprets the bit pattern of"
+    },
+    {
+      "name": "asin",
+      "signatures": [
+        {
+          "display": "asin(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-asin"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the arcsine of the specified value."
+    },
+    {
+      "name": "asint",
+      "signatures": [
+        {
+          "display": "asint(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-asint"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Interprets the bit pattern of"
+    },
+    {
+      "name": "asuint",
+      "signatures": [
+        {
+          "display": "asuint(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-asuint"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Interprets the bit pattern of"
+    },
+    {
+      "name": "atan",
+      "signatures": [
+        {
+          "display": "atan(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-atan"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the arctangent of the specified value."
+    },
+    {
+      "name": "atan2",
+      "signatures": [
+        {
+          "display": "atan2(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "atan2(y, x)",
+          "params": [
+            "y",
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-atan2"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the arctangent of two values (y,x)."
+    },
+    {
+      "name": "ceil",
+      "signatures": [
+        {
+          "display": "ceil(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "ceil(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-ceil"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the smallest integer value that is greater than or equal to the specified value."
+    },
+    {
+      "name": "CheckAccessFullyMapped",
+      "signatures": [
+        {
+          "display": "CheckAccessFullyMapped(status)",
+          "params": [
+            "status"
+          ],
+          "kind": "bool"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/checkaccessfullymapped"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Determines whether all values from a"
+    },
+    {
+      "name": "clamp",
+      "signatures": [
+        {
+          "display": "clamp(x, min, max)",
+          "params": [
+            "x",
+            "min",
+            "max"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-clamp"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Clamps the specified value to the specified minimum and maximum range."
+    },
+    {
+      "name": "clip",
+      "signatures": [
+        {
+          "display": "clip(-1:1)",
+          "params": [
+            "-1:1"
+          ],
+          "kind": "void"
+        },
+        {
+          "display": "clip(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-clip"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Discards the current pixel if the specified value is less than zero."
+    },
+    {
+      "name": "cos",
+      "signatures": [
+        {
+          "display": "cos(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-cos"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the cosine of the specified value."
+    },
+    {
+      "name": "cosh",
+      "signatures": [
+        {
+          "display": "cosh(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-cosh"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the hyperbolic cosine of the specified value."
+    },
+    {
+      "name": "countbits",
+      "signatures": [
+        {
+          "display": "countbits(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "uint"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/countbits"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Counts the number of bits (per component) set in the input integer."
+    },
+    {
+      "name": "cross",
+      "signatures": [
+        {
+          "display": "cross(x, y)",
+          "params": [
+            "x",
+            "y"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-cross"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the cross product of two floating-point, 3D vectors."
+    },
+    {
+      "name": "D3DCOLORtoUBYTE4",
+      "signatures": [
+        {
+          "display": "D3DCOLORtoUBYTE4(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-d3dcolortoubyte4"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Converts a floating-point, 4D vector set by a D3DCOLOR to a UBYTE4."
+    },
+    {
+      "name": "ddx",
+      "signatures": [
+        {
+          "display": "ddx(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-ddx"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "summary": "Returns the partial derivative of the specified value with respect to the screen-space x-coordinate."
+    },
+    {
+      "name": "ddy",
+      "signatures": [
+        {
+          "display": "ddy(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-ddy"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "summary": "Returns the partial derivative of the specified value with respect to the screen-space y-coordinate."
+    },
+    {
+      "name": "degrees",
+      "signatures": [
+        {
+          "display": "degrees(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-degrees"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Converts the specified value from radians to degrees."
+    },
+    {
+      "name": "determinant",
+      "signatures": [
+        {
+          "display": "determinant(m)",
+          "params": [
+            "m"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-determinant"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the determinant of the specified floating-point, square matrix."
+    },
+    {
+      "name": "DeviceMemoryBarrier",
+      "signatures": [
+        {
+          "display": "DeviceMemoryBarrier()",
+          "params": [],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/devicememorybarrier"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Blocks execution of all threads in a group until all device memory accesses have been completed."
+    },
+    {
+      "name": "DeviceMemoryBarrierWithGroupSync",
+      "signatures": [
+        {
+          "display": "DeviceMemoryBarrierWithGroupSync()",
+          "params": [],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/devicememorybarrierwithgroupsync"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Blocks execution of all threads in a group until all device memory accesses have been completed and all threads in the group have reached this call."
+    },
+    {
+      "name": "distance",
+      "signatures": [
+        {
+          "display": "distance(x, y)",
+          "params": [
+            "x",
+            "y"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-distance"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns a distance scalar between two vectors."
+    },
+    {
+      "name": "dot",
+      "signatures": [
+        {
+          "display": "dot(x, y)",
+          "params": [
+            "x",
+            "y"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-dot"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the dot product of two vectors."
+    },
+    {
+      "name": "dst",
+      "signatures": [
+        {
+          "display": "dst(src0, src1)",
+          "params": [
+            "src0",
+            "src1"
+          ],
+          "kind": "fVector"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dst"
+      ],
+      "shaderModels": [],
+      "summary": "Calculates a distance vector."
+    },
+    {
+      "name": "errorf",
+      "signatures": [
+        {
+          "display": "errorf(format, ...)",
+          "params": [
+            "format",
+            "..."
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/errorf"
+      ],
+      "shaderModels": [
+        "4"
+      ],
+      "summary": "Submits an error message to the information queue."
+    },
+    {
+      "name": "EvaluateAttributeAtSample",
+      "signatures": [
+        {
+          "display": "EvaluateAttributeAtSample(value, sampleindex)",
+          "params": [
+            "value",
+            "sampleindex"
+          ],
+          "kind": "numeric"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/evaluateattributeatsample"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Evaluates at the indexed sample location."
+    },
+    {
+      "name": "EvaluateAttributeCentroid",
+      "signatures": [
+        {
+          "display": "EvaluateAttributeCentroid(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "numeric"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/evaluateattributecentroid"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Evaluates at the pixel centroid."
+    },
+    {
+      "name": "EvaluateAttributeSnapped",
+      "signatures": [
+        {
+          "display": "EvaluateAttributeSnapped(value, offset)",
+          "params": [
+            "value",
+            "offset"
+          ],
+          "kind": "numeric"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/evaluateattributesnapped"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Evaluates at the pixel centroid with an offset."
+    },
+    {
+      "name": "exp",
+      "signatures": [
+        {
+          "display": "exp(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-exp"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the base-e exponential, or e"
+    },
+    {
+      "name": "exp2",
+      "signatures": [
+        {
+          "display": "exp2(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "exp2(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-exp2"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the base 2 exponential, or 2"
+    },
+    {
+      "name": "f16tof32",
+      "signatures": [
+        {
+          "display": "f16tof32(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "float"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/f16tof32"
+      ],
+      "shaderModels": [
+        "4",
+        "5"
+      ],
+      "summary": "Converts the float16 stored in the low-half of the uint to a float."
+    },
+    {
+      "name": "f32tof16",
+      "signatures": [
+        {
+          "display": "f32tof16(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "uint"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/f32tof16"
+      ],
+      "shaderModels": [
+        "4",
+        "5"
+      ],
+      "summary": "Converts an input into a float16 type."
+    },
+    {
+      "name": "faceforward",
+      "signatures": [
+        {
+          "display": "faceforward(n, i, ng)",
+          "params": [
+            "n",
+            "i",
+            "ng"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-faceforward"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Flips the surface-normal (if needed) to face in a direction opposite to i; returns the result in n."
+    },
+    {
+      "name": "firstbithigh",
+      "signatures": [
+        {
+          "display": "firstbithigh(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "int"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/firstbithigh"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Gets the location of the first set bit starting from the highest order bit and working downward, per component."
+    },
+    {
+      "name": "firstbitlow",
+      "signatures": [
+        {
+          "display": "firstbitlow(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "int"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/firstbitlow"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Returns the location of the first set bit starting from the lowest order bit and working upward, per component. This intrinsic corresponds to the DXBC instruction"
+    },
+    {
+      "name": "floor",
+      "signatures": [
+        {
+          "display": "floor(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "floor(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-floor"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the largest integer that is less than or equal to the specified value."
+    },
+    {
+      "name": "fma",
+      "signatures": [
+        {
+          "display": "fma(a, b, c)",
+          "params": [
+            "a",
+            "b",
+            "c"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "fma(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-fma"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Returns the double-precision fused multiply-addition of a * b + c."
+    },
+    {
+      "name": "fmod",
+      "signatures": [
+        {
+          "display": "fmod(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "fmod(x, y)",
+          "params": [
+            "x",
+            "y"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-fmod"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the floating-point remainder of x/y."
+    },
+    {
+      "name": "frac",
+      "signatures": [
+        {
+          "display": "frac(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-frac"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the fractional (or decimal) part of x; which is greater than or equal to 0 and less than 1."
+    },
+    {
+      "name": "frexp",
+      "signatures": [
+        {
+          "display": "frexp(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "frexp(x, exp)",
+          "params": [
+            "x",
+            "exp"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-frexp"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3"
+      ],
+      "summary": "Returns the mantissa and exponent of the specified floating-point value."
+    },
+    {
+      "name": "fwidth",
+      "signatures": [
+        {
+          "display": "fwidth(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-fwidth"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3"
+      ],
+      "summary": "Returns the absolute value of the partial derivatives of the specified value."
+    },
+    {
+      "name": "GetRenderTargetSampleCount",
+      "signatures": [
+        {
+          "display": "GetRenderTargetSampleCount()",
+          "params": [],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-getrendertargetsamplecount"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Gets the number of samples for a render target."
+    },
+    {
+      "name": "GetRenderTargetSamplePosition",
+      "signatures": [
+        {
+          "display": "GetRenderTargetSamplePosition(Index)",
+          "params": [
+            "Index"
+          ],
+          "kind": "float<2>"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-getrendertargetsampleposition"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Gets the sampling position (x,y) for a given sample index."
+    },
+    {
+      "name": "GroupMemoryBarrier",
+      "signatures": [
+        {
+          "display": "GroupMemoryBarrier()",
+          "params": [],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/groupmemorybarrier"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Blocks execution of all threads in a group until all group shared accesses have been completed."
+    },
+    {
+      "name": "GroupMemoryBarrierWithGroupSync",
+      "signatures": [
+        {
+          "display": "GroupMemoryBarrierWithGroupSync()",
+          "params": [],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/groupmemorybarrierwithgroupsync"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Blocks execution of all threads in a group until all group shared accesses have been completed and all threads in the group have reached this call."
+    },
+    {
+      "name": "InterlockedAdd",
+      "signatures": [
+        {
+          "display": "InterlockedAdd(dest, value, original_value)",
+          "params": [
+            "dest",
+            "value",
+            "original_value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedadd"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Performs a guaranteed atomic add of value to the dest resource variable."
+    },
+    {
+      "name": "InterlockedAnd",
+      "signatures": [
+        {
+          "display": "InterlockedAnd(dest, value, original_value)",
+          "params": [
+            "dest",
+            "value",
+            "original_value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedand"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Performs a guaranteed atomic and."
+    },
+    {
+      "name": "InterlockedCompareExchange",
+      "signatures": [
+        {
+          "display": "InterlockedCompareExchange(dest, compare_value, value, original_value)",
+          "params": [
+            "dest",
+            "compare_value",
+            "value",
+            "original_value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedcompareexchange"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Atomically compares the destination with the comparison value. If they are identical, the destination is overwritten with the input value. The original value is set to the destination's original value."
+    },
+    {
+      "name": "InterlockedCompareStore",
+      "signatures": [
+        {
+          "display": "InterlockedCompareStore(dest, compare_value, value)",
+          "params": [
+            "dest",
+            "compare_value",
+            "value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedcomparestore"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Atomically compares the destination to the comparison value. If they are identical, the destination is overwritten with the input value."
+    },
+    {
+      "name": "InterlockedExchange",
+      "signatures": [
+        {
+          "display": "InterlockedExchange(dest, value, original_value)",
+          "params": [
+            "dest",
+            "value",
+            "original_value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedexchange"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Assigns value to dest and returns the original value."
+    },
+    {
+      "name": "InterlockedMax",
+      "signatures": [
+        {
+          "display": "InterlockedMax(dest, value, original_value)",
+          "params": [
+            "dest",
+            "value",
+            "original_value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedmax"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Performs a guaranteed atomic max."
+    },
+    {
+      "name": "InterlockedMin",
+      "signatures": [
+        {
+          "display": "InterlockedMin(dest, value, original_value)",
+          "params": [
+            "dest",
+            "value",
+            "original_value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedmin"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Performs a guaranteed atomic min."
+    },
+    {
+      "name": "InterlockedOr",
+      "signatures": [
+        {
+          "display": "InterlockedOr(dest, value, original_value)",
+          "params": [
+            "dest",
+            "value",
+            "original_value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedor"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Performs a guaranteed atomic or."
+    },
+    {
+      "name": "InterlockedXor",
+      "signatures": [
+        {
+          "display": "InterlockedXor(dest, value, original_value)",
+          "params": [
+            "dest",
+            "value",
+            "original_value"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedxor"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Performs a guaranteed atomic xor."
+    },
+    {
+      "name": "isfinite",
+      "signatures": [
+        {
+          "display": "isfinite(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "isfinite(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-isfinite"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Determines if the specified floating-point value is finite."
+    },
+    {
+      "name": "isinf",
+      "signatures": [
+        {
+          "display": "isinf(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "isinf(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-isinf"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Determines if the specified value is infinite."
+    },
+    {
+      "name": "isnan",
+      "signatures": [
+        {
+          "display": "isnan(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "isnan(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-isnan"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Determines if the specified value is NAN or QNAN."
+    },
+    {
+      "name": "ldexp",
+      "signatures": [
+        {
+          "display": "ldexp(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "ldexp(x, exp)",
+          "params": [
+            "x",
+            "exp"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-ldexp"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the result of multiplying the specified value by two, raised to the power of the specified exponent."
+    },
+    {
+      "name": "length",
+      "signatures": [
+        {
+          "display": "length(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-length"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the length of the specified floating-point vector."
+    },
+    {
+      "name": "lerp",
+      "signatures": [
+        {
+          "display": "lerp(x, y, s)",
+          "params": [
+            "x",
+            "y",
+            "s"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-lerp"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Performs a linear interpolation."
+    },
+    {
+      "name": "lit",
+      "signatures": [
+        {
+          "display": "lit(n_dot_l, n_dot_h, m)",
+          "params": [
+            "n_dot_l",
+            "n_dot_h",
+            "m"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-lit"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns a lighting coefficient vector."
+    },
+    {
+      "name": "log",
+      "signatures": [
+        {
+          "display": "log(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-log"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the base-e logarithm of the specified value."
+    },
+    {
+      "name": "log10",
+      "signatures": [
+        {
+          "display": "log10(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-log10"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the base-10 logarithm of the specified value."
+    },
+    {
+      "name": "log2",
+      "signatures": [
+        {
+          "display": "log2(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "log2(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-log2"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the base-2 logarithm of the specified value."
+    },
+    {
+      "name": "mad",
+      "signatures": [
+        {
+          "display": "mad(mvalue, avalue, bvalue)",
+          "params": [
+            "mvalue",
+            "avalue",
+            "bvalue"
+          ],
+          "kind": "numeric"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/mad"
+      ],
+      "shaderModels": [
+        "2",
+        "5"
+      ],
+      "summary": "Performs an arithmetic multiply/add operation on three values."
+    },
+    {
+      "name": "matrix",
+      "signatures": [],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-matrix"
+      ],
+      "shaderModels": [],
+      "summary": "A matrix is a data type that contains between one and sixteen"
+    },
+    {
+      "name": "max",
+      "signatures": [
+        {
+          "display": "max(x, y)",
+          "params": [
+            "x",
+            "y"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-max"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Selects the greater of x and y."
+    },
+    {
+      "name": "min",
+      "signatures": [
+        {
+          "display": "min(x, y)",
+          "params": [
+            "x",
+            "y"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-min"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Selects the lesser of x and y."
+    },
+    {
+      "name": "modf",
+      "signatures": [
+        {
+          "display": "modf(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "modf(x, ip)",
+          "params": [
+            "x",
+            "ip"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-modf"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Splits the value x into fractional and integer parts, each of which has the same sign as x."
+    },
+    {
+      "name": "msad4",
+      "signatures": [
+        {
+          "display": "msad4(reference, source, accum)",
+          "params": [
+            "reference",
+            "source",
+            "accum"
+          ],
+          "kind": "uint4"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-msad4"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Compares a 4-byte reference value and an 8-byte source value and accumulates a vector of 4 sums. Each sum corresponds to the masked sum of absolute differences of a different byte alignment between the reference value and the source value."
+    },
+    {
+      "name": "mul",
+      "signatures": [
+        {
+          "display": "mul(x, y)",
+          "params": [
+            "x",
+            "y"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-mul"
+      ],
+      "shaderModels": [
+        "1"
+      ],
+      "summary": "Multiplies x and y using matrix math. The inner dimension x-columns and y-rows must be equal."
+    },
+    {
+      "name": "noise",
+      "signatures": [
+        {
+          "display": "noise(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-noise"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Generates a random value using the Perlin-noise algorithm."
+    },
+    {
+      "name": "normalize",
+      "signatures": [
+        {
+          "display": "normalize(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-normalize"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Normalizes the specified floating-point vector according to x / length(x)."
+    },
+    {
+      "name": "pow",
+      "signatures": [
+        {
+          "display": "pow(x, y)",
+          "params": [
+            "x",
+            "y"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-pow"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the specified value raised to the specified power."
+    },
+    {
+      "name": "printf",
+      "signatures": [
+        {
+          "display": "printf(format, ...)",
+          "params": [
+            "format",
+            "..."
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/printf"
+      ],
+      "shaderModels": [
+        "4"
+      ],
+      "summary": "Submits a custom shader message to the information queue."
+    },
+    {
+      "name": "Process2DQuadTessFactorsAvg",
+      "signatures": [
+        {
+          "display": "Process2DQuadTessFactorsAvg(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactors, UnroundedInsideTessFactors)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactors",
+            "UnroundedInsideTessFactors"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/process2dquadtessfactorsavg"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a quad patch."
+    },
+    {
+      "name": "Process2DQuadTessFactorsMax",
+      "signatures": [
+        {
+          "display": "Process2DQuadTessFactorsMax(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactors, UnroundedInsideTessFactors)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactors",
+            "UnroundedInsideTessFactors"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/process2dquadtessfactorsmax"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a quad patch."
+    },
+    {
+      "name": "Process2DQuadTessFactorsMin",
+      "signatures": [
+        {
+          "display": "Process2DQuadTessFactorsMin(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactors, UnroundedInsideTessFactors)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactors",
+            "UnroundedInsideTessFactors"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/process2dquadtessfactorsmin"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a quad patch."
+    },
+    {
+      "name": "ProcessIsolineTessFactors",
+      "signatures": [
+        {
+          "display": "ProcessIsolineTessFactors(RawDetailFactor, RawDensityFactor, RoundedDetailFactor, RoundedDensityFactor)",
+          "params": [
+            "RawDetailFactor",
+            "RawDensityFactor",
+            "RoundedDetailFactor",
+            "RoundedDensityFactor"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processisolinetessfactors"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the rounded tessellation factors for an isoline."
+    },
+    {
+      "name": "ProcessQuadTessFactorsAvg",
+      "signatures": [
+        {
+          "display": "ProcessQuadTessFactorsAvg(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactors, UnroundedInsideTessFactors)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactors",
+            "UnroundedInsideTessFactors"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processquadtessfactorsavg"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a quad patch."
+    },
+    {
+      "name": "ProcessQuadTessFactorsMax",
+      "signatures": [
+        {
+          "display": "ProcessQuadTessFactorsMax(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactors, UnroundedInsideTessFactors)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactors",
+            "UnroundedInsideTessFactors"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processquadtessfactorsmax"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a quad patch."
+    },
+    {
+      "name": "ProcessQuadTessFactorsMin",
+      "signatures": [
+        {
+          "display": "ProcessQuadTessFactorsMin(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactors, UnroundedInsideTessFactors)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactors",
+            "UnroundedInsideTessFactors"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processquadtessfactorsmin"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a quad patch."
+    },
+    {
+      "name": "ProcessTriTessFactorsAvg",
+      "signatures": [
+        {
+          "display": "ProcessTriTessFactorsAvg(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactor, UnroundedInsideTessFactor)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactor",
+            "UnroundedInsideTessFactor"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processtritessfactorsavg"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a tri patch."
+    },
+    {
+      "name": "ProcessTriTessFactorsMax",
+      "signatures": [
+        {
+          "display": "ProcessTriTessFactorsMax(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactor, UnroundedInsideTessFactor)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactor",
+            "UnroundedInsideTessFactor"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processtritessfactorsmax"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a tri patch."
+    },
+    {
+      "name": "ProcessTriTessFactorsMin",
+      "signatures": [
+        {
+          "display": "ProcessTriTessFactorsMin(RawEdgeFactors, InsideScale, RoundedEdgeTessFactors, RoundedInsideTessFactors, UnroundedInsideTessFactors)",
+          "params": [
+            "RawEdgeFactors",
+            "InsideScale",
+            "RoundedEdgeTessFactors",
+            "RoundedInsideTessFactors",
+            "UnroundedInsideTessFactors"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processtritessfactorsmin"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Generates the corrected tessellation factors for a tri patch."
+    },
+    {
+      "name": "radians",
+      "signatures": [
+        {
+          "display": "radians(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-radians"
+      ],
+      "shaderModels": [
+        "1"
+      ],
+      "summary": "Converts the specified value from degrees to radians."
+    },
+    {
+      "name": "rcp",
+      "signatures": [
+        {
+          "display": "rcp(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/rcp"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Calculates a fast, approximate, per-component reciprocal."
+    },
+    {
+      "name": "reflect",
+      "signatures": [
+        {
+          "display": "reflect(i, n)",
+          "params": [
+            "i",
+            "n"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-reflect"
+      ],
+      "shaderModels": [
+        "1"
+      ],
+      "summary": "Returns a reflection vector using an incident ray and a surface normal."
+    },
+    {
+      "name": "refract",
+      "signatures": [
+        {
+          "display": "refract(i, n, ?)",
+          "params": [
+            "i",
+            "n",
+            "?"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-refract"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns a refraction vector using an entering ray, a surface normal, and a refraction index."
+    },
+    {
+      "name": "reversebits",
+      "signatures": [
+        {
+          "display": "reversebits(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "uint"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/reversebits"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Reverses the order of the bits, per component."
+    },
+    {
+      "name": "round",
+      "signatures": [
+        {
+          "display": "round(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "round(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-round"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Rounds the specified value to the nearest integer. Halfway cases are rounded to the nearest even."
+    },
+    {
+      "name": "rsqrt",
+      "signatures": [
+        {
+          "display": "rsqrt(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-rsqrt"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the reciprocal of the square root of the specified value."
+    },
+    {
+      "name": "saturate",
+      "signatures": [
+        {
+          "display": "saturate(reference)",
+          "params": [
+            "reference"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "saturate(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-saturate"
+      ],
+      "shaderModels": [
+        "1"
+      ],
+      "summary": "Clamps the specified value within the range of 0 to 1."
+    },
+    {
+      "name": "scalar",
+      "signatures": [],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-scalar"
+      ],
+      "shaderModels": [
+        "6"
+      ],
+      "summary": "HLSL supports several scalar data types:"
+    },
+    {
+      "name": "sign",
+      "signatures": [
+        {
+          "display": "sign(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sign"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the sign of"
+    },
+    {
+      "name": "sin",
+      "signatures": [
+        {
+          "display": "sin(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sin"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the sine of the specified value."
+    },
+    {
+      "name": "sincos",
+      "signatures": [
+        {
+          "display": "sincos(x, s, c)",
+          "params": [
+            "x",
+            "s",
+            "c"
+          ],
+          "kind": "void"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sincos"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the sine and cosine of x."
+    },
+    {
+      "name": "sinh",
+      "signatures": [
+        {
+          "display": "sinh(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sinh"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the hyperbolic sine of the specified value."
+    },
+    {
+      "name": "smoothstep",
+      "signatures": [
+        {
+          "display": "smoothstep(min, max, x)",
+          "params": [
+            "min",
+            "max",
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-smoothstep"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns a smooth Hermite interpolation between 0 and 1, if"
+    },
+    {
+      "name": "sqrt",
+      "signatures": [
+        {
+          "display": "sqrt(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sqrt"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the square root of the specified floating-point value, per component."
+    },
+    {
+      "name": "step",
+      "signatures": [
+        {
+          "display": "step(y, x)",
+          "params": [
+            "y",
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-step"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Compares two values, returning 0 or 1 based on which value is greater."
+    },
+    {
+      "name": "tan",
+      "signatures": [
+        {
+          "display": "tan(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tan"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the tangent of the specified value."
+    },
+    {
+      "name": "tanh",
+      "signatures": [
+        {
+          "display": "tanh(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tanh"
+      ],
+      "shaderModels": [
+        "1",
+        "2"
+      ],
+      "summary": "Returns the hyperbolic tangent of the specified value."
+    },
+    {
+      "name": "tex1D",
+      "signatures": [
+        {
+          "display": "tex1D(reference)",
+          "params": [
+            "reference"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "tex1D(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1d"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 1D texture."
+    },
+    {
+      "name": "tex1Dbias",
+      "signatures": [
+        {
+          "display": "tex1Dbias(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dbias"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 1D texture after biasing the mip level by t.w."
+    },
+    {
+      "name": "tex1Dgrad",
+      "signatures": [
+        {
+          "display": "tex1Dgrad(s, t, ddx, ddy)",
+          "params": [
+            "s",
+            "t",
+            "ddx",
+            "ddy"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dgrad"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 1D texture using a gradient to select the mip level."
+    },
+    {
+      "name": "tex1Dlod",
+      "signatures": [
+        {
+          "display": "tex1Dlod(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dlod"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 1D texture with mipmaps. The mipmap LOD is specified in t.w."
+    },
+    {
+      "name": "tex1Dproj",
+      "signatures": [
+        {
+          "display": "tex1Dproj(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dproj"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 1D texture using a projective divide; the texture coordinate is divided by t.w before the lookup takes place."
+    },
+    {
+      "name": "tex2D",
+      "signatures": [
+        {
+          "display": "tex2D(reference)",
+          "params": [
+            "reference"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "tex2D(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2d"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 2D texture."
+    },
+    {
+      "name": "tex2Dbias",
+      "signatures": [
+        {
+          "display": "tex2Dbias(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dbias"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 2D texture after biasing the mip level by t.w."
+    },
+    {
+      "name": "tex2Dgrad",
+      "signatures": [
+        {
+          "display": "tex2Dgrad(s, t, ddx, ddy)",
+          "params": [
+            "s",
+            "t",
+            "ddx",
+            "ddy"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dgrad"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 2D texture using a gradient to select the mip level."
+    },
+    {
+      "name": "tex2Dlod",
+      "signatures": [
+        {
+          "display": "tex2Dlod(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dlod"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 2D texture with mipmaps. The mipmap LOD is specified in t.w."
+    },
+    {
+      "name": "tex2Dproj",
+      "signatures": [
+        {
+          "display": "tex2Dproj(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dproj"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 2D texture using a projective divide; the texture coordinate is divided by t.w before the lookup takes place."
+    },
+    {
+      "name": "tex3D",
+      "signatures": [
+        {
+          "display": "tex3D(reference)",
+          "params": [
+            "reference"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "tex3D(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3d"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 3D texture."
+    },
+    {
+      "name": "tex3Dbias",
+      "signatures": [
+        {
+          "display": "tex3Dbias(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dbias"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 3D texture after biasing the mip level by t.w."
+    },
+    {
+      "name": "tex3Dgrad",
+      "signatures": [
+        {
+          "display": "tex3Dgrad(s, t, ddx, ddy)",
+          "params": [
+            "s",
+            "t",
+            "ddx",
+            "ddy"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dgrad"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 3D texture using a gradient to select the mip level."
+    },
+    {
+      "name": "tex3Dlod",
+      "signatures": [
+        {
+          "display": "tex3Dlod(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dlod"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 3D texture with mipmaps. The mipmap LOD is specified in t.w."
+    },
+    {
+      "name": "tex3Dproj",
+      "signatures": [
+        {
+          "display": "tex3Dproj(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dproj"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a 3D texture using a projective divide; the texture coordinate is divided by t.w before the lookup takes place."
+    },
+    {
+      "name": "texCUBE",
+      "signatures": [
+        {
+          "display": "texCUBE(reference)",
+          "params": [
+            "reference"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "texCUBE(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcube"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a cube texture."
+    },
+    {
+      "name": "texCUBEbias",
+      "signatures": [
+        {
+          "display": "texCUBEbias(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubebias"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a cube texture after biasing the mip level by t.w."
+    },
+    {
+      "name": "texCUBEgrad",
+      "signatures": [
+        {
+          "display": "texCUBEgrad(s, t, ddx, ddy)",
+          "params": [
+            "s",
+            "t",
+            "ddx",
+            "ddy"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubegrad"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a cube texture using a gradient to select the mip level."
+    },
+    {
+      "name": "texCUBElod",
+      "signatures": [
+        {
+          "display": "texCUBElod(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubelod"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a cube texture with mipmaps. The mipmap LOD is specified in t.w."
+    },
+    {
+      "name": "texCUBEproj",
+      "signatures": [
+        {
+          "display": "texCUBEproj(s, t)",
+          "params": [
+            "s",
+            "t"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubeproj"
+      ],
+      "shaderModels": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "summary": "Samples a cube texture using a projective divide; the texture coordinate is divided by t.w before the lookup takes place."
+    },
+    {
+      "name": "transpose",
+      "signatures": [
+        {
+          "display": "transpose(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-transpose"
+      ],
+      "shaderModels": [
+        "1"
+      ],
+      "summary": "Transposes the specified input matrix."
+    },
+    {
+      "name": "trunc",
+      "signatures": [
+        {
+          "display": "trunc(Corecrt\\_math.h)",
+          "params": [
+            "Corecrt\\_math.h"
+          ],
+          "kind": "ret"
+        },
+        {
+          "display": "trunc(x)",
+          "params": [
+            "x"
+          ],
+          "kind": "ret"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-trunc"
+      ],
+      "shaderModels": [
+        "1"
+      ],
+      "summary": "Truncates a floating-point value to the integer component."
+    },
+    {
+      "name": "vector",
+      "signatures": [],
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-vector"
+      ],
+      "shaderModels": [],
+      "summary": "A vector is a data type that contains between one and four"
+    }
+  ]
+}

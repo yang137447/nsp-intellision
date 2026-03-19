@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "entries": [
+    { "name": "Buffer", "family": "Buffer", "coordDim": 1, "isRw": false, "isArray": false },
+    { "name": "RWBuffer", "family": "RWBuffer", "coordDim": 1, "isRw": true, "isArray": false },
+    { "name": "Texture1D", "family": "Texture", "coordDim": 1, "isRw": false, "isArray": false },
+    { "name": "Texture1DArray", "family": "Texture", "coordDim": 1, "isRw": false, "isArray": true },
+    { "name": "Texture2D", "family": "Texture", "coordDim": 2, "isRw": false, "isArray": false },
+    { "name": "Texture2DArray", "family": "Texture", "coordDim": 2, "isRw": false, "isArray": true },
+    { "name": "Texture2DMS", "family": "Texture", "coordDim": 2, "isRw": false, "isArray": false },
+    { "name": "Texture2DMSArray", "family": "Texture", "coordDim": 2, "isRw": false, "isArray": true },
+    { "name": "Texture3D", "family": "Texture", "coordDim": 3, "isRw": false, "isArray": false },
+    { "name": "TextureCube", "family": "Texture", "coordDim": 3, "isRw": false, "isArray": false },
+    { "name": "TextureCubeArray", "family": "Texture", "coordDim": 3, "isRw": false, "isArray": true },
+    { "name": "RWTexture1D", "family": "RWTexture", "coordDim": 1, "isRw": true, "isArray": false },
+    { "name": "RWTexture1DArray", "family": "RWTexture", "coordDim": 1, "isRw": true, "isArray": true },
+    { "name": "RWTexture2D", "family": "RWTexture", "coordDim": 2, "isRw": true, "isArray": false },
+    { "name": "RWTexture2DArray", "family": "RWTexture", "coordDim": 2, "isRw": true, "isArray": true },
+    { "name": "RWTexture3D", "family": "RWTexture", "coordDim": 3, "isRw": true, "isArray": false },
+    { "name": "StructuredBuffer", "family": "StructuredBuffer", "coordDim": 1, "isRw": false, "isArray": false },
+    { "name": "RWStructuredBuffer", "family": "RWStructuredBuffer", "coordDim": 1, "isRw": true, "isArray": false },
+    { "name": "ByteAddressBuffer", "family": "ByteAddressBuffer", "coordDim": 1, "isRw": false, "isArray": false },
+    { "name": "RWByteAddressBuffer", "family": "RWByteAddressBuffer", "coordDim": 1, "isRw": true, "isArray": false },
+    { "name": "AppendStructuredBuffer", "family": "RWStructuredBuffer", "coordDim": 1, "isRw": true, "isArray": false },
+    { "name": "ConsumeStructuredBuffer", "family": "StructuredBuffer", "coordDim": 1, "isRw": false, "isArray": false },
+    { "name": "SamplerState", "family": "Sampler", "coordDim": 0, "isRw": false, "isArray": false },
+    { "name": "SamplerComparisonState", "family": "SamplerComparisonState", "coordDim": 0, "isRw": false, "isArray": false },
+    { "name": "InputPatch", "family": "Patch", "coordDim": 0, "isRw": false, "isArray": false },
+    { "name": "OutputPatch", "family": "Patch", "coordDim": 0, "isRw": false, "isArray": false }
+  ]
+}

@@ -1,0 +1,1 @@
+#define TRANSPARENT_STAGE 3

@@ -1,0 +1,6 @@
+float u_inline_comment_var = 1.0; // Inline comment for hover
+
+float4 SuiteHoverInlineEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return float4(uv, 0.0, u_inline_comment_var);
+}

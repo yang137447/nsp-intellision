@@ -1,0 +1,12 @@
+struct VSInput
+{
+    float4 texcoord4 : TEXCOORD4;
+};
+
+float4 MemberAccessSwizzleOk(VSInput input) : SV_Target0
+{
+    float4 u_params2 = float4(0.0, 0.0, 0.0, 0.0);
+    float2 rel_col_row = input.texcoord4.xy - u_params2.xy;
+    float2 rel_col_row2 = input.texcoord4.xy;
+    return float4(rel_col_row, rel_col_row2.x, 1.0);
+}

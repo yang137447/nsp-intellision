@@ -1,0 +1,6 @@
+float4 PreprocUnterminatedMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    #if FOO
+        float v = 1.0;
+    return float4(uv, v, 1.0);
+}

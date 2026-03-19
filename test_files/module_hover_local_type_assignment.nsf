@@ -1,0 +1,6 @@
+float4 HoverLocalTypeEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    half3 main_color2 = half3(uv, 1.0);
+    main_color2 = lerp(main_color2, half3(0.0, 0.0, 0.0), 0.5);
+    return float4(main_color2, 1.0);
+}

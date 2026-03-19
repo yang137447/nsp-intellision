@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "families": [
+    { "name": "Texture", "members": ["Texture1D", "Texture1DArray", "Texture2D", "Texture2DArray", "Texture2DMS", "Texture2DMSArray", "Texture3D", "TextureCube", "TextureCubeArray"], "compatibleWith": ["Texture"] },
+    { "name": "RWTexture", "members": ["RWTexture1D", "RWTexture1DArray", "RWTexture2D", "RWTexture2DArray", "RWTexture3D"], "compatibleWith": ["RWTexture"] },
+    { "name": "Buffer", "members": ["Buffer"], "compatibleWith": ["Buffer"] },
+    { "name": "RWBuffer", "members": ["RWBuffer"], "compatibleWith": ["RWBuffer"] },
+    { "name": "StructuredBuffer", "members": ["StructuredBuffer", "ConsumeStructuredBuffer"], "compatibleWith": ["StructuredBuffer"] },
+    { "name": "RWStructuredBuffer", "members": ["RWStructuredBuffer", "AppendStructuredBuffer"], "compatibleWith": ["RWStructuredBuffer"] },
+    { "name": "ByteAddressBuffer", "members": ["ByteAddressBuffer"], "compatibleWith": ["ByteAddressBuffer"] },
+    { "name": "RWByteAddressBuffer", "members": ["RWByteAddressBuffer"], "compatibleWith": ["RWByteAddressBuffer"] },
+    { "name": "Sampler", "members": ["SamplerState"], "compatibleWith": ["Sampler"] },
+    { "name": "SamplerComparisonState", "members": ["SamplerComparisonState"], "compatibleWith": ["SamplerComparisonState"] },
+    { "name": "Patch", "members": ["InputPatch", "OutputPatch"], "compatibleWith": ["Patch"] }
+  ]
+}

@@ -1,0 +1,7 @@
+#define REMOTE_MACRO 123
+
+float4 MacroHelper(float2 uv) : SV_Target0
+{
+    return float4(uv, 0.0, 1.0);
+}
+

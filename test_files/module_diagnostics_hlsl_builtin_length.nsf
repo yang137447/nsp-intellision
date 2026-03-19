@@ -1,0 +1,5 @@
+float4 BuiltinLengthMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float l = length(uv);
+    return float4(uv, l, 1.0);
+}

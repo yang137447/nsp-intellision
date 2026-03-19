@@ -1,0 +1,13 @@
+struct HoverBatch
+{
+    float mask2_clamp_x;
+    float2 uv;
+};
+
+float4 HoverStructMemberEntry(float2 inputUv : TEXCOORD0) : SV_Target0
+{
+    HoverBatch batch = (HoverBatch)0;
+    batch.uv = inputUv;
+    batch.mask2_clamp_x = 0.5;
+    return float4(batch.mask2_clamp_x, batch.uv.x, 0.0, 1.0);
+}

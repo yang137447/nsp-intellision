@@ -1,0 +1,16 @@
+// SuiteHoverVar doc line 1
+// SuiteHoverVar doc line 2
+float SuiteHoverVar = 1.0;
+
+/* SuiteHoverFunc doc line 1
+ * SuiteHoverFunc doc line 2
+ */
+float4 SuiteHoverFunc(float4 value) : SV_Target0
+{
+    return saturate(value);
+}
+
+float4 SuiteHoverEntry(float4 input) : SV_Target0
+{
+    return SuiteHoverFunc(input) + SuiteHoverVar;
+}

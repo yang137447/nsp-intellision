@@ -1,0 +1,7 @@
+Texture2D gTex;
+SamplerState gSampler;
+
+float4 MemberSigEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return gTex . Sample(gSampler, uv);
+}

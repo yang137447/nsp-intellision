@@ -1,0 +1,12 @@
+float3 SuiteUserFunc(float3 v, float s)
+{
+    return v * s;
+}
+
+float4 ps_main(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float3 ok = SuiteUserFunc(float3(uv, 0.0), 1.0);
+    float3 bad1 = SuiteUserFunc(uv, 1.0);
+    float3 bad2 = SuiteUserFunc(float3(uv, 0.0));
+    return float4(ok + bad1 + bad2, 1.0);
+}

@@ -1,0 +1,25 @@
+[unroll]
+float4 AttrMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float sum = 0.0;
+    [unroll(4)]
+    for (int i = 0; i < 4; i++)
+    {
+        sum = sum + uv.x;
+    }
+
+    [loop]
+    while (sum < 10.0)
+    {
+        sum = sum + 1.0;
+        break;
+    }
+
+    [branch]
+    if (sum > 0.0)
+    {
+        sum = sum + 1.0;
+    }
+    return float4(uv, sum, 1.0);
+}
+

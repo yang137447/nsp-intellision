@@ -1,0 +1,6 @@
+float4 ps_main() : SV_Target0
+{
+  int /*中文*/ foo = 0;
+  foo = foo + 1;
+  return float4(foo, 0, 0, 1);
+}

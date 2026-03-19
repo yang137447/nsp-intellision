@@ -1,0 +1,8 @@
+float4 HexLiteralMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    uint a = 0xFFu;
+    int b = 0x10;
+    float c = (float)0xFF;
+    float d = (float)0x1p;
+    return float4(uv, 0.0, 1.0);
+}

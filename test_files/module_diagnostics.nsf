@@ -1,0 +1,8 @@
+// Diagnostics include should report missing file
+#include "this_file_does_not_exist.ush"
+
+/* Diagnostics block comment should report unterminated
+float4 DiagnosticsMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return float4(uv, 0, 1);
+}

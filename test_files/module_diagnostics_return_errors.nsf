@@ -1,0 +1,19 @@
+float4 MissingReturn(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float2 a = uv;
+}
+
+void ReturnValueVoid(float2 uv : TEXCOORD0)
+{
+    return uv.x;
+}
+
+float ReturnWithoutValue(float2 uv : TEXCOORD0)
+{
+    return;
+}
+
+float3 ReturnTypeMismatch(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return float4(uv, 0.0, 1.0);
+}

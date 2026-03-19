@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "SV_Position",
+      "documentation": "Position in clip space or screen space.",
+      "typicalType": "float4"
+    },
+    {
+      "name": "SV_Target0",
+      "documentation": "Output render target slot 0.",
+      "typicalType": "float4"
+    },
+    {
+      "name": "SV_Depth",
+      "documentation": "Output depth value.",
+      "typicalType": "float"
+    },
+    {
+      "name": "SV_VertexID",
+      "documentation": "Vertex index provided by the input assembler.",
+      "typicalType": "uint"
+    },
+    {
+      "name": "SV_InstanceID",
+      "documentation": "Instance index provided by the input assembler.",
+      "typicalType": "uint"
+    },
+    {
+      "name": "SV_PrimitiveID",
+      "documentation": "Primitive index for the current primitive.",
+      "typicalType": "uint"
+    },
+    {
+      "name": "SV_SampleIndex",
+      "documentation": "MSAA sample index for the current sample.",
+      "typicalType": "uint"
+    },
+    {
+      "name": "SV_IsFrontFace",
+      "documentation": "Boolean flag indicating whether the current primitive is front-facing.",
+      "typicalType": "bool"
+    },
+    {
+      "name": "SV_DispatchThreadID",
+      "documentation": "Global thread ID in dispatch space.",
+      "typicalType": "uint3"
+    },
+    {
+      "name": "SV_GroupID",
+      "documentation": "Thread group ID in dispatch space.",
+      "typicalType": "uint3"
+    },
+    {
+      "name": "SV_GroupThreadID",
+      "documentation": "Thread ID within the current thread group.",
+      "typicalType": "uint3"
+    },
+    {
+      "name": "SV_GroupIndex",
+      "documentation": "Linear thread index within the current thread group.",
+      "typicalType": "uint"
+    }
+  ]
+}

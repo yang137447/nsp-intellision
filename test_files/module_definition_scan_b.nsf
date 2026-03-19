@@ -1,0 +1,4 @@
+struct FGBufferData
+{
+    float4 color;
+};

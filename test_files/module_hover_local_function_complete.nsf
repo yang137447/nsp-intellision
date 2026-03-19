@@ -1,0 +1,19 @@
+half4 GetExponentialHeightFog_Cloud(
+	float3 WorldCameraOrigin,
+	float3 WorldPositionRelativeToCamera,
+	float ExcludeDistance
+)
+{
+	return half4(WorldCameraOrigin + WorldPositionRelativeToCamera + ExcludeDistance, 1.0);
+}
+
+half4 CalculateHeightFog_Cloud(float3 WorldPositionRelativeToCamera)
+{
+	float ExcludeDistance = 0;
+	float3 WorldCameraOrigin = float3(0.0, 0.0, 0.0);
+	float4 FogInscatteringAndOpacity = GetExponentialHeightFog_Cloud(
+		WorldCameraOrigin,
+		WorldPositionRelativeToCamera,
+		ExcludeDistance);
+	return FogInscatteringAndOpacity;
+}

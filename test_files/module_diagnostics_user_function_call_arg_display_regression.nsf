@@ -1,0 +1,21 @@
+struct VS_INPUT
+{
+    float3 position : POSITION;
+};
+
+struct VertexData
+{
+    float4 world_position;
+};
+
+void Interaction(VS_INPUT input, inout float4 pos_world, float3 interct_pos)
+{
+    pos_world.xyz += input.position * interct_pos.x;
+}
+
+void VertexMain(VS_INPUT input, inout VertexData v)
+{
+    Interaction(input, v.world_position, u_player_position);
+}
+
+float4 u_player_position;

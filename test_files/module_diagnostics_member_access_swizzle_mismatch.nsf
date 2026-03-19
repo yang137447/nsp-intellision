@@ -1,0 +1,10 @@
+struct VSInput
+{
+    float4 texcoord4 : TEXCOORD4;
+};
+
+float4 MemberAccessSwizzleMismatch(VSInput input) : SV_Target0
+{
+    float3 wrong = input.texcoord4.xy;
+    return float4(wrong, 1.0);
+}

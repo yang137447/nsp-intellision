@@ -1,0 +1,7 @@
+#include "module_definition_multiline_fx_decl_b.nsf"
+
+float4 UseFxDecls(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float4 v = Tex0.Sample(s_diffuse, uv);
+    return v;
+}

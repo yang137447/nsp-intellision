@@ -1,0 +1,11 @@
+string SasUiLabel = "x";
+string SasUiControl = "y";
+
+void test() {
+  float a = float2(1, 2);
+  float3 v3 = float3(1, 2, 3);
+  float2 v2 = float2(1, 2);
+  float3 badAdd = v3 + v2;
+  bool badCmp = v3 == v2;
+  v3 = v2;
+}

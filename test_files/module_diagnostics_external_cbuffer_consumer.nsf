@@ -1,0 +1,5 @@
+float4 ExternalCbufferConsumer(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float3 a = u_wind_tex_factors;
+    return float4(a, 1.0);
+}

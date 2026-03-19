@@ -1,0 +1,9 @@
+float4 SigTarget(float2 uv, float scale, int mode) : SV_Target0
+{
+    return float4(uv * scale, mode, 1);
+}
+
+float4 SigEntry(float2 uv) : SV_Target0
+{
+    return SigTarget(uv, 2.0, 3);
+}

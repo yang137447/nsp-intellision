@@ -1,18 +1,15 @@
 {
-	"name": "lsp-sample-client",
-	"description": "VSCode part of a language server",
-	"author": "Microsoft Corporation",
+	"name": "nsf-lsp-client",
+	"description": "VSCode client for NSF LSP",
+	"author": "YYB",
 	"license": "MIT",
 	"version": "0.0.1",
-	"publisher": "vscode",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/Tecvan-fe/vscode-lsp-sample"
-	},
+	"publisher": "nsp",
 	"engines": {
 		"vscode": "^1.52.0"
 	},
 	"dependencies": {
+		"nsf-lsp": "file:..",
 		"vscode-languageclient": "^7.0.0"
 	},
 	"devDependencies": {

@@ -1,0 +1,11 @@
+struct MaterialInputsStruct
+{
+    half3 base_color;
+};
+
+void test()
+{
+    MaterialInputsStruct MaterialInputs;
+    half4 base_color = half4(1.0h, 1.0h, 1.0h, 1.0h);
+    MaterialInputs.base_color = base_color.rgb;
+}

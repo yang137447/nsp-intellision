@@ -1,0 +1,11 @@
+float4 MatrixMulTypes(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float4x4 m;
+
+    float4 v0 = mul(float4(1.0, 2.0, 3.0, 1.0), m);
+    float4 v1 = float4(1.0, 2.0, 3.0, 1.0) * m;
+    float4 v2 = m * float4(1.0, 2.0, 3.0, 1.0);
+
+    float3 bad = mul(float4(1.0, 2.0, 3.0, 1.0), m);
+    return v0 + v1 + v2 + float4(bad, 1.0);
+}

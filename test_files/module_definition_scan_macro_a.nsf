@@ -1,0 +1,4 @@
+float4 UseMacro(float2 uv) : SV_Target0
+{
+    return MacroHelper(uv) * REMOTE_MACRO;
+}

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "abs",
+      "summary": "Returns the absolute value of the specified value.",
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-abs"
+      ],
+      "signatures": [
+        {
+          "display": "abs(x)",
+          "params": ["x"],
+          "kind": "ret"
+        }
+      ]
+    },
+    {
+      "name": "saturate",
+      "summary": "Clamps the specified value within the range of 0 to 1.",
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-saturate"
+      ],
+      "signatures": [
+        {
+          "display": "saturate(x)",
+          "params": ["x"],
+          "kind": "ret"
+        }
+      ]
+    },
+    {
+      "name": "lerp",
+      "summary": "Performs a linear interpolation.",
+      "docUrls": [
+        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-lerp"
+      ],
+      "signatures": [
+        {
+          "display": "lerp(x, y, s)",
+          "params": ["x", "y", "s"],
+          "kind": "ret"
+        }
+      ]
+    }
+  ]
+}

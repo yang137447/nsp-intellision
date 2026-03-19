@@ -1,4 +1,3 @@
-// A launch configuration that compiles the extension and then opens it inside a new window
 {
   "version": "0.2.0",
   "configurations": [
@@ -8,34 +7,32 @@
       "name": "Launch Client",
       "runtimeExecutable": "${execPath}",
       "args": [
-        "--extensionDevelopmentPath=${workspaceRoot}",
+        "--extensionDevelopmentPath=${workspaceFolder}",
         "--disable-extensions",
-        "${workspaceRoot}/test_files"
+        "${workspaceFolder}"
       ],
-      "outFiles": ["${workspaceRoot}/client/out/**/*.js"],
+      "outFiles": [
+        "${workspaceFolder}/client/out/**/*.js"
+      ],
       "smartStep": true,
-      "preLaunchTask": {
-        "type": "npm",
-        "script": "watch"
-      }
+      "preLaunchTask": "npm: watch"
     },
     {
-      "type": "node",
-      "request": "attach",
-      "name": "Attach to Server",
-      "port": 6009,
-      "restart": true,
-      "outFiles": ["${workspaceRoot}/server/out/**/*.js"],
-      "preLaunchTask": {
-        "type": "npm",
-        "script": "watch"
-      }
-    }
-  ],
-  "compounds": [
-    {
-      "name": "Client + Server",
-      "configurations": ["Launch Client", "Attach to Server"]
+      "type": "extensionHost",
+      "request": "launch",
+      "name": "Launch Client (Open NSF Sample)",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extensions",
+        "${workspaceFolder}",
+        "${workspaceFolder}/test_files/main.nsf"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/client/out/**/*.js"
+      ],
+      "smartStep": true,
+      "preLaunchTask": "npm: watch"
     }
   ]
 }

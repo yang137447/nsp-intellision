@@ -1,0 +1,5 @@
+float4 RemoteFieldsMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    RemoteFieldsStruct value;
+    return value.
+}

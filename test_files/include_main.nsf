@@ -1,0 +1,6 @@
+#include "include_target.hlsl"
+
+float4 main_ps() : SV_Target0
+{
+    return float4(1.0, 1.0, 1.0, 1.0);
+}

@@ -1,0 +1,32 @@
+struct MaterialInputsStruct
+{
+    half3 base_color;
+};
+
+void test_multiline()
+{
+    float3 scale = float3(
+        1.0,
+        2.0,
+        3.0
+    );
+    float x = scale.x;
+}
+
+void test_member_and_suffix()
+{
+    struct MaterialInputsStruct MaterialInputs;
+    half4 base_color = half4(1.0h, 1.0h, 1.0h, 1.0h);
+    MaterialInputs.base_color = base_color.rgb;
+
+    float a = 1.0;
+    float b = 1.0f;
+    float c = 1.0F;
+    uint d = 1u;
+    uint e = 1U;
+
+    float3 original_pos = float3(0.0, 0.0, 0.0);
+    float u_b_max_random_distance = 1.0;
+    float3 fake_cam_pos = float3(0.0, 0.0, 0.0);
+    fake_cam_pos.z += (frac(original_pos.z * 123.48291) - 0.5) * u_b_max_random_distance;
+}

@@ -1,0 +1,10 @@
+float4 MatrixIndexTypes(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float4x4 m;
+    float3 v = float3(1.0, 2.0, 3.0);
+
+    float4 location = v.x * m[0] + (v.y * m[1] + (v.z * m[2] + m[3]));
+    float scalarValue = m[0][1];
+    float3 bad = v.x * m[0];
+    return location + scalarValue + float4(bad, 1.0);
+}

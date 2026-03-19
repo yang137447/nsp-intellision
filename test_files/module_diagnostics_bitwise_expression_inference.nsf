@@ -1,0 +1,6 @@
+static const uint PLAYER_SELF_MASK = 0x1u;
+
+float BitwiseInferenceMain(float InPackedChannel)
+{
+    return (((uint)(InPackedChannel * 255.0)) & PLAYER_SELF_MASK) > 0u ? 1.0 : 0.0;
+}

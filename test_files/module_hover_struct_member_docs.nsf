@@ -1,0 +1,12 @@
+struct HoverMemberDocs
+{
+    // member doc from previous line
+    float mask2_clamp_x; // member inline comment
+};
+
+float4 HoverMemberDocsEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    HoverMemberDocs batch = (HoverMemberDocs)0;
+    batch.mask2_clamp_x = uv.x;
+    return float4(batch.mask2_clamp_x, 0.0, 0.0, 1.0);
+}

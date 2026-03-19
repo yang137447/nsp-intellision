@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "Sample",
+      "targetFamilies": ["Texture"],
+      "minArgs": 2,
+      "maxArgs": 4,
+      "returnType": "float4",
+      "documentation": "Samples a texture.",
+      "signatures": [
+        {
+          "labelTemplate": "Sample(SamplerState s, {floatCoord} uv)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::Sample(SamplerState s, {floatCoord} uv)"
+        }
+      ]
+    },
+    {
+      "name": "SampleLevel",
+      "targetFamilies": ["Texture"],
+      "minArgs": 3,
+      "maxArgs": 5,
+      "returnType": "float4",
+      "documentation": "Samples a texture at an explicit LOD.",
+      "signatures": [
+        {
+          "labelTemplate": "SampleLevel(SamplerState s, {floatCoord} uv, float lod)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv", "float lod"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::SampleLevel(SamplerState s, {floatCoord} uv, float lod)"
+        }
+      ]
+    },
+    {
+      "name": "SampleBias",
+      "targetFamilies": ["Texture"],
+      "minArgs": 3,
+      "maxArgs": 5,
+      "returnType": "float4",
+      "documentation": "Samples a texture with an explicit LOD bias.",
+      "signatures": [
+        {
+          "labelTemplate": "SampleBias(SamplerState s, {floatCoord} uv, float bias)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv", "float bias"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::SampleBias(SamplerState s, {floatCoord} uv, float bias)"
+        }
+      ]
+    },
+    {
+      "name": "SampleGrad",
+      "targetFamilies": ["Texture"],
+      "minArgs": 4,
+      "maxArgs": 6,
+      "returnType": "float4",
+      "documentation": "Samples a texture using explicit gradients.",
+      "signatures": [
+        {
+          "labelTemplate": "SampleGrad(SamplerState s, {floatCoord} uv, {floatCoord} ddx, {floatCoord} ddy)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv", "{floatCoord} ddx", "{floatCoord} ddy"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::SampleGrad(SamplerState s, {floatCoord} uv, {floatCoord} ddx, {floatCoord} ddy)"
+        }
+      ]
+    },
+    {
+      "name": "SampleCmp",
+      "targetFamilies": ["Texture"],
+      "minArgs": 3,
+      "maxArgs": 5,
+      "returnType": "float4",
+      "documentation": "Samples a texture after comparison.",
+      "signatures": [
+        {
+          "labelTemplate": "SampleCmp(SamplerComparisonState s, {floatCoord} uv, float compareValue)",
+          "parameterTemplates": ["SamplerComparisonState s", "{floatCoord} uv", "float compareValue"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::SampleCmp(SamplerComparisonState s, {floatCoord} uv, float compareValue)"
+        }
+      ]
+    },
+    {
+      "name": "SampleCmpLevelZero",
+      "targetFamilies": ["Texture"],
+      "minArgs": 3,
+      "maxArgs": 5,
+      "returnType": "float4",
+      "documentation": "Samples a texture with comparison at LOD 0.",
+      "signatures": [
+        {
+          "labelTemplate": "SampleCmpLevelZero(SamplerComparisonState s, {floatCoord} uv, float compareValue)",
+          "parameterTemplates": ["SamplerComparisonState s", "{floatCoord} uv", "float compareValue"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::SampleCmpLevelZero(SamplerComparisonState s, {floatCoord} uv, float compareValue)"
+        }
+      ]
+    },
+    {
+      "name": "Gather",
+      "targetFamilies": ["Texture"],
+      "minArgs": 2,
+      "maxArgs": 4,
+      "returnType": "float4",
+      "documentation": "Gathers four samples from a texture.",
+      "signatures": [
+        {
+          "labelTemplate": "Gather(SamplerState s, {floatCoord} uv)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::Gather(SamplerState s, {floatCoord} uv)"
+        }
+      ]
+    },
+    {
+      "name": "GatherRed",
+      "targetFamilies": ["Texture"],
+      "minArgs": 2,
+      "maxArgs": 4,
+      "returnType": "float4",
+      "documentation": "Gathers four red channel samples from a texture.",
+      "signatures": [
+        {
+          "labelTemplate": "GatherRed(SamplerState s, {floatCoord} uv)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::GatherRed(SamplerState s, {floatCoord} uv)"
+        }
+      ]
+    },
+    {
+      "name": "GatherGreen",
+      "targetFamilies": ["Texture"],
+      "minArgs": 2,
+      "maxArgs": 4,
+      "returnType": "float4",
+      "documentation": "Gathers four green channel samples from a texture.",
+      "signatures": [
+        {
+          "labelTemplate": "GatherGreen(SamplerState s, {floatCoord} uv)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::GatherGreen(SamplerState s, {floatCoord} uv)"
+        }
+      ]
+    },
+    {
+      "name": "GatherBlue",
+      "targetFamilies": ["Texture"],
+      "minArgs": 2,
+      "maxArgs": 4,
+      "returnType": "float4",
+      "documentation": "Gathers four blue channel samples from a texture.",
+      "signatures": [
+        {
+          "labelTemplate": "GatherBlue(SamplerState s, {floatCoord} uv)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::GatherBlue(SamplerState s, {floatCoord} uv)"
+        }
+      ]
+    },
+    {
+      "name": "GatherAlpha",
+      "targetFamilies": ["Texture"],
+      "minArgs": 2,
+      "maxArgs": 4,
+      "returnType": "float4",
+      "documentation": "Gathers four alpha channel samples from a texture.",
+      "signatures": [
+        {
+          "labelTemplate": "GatherAlpha(SamplerState s, {floatCoord} uv)",
+          "parameterTemplates": ["SamplerState s", "{floatCoord} uv"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::GatherAlpha(SamplerState s, {floatCoord} uv)"
+        }
+      ]
+    },
+    {
+      "name": "Load",
+      "targetFamilies": ["Texture", "RWTexture", "Buffer", "RWBuffer", "StructuredBuffer", "RWStructuredBuffer", "ByteAddressBuffer", "RWByteAddressBuffer"],
+      "minArgs": 1,
+      "maxArgs": 3,
+      "returnType": "float4",
+      "documentation": "Loads a texel at integer location (no sampler).",
+      "signatures": [
+        {
+          "labelTemplate": "Load({intCoordPlus1} location)",
+          "parameterTemplates": ["{intCoordPlus1} location"],
+          "hoverSignatureTemplate": "float4 {baseType}<float4>::Load({intCoordPlus1} location)"
+        }
+      ]
+    },
+    {
+      "name": "GetDimensions",
+      "targetFamilies": ["Texture", "RWTexture", "Buffer", "RWBuffer", "StructuredBuffer", "RWStructuredBuffer"],
+      "minArgs": 2,
+      "maxArgs": 8,
+      "returnType": "void",
+      "documentation": "Gets texture dimensions.",
+      "signatures": [
+        {
+          "labelTemplate": "GetDimensions(out uint width, out uint height, out uint mipLevels)",
+          "parameterTemplates": ["out uint width", "out uint height", "out uint mipLevels"],
+          "hoverSignatureTemplate": "void {baseType}<float4>::GetDimensions(out uint width, out uint height, out uint mipLevels)"
+        }
+      ]
+    }
+  ]
+}

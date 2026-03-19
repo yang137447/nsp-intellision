@@ -1,0 +1,5 @@
+float4 ScanEntry(float2 uv) : SV_Target0
+{
+    FGBufferData data;
+    return data.color;
+}

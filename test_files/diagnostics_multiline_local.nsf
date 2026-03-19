@@ -1,0 +1,8 @@
+void test() {
+  float3 scale = float3(
+    1.0,
+    2.0,
+    3.0
+  );
+  float x = scale.x;
+}

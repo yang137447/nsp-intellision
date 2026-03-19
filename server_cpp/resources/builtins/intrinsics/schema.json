@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "required": ["entries"],
+  "properties": {
+    "version": { "type": "integer" },
+    "source": { "type": "string", "minLength": 1 },
+    "sourceUrls": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "generatedAtUtc": { "type": "string", "minLength": 1 },
+    "count": { "type": "integer" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string" },
+          "docUrls": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "signatures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["display"],
+              "properties": {
+                "display": { "type": "string", "minLength": 1 },
+                "params": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "kind": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "shaderModels": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "disabled": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

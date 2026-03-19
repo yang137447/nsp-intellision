@@ -1,0 +1,20 @@
+float4 OverloadBench(float2 v, float gain, int mode) : SV_Target0
+{
+    return float4(v * gain, mode, 1);
+}
+
+float4 OverloadBench(float3 v, float gain, int mode) : SV_Target0
+{
+    return float4(v.xy * gain, mode, 1);
+}
+
+float4 OverloadBench(float4 v, float gain, int mode) : SV_Target0
+{
+    return float4(v.xyz * gain, mode);
+}
+
+float4 OverloadBenchEntry(float2 uv) : SV_Target0
+{
+    float3 v3 = float3(uv, 1.0);
+    return OverloadBench(v3, 2.0, 1);
+}

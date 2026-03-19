@@ -1,0 +1,10 @@
+#include "include_texture_like.hlsl"
+
+Texture2D t_diffuse;
+sampler s_diffuse;
+
+float4 ps_main(float2 uv0 : TEXCOORD0) : SV_Target0
+{
+    half4 x = SampleColorTexture(t_diffuse, s_diffuse, uv0);
+    return float4(x.rgb, 1.0);
+}

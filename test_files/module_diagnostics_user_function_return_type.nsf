@@ -1,0 +1,10 @@
+float3 UserReturnTypeValue(float2 uv)
+{
+    return float3(uv, 0.0);
+}
+
+float4 UserReturnTypeMismatchMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float4 a = UserReturnTypeValue(uv);
+    return a;
+}

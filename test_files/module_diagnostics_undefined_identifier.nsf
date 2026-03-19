@@ -1,0 +1,6 @@
+float4 UndefinedIdentifierMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float v = UnknownVar;
+    float w = UnknownVar2;
+    return float4(uv, v + w, 1.0);
+}

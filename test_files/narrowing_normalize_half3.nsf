@@ -1,0 +1,4 @@
+void test()
+{
+    half3 n = normalize(float3(1.0, 0.0, 0.0));
+}

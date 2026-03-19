@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "struct",
+      "documentation": "Declares a structure type."
+    },
+    {
+      "name": "cbuffer",
+      "documentation": "Declares a constant buffer block."
+    },
+    {
+      "name": "class",
+      "documentation": "Declares a class type."
+    },
+    {
+      "name": "typedef",
+      "documentation": "Creates a type alias."
+    },
+    {
+      "name": "static",
+      "documentation": "Marks a declaration with static storage semantics."
+    },
+    {
+      "name": "const",
+      "documentation": "Marks a value as read-only."
+    },
+    {
+      "name": "in",
+      "documentation": "Marks a parameter as input-only."
+    },
+    {
+      "name": "out",
+      "documentation": "Marks a parameter as output-only."
+    },
+    {
+      "name": "inout",
+      "documentation": "Marks a parameter as both input and output."
+    },
+    {
+      "name": "uniform",
+      "documentation": "Marks a parameter or variable as uniform."
+    },
+    {
+      "name": "volatile",
+      "documentation": "Prevents certain compiler optimizations on a value."
+    },
+    {
+      "name": "row_major",
+      "documentation": "Uses row-major matrix packing."
+    },
+    {
+      "name": "column_major",
+      "documentation": "Uses column-major matrix packing."
+    },
+    {
+      "name": "precise",
+      "documentation": "Requests precise evaluation without value-changing optimization."
+    },
+    {
+      "name": "nointerpolation",
+      "documentation": "Disables interpolation for a varying value."
+    },
+    {
+      "name": "linear",
+      "documentation": "Uses linear interpolation for a varying value."
+    },
+    {
+      "name": "centroid",
+      "documentation": "Samples an interpolated value at the centroid."
+    },
+    {
+      "name": "noperspective",
+      "documentation": "Uses non-perspective interpolation."
+    },
+    {
+      "name": "sample",
+      "documentation": "Samples an interpolated value at the pixel sample position."
+    },
+    {
+      "name": "technique",
+      "documentation": "Declares an effect technique."
+    },
+    {
+      "name": "pass",
+      "documentation": "Declares an effect pass."
+    },
+    {
+      "name": "if",
+      "documentation": "Conditional statement."
+    },
+    {
+      "name": "else",
+      "documentation": "Fallback branch for a conditional statement."
+    },
+    {
+      "name": "switch",
+      "documentation": "Multi-branch conditional statement."
+    },
+    {
+      "name": "case",
+      "documentation": "Labels a switch branch."
+    },
+    {
+      "name": "default",
+      "documentation": "Fallback branch for a switch statement."
+    },
+    {
+      "name": "for",
+      "documentation": "Loop statement."
+    },
+    {
+      "name": "while",
+      "documentation": "Loop statement."
+    },
+    {
+      "name": "do",
+      "documentation": "Loop statement that executes before checking its condition."
+    },
+    {
+      "name": "break",
+      "documentation": "Breaks out of the nearest loop or switch."
+    },
+    {
+      "name": "continue",
+      "documentation": "Continues to the next loop iteration."
+    },
+    {
+      "name": "return",
+      "documentation": "Returns from a function."
+    },
+    {
+      "name": "discard",
+      "documentation": "Discards the current pixel (pixel shader)."
+    },
+    {
+      "name": "switch",
+      "documentation": "Multi-branch conditional statement."
+    },
+    {
+      "name": "case",
+      "documentation": "Labels a switch branch."
+    },
+    {
+      "name": "default",
+      "documentation": "Fallback branch for a switch statement."
+    }
+  ]
+}

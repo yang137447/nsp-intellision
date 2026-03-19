@@ -1,0 +1,12 @@
+float2 SvPositionToScreenPositionWithNDC(float4 svPos, out float2 ndc)
+{
+    ndc = svPos.xy;
+    return svPos.xy;
+}
+
+float4 TestSingleLineMultiDecl(float4 svPos : SV_Position) : SV_Target0
+{
+    float2 NDCPosition;float2 ScreenPosition;
+    ScreenPosition = SvPositionToScreenPositionWithNDC(svPos, NDCPosition);
+    return float4(ScreenPosition, NDCPosition.x + NDCPosition.y, 1.0);
+}

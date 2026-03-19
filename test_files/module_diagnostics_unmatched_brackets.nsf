@@ -1,0 +1,5 @@
+float4 BracketMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float2 a = (uv;
+    return float4(a, 0.0, 1.0);
+}

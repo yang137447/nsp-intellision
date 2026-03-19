@@ -1,0 +1,6 @@
+// #include "should_not_warn_missing.ush"
+/* #include "should_not_warn_missing2.ush" */
+float4 DiagnosticsIncludeInComments(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return float4(uv, 0, 1);
+}

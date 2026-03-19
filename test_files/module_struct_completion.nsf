@@ -1,0 +1,11 @@
+struct SuiteMemberStruct
+{
+    float4 color : COLOR0;
+    float value;
+};
+
+float4 SuiteMemberMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    SuiteMemberStruct instance;
+    return instance.
+}

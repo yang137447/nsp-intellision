@@ -1,0 +1,5 @@
+void test()
+{
+    half a = 1.0;
+    half3 b = float3(1.0, 1.0, 1.0);
+}

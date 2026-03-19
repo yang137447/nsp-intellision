@@ -1,0 +1,38 @@
+[
+  {
+    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
+    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\main.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\main.cpp",
+    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/main.cpp",
+    "output": "CMakeFiles/nsf_lsp.dir/src/main.cpp.obj"
+  },
+  {
+    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
+    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\json.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\json.cpp",
+    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/json.cpp",
+    "output": "CMakeFiles/nsf_lsp.dir/src/json.cpp.obj"
+  },
+  {
+    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
+    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\lsp_io.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\lsp_io.cpp",
+    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/lsp_io.cpp",
+    "output": "CMakeFiles/nsf_lsp.dir/src/lsp_io.cpp.obj"
+  },
+  {
+    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
+    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\lsp_helpers.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\lsp_helpers.cpp",
+    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/lsp_helpers.cpp",
+    "output": "CMakeFiles/nsf_lsp.dir/src/lsp_helpers.cpp.obj"
+  },
+  {
+    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
+    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\uri_utils.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\uri_utils.cpp",
+    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/uri_utils.cpp",
+    "output": "CMakeFiles/nsf_lsp.dir/src/uri_utils.cpp.obj"
+  },
+  {
+    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
+    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\text_utils.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\text_utils.cpp",
+    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/text_utils.cpp",
+    "output": "CMakeFiles/nsf_lsp.dir/src/text_utils.cpp.obj"
+  }
+]

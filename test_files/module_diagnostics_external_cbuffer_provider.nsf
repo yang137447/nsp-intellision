@@ -1,0 +1,4 @@
+cbuffer GlobalConstants1
+{
+    float4 u_wind_tex_factors;
+};

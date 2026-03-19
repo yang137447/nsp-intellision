@@ -1,0 +1,8 @@
+#include "include_macros.hlsl"
+
+void test()
+{
+    int u_sc_stage = 0;
+    if (u_sc_stage == TRANSPARENT_STAGE)
+        u_sc_stage = 1;
+}

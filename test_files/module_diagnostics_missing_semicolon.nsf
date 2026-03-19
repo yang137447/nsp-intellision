@@ -1,0 +1,6 @@
+float4 MissingSemicolon(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float a = 1
+    a = 2
+    return float4(uv, a, 1)
+}

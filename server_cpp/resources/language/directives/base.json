@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "include",
+      "documentation": "Includes another source file during preprocessing.",
+      "syntax": "#include \"path/to/file\""
+    },
+    {
+      "name": "define",
+      "documentation": "Defines a preprocessor macro.",
+      "syntax": "#define NAME value"
+    },
+    {
+      "name": "undef",
+      "documentation": "Undefines a previously defined preprocessor macro.",
+      "syntax": "#undef NAME"
+    },
+    {
+      "name": "if",
+      "documentation": "Starts a conditional preprocessing block.",
+      "syntax": "#if EXPRESSION"
+    },
+    {
+      "name": "ifdef",
+      "documentation": "Starts a conditional block when a macro is defined.",
+      "syntax": "#ifdef NAME"
+    },
+    {
+      "name": "ifndef",
+      "documentation": "Starts a conditional block when a macro is not defined.",
+      "syntax": "#ifndef NAME"
+    },
+    {
+      "name": "elif",
+      "documentation": "Adds another conditional branch to a preprocessing block.",
+      "syntax": "#elif EXPRESSION"
+    },
+    {
+      "name": "else",
+      "documentation": "Adds the fallback branch to a preprocessing block.",
+      "syntax": "#else"
+    },
+    {
+      "name": "endif",
+      "documentation": "Ends a conditional preprocessing block.",
+      "syntax": "#endif"
+    },
+    {
+      "name": "pragma",
+      "documentation": "Passes implementation-defined instructions to the compiler.",
+      "syntax": "#pragma directive"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+float MaybeReturn(float2 uv : TEXCOORD0)
+{
+    if (uv.x > 0.0)
+        return 1.0;
+}

@@ -1,0 +1,10 @@
+cbuffer Params
+{
+    float4 u_params2;
+};
+
+float4 GlobalSymbolTypeOk(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float4 a = u_params2;
+    return a;
+}

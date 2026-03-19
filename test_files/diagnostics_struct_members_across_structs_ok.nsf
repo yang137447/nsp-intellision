@@ -1,0 +1,11 @@
+struct VS_INPUT
+{
+    float4 texcoord0;
+    float4 normal;
+};
+
+struct PS_INPUT
+{
+    float4 texcoord0;
+    float4 normal;
+};

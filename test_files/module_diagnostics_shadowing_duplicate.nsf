@@ -1,0 +1,10 @@
+float GlobalDup;
+float GlobalDup;
+
+float4 ShadowDuplicate(float a, float a2) : SV_Target0
+{
+    float a;
+    float b;
+    float b;
+    return float4(a, a2, b, 1.0);
+}

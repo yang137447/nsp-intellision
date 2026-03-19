@@ -1,0 +1,10 @@
+cbuffer Params
+{
+    float4 u_params2;
+};
+
+float4 GlobalSymbolTypeMismatch(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float3 a = u_params2;
+    return float4(a, 1.0);
+}

@@ -1,0 +1,9 @@
+void test()
+{
+    half3 a;
+    half3 b;
+    half x = dot(a, b);
+    half y = saturate(x);
+    half z = length(a);
+    half w = distance(a, b);
+}

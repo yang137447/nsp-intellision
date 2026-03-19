@@ -1,0 +1,6 @@
+float4 UnreachableMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return float4(uv, 0.0, 1.0);
+    float a = 0.0;
+    return float4(uv, a, 1.0);
+}

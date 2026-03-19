@@ -1,0 +1,24 @@
+#include "module_shared.ush"
+
+struct SuiteInput
+{
+    float4 position : SV_Position;
+};
+
+float4 SuiteLocalTint(float4 value)
+{
+    return value;
+}
+
+float4 main_ps() : SV_Target0
+{
+    return SuiteLocalTint(SuiteMakeSharedColor());
+}
+
+technique SuiteTechnique
+{
+    pass SuitePass
+    {
+        PixelShader = main_ps;
+    }
+}

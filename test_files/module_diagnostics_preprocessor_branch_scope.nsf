@@ -1,0 +1,12 @@
+void test()
+{
+#if SOME_UNDEFINED_MACRO
+    float x = 1.0;
+    float b = 0.0;
+    float b = 1.0;
+#else
+    float x = 2.0;
+#endif
+
+    float y = x + 1.0;
+}

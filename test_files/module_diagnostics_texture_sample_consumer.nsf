@@ -1,0 +1,13 @@
+#include "module_diagnostics_texture_sample_provider.hlsl"
+
+struct PS_INPUT
+{
+    float2 texcoord0 : TEXCOORD0;
+};
+
+float4 SampleTypeEntry(PS_INPUT input) : SV_Target0
+{
+    half4 normal_texture = t_fresnel_normalMap.Sample(s_fresnel_normalmap, input.texcoord0.xy);
+    float3 bad = t_fresnel_normalMap.Sample(s_fresnel_normalmap, input.texcoord0.xy);
+    return float4(normal_texture.rgb, 1.0);
+}

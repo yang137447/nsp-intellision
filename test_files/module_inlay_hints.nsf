@@ -1,0 +1,10 @@
+float4 BlendColor(float4 baseColor, float amount, float bias) {
+  return baseColor * amount + bias;
+}
+
+float4 MainPS(float2 uv : TEXCOORD0) : SV_Target {
+  float4 source = float4(uv, 0.0, 1.0);
+  float4 mixed = BlendColor(source, 0.5, 0.25);
+  float4 lerped = lerp(mixed, source, 0.75);
+  return lerped;
+}

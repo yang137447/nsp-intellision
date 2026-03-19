@@ -1,0 +1,6 @@
+float EncodeHighestBitTo8BitsTexture(float InTexValue, uint bMarkHighestBit)
+{
+    uint TexValueU = (uint)(InTexValue * 255.0);
+    uint PackedChanel = (TexValueU >> 1u) | (bMarkHighestBit << 7u);
+    return (float)PackedChanel / 255.0;
+}

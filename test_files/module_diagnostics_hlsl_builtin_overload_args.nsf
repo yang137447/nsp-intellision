@@ -1,0 +1,13 @@
+void test()
+{
+    float3 a;
+    float2 b;
+    float badDot = dot(a, b);
+    float3 badLerp = lerp(a, b, 0.5);
+
+    int si;
+    uint ui;
+    int warnMax = max(si, ui);
+
+    float3 okMin = min(a, 1.0);
+}

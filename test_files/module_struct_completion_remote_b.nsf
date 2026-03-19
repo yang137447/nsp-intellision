@@ -1,0 +1,5 @@
+struct RemoteFieldsStruct
+{
+    float foo;
+    float4 bar;
+};

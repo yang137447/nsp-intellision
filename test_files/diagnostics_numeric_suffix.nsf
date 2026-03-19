@@ -1,0 +1,5 @@
+void test()
+{
+    half low_fakeao = 1.0h;
+    half high_fakeao = 1.0h;
+}
