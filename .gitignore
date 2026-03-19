@@ -13,3 +13,4 @@ nsf_lsp_crash.log
 p-intellisionserver_cppbuild_mingw*
 Thumbs.db
 .DS_Store
+.vsix-stage2/

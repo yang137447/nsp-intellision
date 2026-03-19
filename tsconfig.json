@@ -5,9 +5,12 @@
     "lib": ["ES2019"],
     "outDir": "out",
     "rootDir": "src",
-    "sourceMap": true
+    "sourceMap": true,
+    "moduleResolution": "node",
+    "typeRoots": ["./node_modules/@types", "./client/node_modules/@types"],
+    "types": ["node", "mocha", "vscode"]
   },
   "include": ["src"],
   "exclude": ["node_modules", ".vscode-test"],
-  "references": [{ "path": "./client" }, { "path": "./server" }]
+  "references": [{ "path": "./client" }]
 }
