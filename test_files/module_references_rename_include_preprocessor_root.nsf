@@ -1,0 +1,6 @@
+#include "module_references_rename_include_preprocessor_shared.ush"
+
+float4 IncludeBranchRootEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return IncludeBranchColor(uv) + IncludeBranchConsumerActive(uv);
+}

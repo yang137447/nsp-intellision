@@ -9,7 +9,7 @@ test_files/**
 scripts/**
 node_modules/**
 server_cpp/.cache/**
-server_cpp/build_mingw/**
+server_cpp/build/**
 server_cpp/include/**
 server_cpp/src/**
 server_cpp/tools/**

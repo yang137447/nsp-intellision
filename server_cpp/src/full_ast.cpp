@@ -1,6 +1,7 @@
 #include "full_ast.hpp"
 
 #include "ast_signature_index.hpp"
+#include "hlsl_ast.hpp"
 #include "server_parse.hpp"
 
 #include <mutex>
@@ -35,16 +36,25 @@ uint64_t hashTextFnv1a(const std::string &text) {
 
 FullAstCacheEntry buildFullAst(const std::string &text) {
   FullAstCacheEntry built;
-  std::istringstream stream(text);
-  std::string lineText;
-  indexFunctionSignatures(text, built.functions, built.functionsByName);
-  built.functionCount = static_cast<uint64_t>(built.functions.size());
-  while (std::getline(stream, lineText)) {
-    std::string includePath;
-    if (extractIncludePath(lineText, includePath)) {
-      built.includeCount++;
-      built.includePaths.push_back(includePath);
-    }
+  const HlslAstDocument document = buildHlslAstDocument(text);
+  built.functionCount = static_cast<uint64_t>(document.functions.size());
+  built.includeCount = static_cast<uint64_t>(document.includes.size());
+  built.includePaths.reserve(document.includes.size());
+  built.functions.reserve(document.functions.size());
+  for (const auto &includeDecl : document.includes)
+    built.includePaths.push_back(includeDecl.path);
+  for (const auto &function : document.functions) {
+    AstFunctionSignatureEntry entry;
+    entry.name = function.name;
+    entry.line = function.line;
+    entry.character = function.character;
+    entry.label = function.label;
+    entry.parameters.reserve(function.parameters.size());
+    for (const auto &parameter : function.parameters)
+      entry.parameters.push_back(parameter.text);
+    const size_t index = built.functions.size();
+    built.functions.push_back(std::move(entry));
+    built.functionsByName[function.name].push_back(index);
   }
   return built;
 }
@@ -169,6 +179,13 @@ void invalidateFullAstByUris(const std::vector<std::string> &uris) {
     gFullAstMetrics.invalidations++;
     gFullAstByUri.erase(uri);
   }
+}
+
+void invalidateAllFullAstCaches() {
+  std::lock_guard<std::mutex> lock(gFullAstMutex);
+  gFullAstMetrics.invalidations +=
+      static_cast<uint64_t>(gFullAstByUri.size());
+  gFullAstByUri.clear();
 }
 
 FullAstMetricsSnapshot takeFullAstMetricsSnapshot() {

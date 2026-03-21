@@ -111,7 +111,7 @@ server_cpp/resources/
 1. 修改对应的 `base.json` 或 `override.json`
 2. 如结构变化，同步修改 `schema.json`
 3. 运行 `npm run json:validate`
-4. 如果改动影响 server 行为，运行 `cmake --build .\\server_cpp\\build_mingw`
+4. 如果改动影响 server 行为，运行 `cmake --build .\\server_cpp\\build`
 5. 如影响 completion/hover/diagnostics/semantic tokens，运行 `npm run test:client:repo`
 6. 如命名、路径、规则有变化，同步更新 `README.md` 和本文件
 

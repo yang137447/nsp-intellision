@@ -26,4 +26,6 @@ void invalidateFastAstByUri(const std::string &uri);
 
 void invalidateFastAstByUris(const std::vector<std::string> &uris);
 
+void invalidateAllFastAstCaches();
+
 FastAstMetricsSnapshot takeFastAstMetricsSnapshot();

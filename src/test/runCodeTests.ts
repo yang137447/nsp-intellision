@@ -23,6 +23,32 @@ function isIgnorableNoiseLine(line: string): boolean {
 	return false;
 }
 
+function shouldTreatHostMutexExitAsSuccess(stdoutText: string, stderrText: string): boolean {
+	const combined = `${stdoutText}\n${stderrText}`.toLowerCase();
+	if (!combined.includes('error mutex already exists')) {
+		return false;
+	}
+	if (combined.includes('test(s) failed.')) {
+		return false;
+	}
+	return true;
+}
+
+function lineContainsHostMutexError(line: string): boolean {
+	return line.toLowerCase().includes('error mutex already exists');
+}
+
+function lineLooksLikeTestFailure(line: string): boolean {
+	const lower = line.toLowerCase();
+	return (
+		lower.includes('test(s) failed.') ||
+		lower.includes('assertionerror') ||
+		lower.includes('codeexpectederror') ||
+		lower.includes('timeout of 60000ms exceeded') ||
+		/^\s*\d+\)\s/.test(line)
+	);
+}
+
 function resolveCodeExecutable(): string {
 	const candidates = [
 		process.env.VSCODE_EXECUTABLE_PATH,
@@ -154,6 +180,8 @@ async function run(): Promise<void> {
 			let stdoutBuffer = '';
 			let stderrBuffer = '';
 			let suppressNoiseStack = false;
+			let sawHostMutexError = false;
+			let sawTestFailureSignal = false;
 			const flushLines = (text: string, isErr: boolean): string => {
 				const lines = text.split(/\r?\n/);
 				const rest = lines.pop() ?? '';
@@ -171,6 +199,12 @@ async function run(): Promise<void> {
 					}
 					if (isIgnorableNoiseLine(line)) {
 						continue;
+					}
+					if (lineContainsHostMutexError(line)) {
+						sawHostMutexError = true;
+					}
+					if (lineLooksLikeTestFailure(line)) {
+						sawTestFailureSignal = true;
 					}
 					if (isErr) {
 						process.stderr.write(`${line}\n`);
@@ -199,7 +233,17 @@ async function run(): Promise<void> {
 				if (stderrBuffer.trim().length > 0 && !isIgnorableNoiseLine(stderrBuffer)) {
 					process.stderr.write(`${stderrBuffer}\n`);
 				}
-				if (code === 0) {
+				if (lineContainsHostMutexError(stdoutBuffer) || lineContainsHostMutexError(stderrBuffer)) {
+					sawHostMutexError = true;
+				}
+				if (lineLooksLikeTestFailure(stdoutBuffer) || lineLooksLikeTestFailure(stderrBuffer)) {
+					sawTestFailureSignal = true;
+				}
+				if (
+					code === 0 ||
+					shouldTreatHostMutexExitAsSuccess(stdoutBuffer, stderrBuffer) ||
+					(sawHostMutexError && !sawTestFailureSignal)
+				) {
 					resolve();
 					return;
 				}

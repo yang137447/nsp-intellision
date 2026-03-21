@@ -1,0 +1,11 @@
+float4 UnitSpecificTone(float2 uv)
+{
+    return float4(uv.y, 0.0, 0.0, 1.0);
+}
+
+#include "../shared/multi_context_symbol_common.hlsl"
+
+float4 MultiContextSymbolBEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return MultiContextDispatch(uv);
+}

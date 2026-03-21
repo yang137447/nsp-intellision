@@ -1,0 +1,12 @@
+#define USE_BRANCH_A 0
+
+float4 ReferencesRenameBranchEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if USE_BRANCH_A
+    float BranchFamilyWeight = uv.x;
+    return float4(BranchFamilyWeight, 0.0, 0.0, 1.0);
+#else
+    float BranchFamilyWeight = uv.y;
+    return float4(BranchFamilyWeight, 0.0, 0.0, 1.0);
+#endif
+}

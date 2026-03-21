@@ -1,6 +1,7 @@
 #include "declaration_query.hpp"
 
 #include "nsf_lexer.hpp"
+#include "server_parse.hpp"
 #include "server_request_handlers.hpp"
 #include "text_utils.hpp"
 
@@ -17,45 +18,24 @@ namespace {
 bool findUiMetadataDeclarationHeaderPos(const std::string &line,
                                         const std::string &word,
                                         size_t &posOut) {
+  std::string typeName;
+  std::string name;
+  if (!extractUiMetadataDeclarationHeaderShared(line, typeName, name) ||
+      name != word) {
+    return false;
+  }
+
   std::string code = line;
   size_t lineComment = code.find("//");
-  if (lineComment != std::string::npos) {
+  if (lineComment != std::string::npos)
     code = code.substr(0, lineComment);
-  }
-  auto tokens = lexLineTokens(code);
-  if (tokens.size() < 2) {
-    return false;
-  }
-  if (tokens[0].text == "#") {
-    return false;
-  }
-  for (const auto &tok : tokens) {
-    if (tok.kind != LexToken::Kind::Punct) {
-      continue;
-    }
-    const std::string &text = tok.text;
-    if (text == "(" || text == ")" || text == ";" || text == "," ||
-        text == "=" || text == ":" || text == "<" || text == ">" ||
-        text == "[" || text == "]" || text == "{" || text == "}") {
-      return false;
-    }
-  }
+  const auto tokens = lexLineTokens(code);
   const LexToken *lastId = nullptr;
-  int identCount = 0;
   for (const auto &tok : tokens) {
-    if (tok.kind != LexToken::Kind::Identifier) {
-      continue;
-    }
-    if (isQualifierToken(tok.text)) {
-      continue;
-    }
-    lastId = &tok;
-    identCount++;
+    if (tok.kind == LexToken::Kind::Identifier && !isQualifierToken(tok.text))
+      lastId = &tok;
   }
-  if (identCount < 2 || !lastId) {
-    return false;
-  }
-  if (lastId->text != word) {
+  if (!lastId || lastId->text != word) {
     return false;
   }
   posOut = lastId->start;

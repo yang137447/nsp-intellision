@@ -4,6 +4,7 @@
 #include "lsp_helpers.hpp"
 #include "lsp_io.hpp"
 #include "nsf_lexer.hpp"
+#include "server_parse.hpp"
 #include "text_utils.hpp"
 #include "uri_utils.hpp"
 #include "workspace_index.hpp"
@@ -240,7 +241,9 @@ findFunctionOrVariableDefinitionInFile(const std::filesystem::path &path,
       }
     }
 
-    if (!inCbuffer && braceDepth == 0 && trimmed.rfind("cbuffer", 0) == 0) {
+    std::string cbufferName;
+    if (!inCbuffer && braceDepth == 0 &&
+        extractCBufferNameInLineShared(line, cbufferName)) {
       pendingCbuffer = true;
     }
 

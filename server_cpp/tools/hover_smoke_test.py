@@ -29,7 +29,10 @@ def iter_lsp_frames(raw):
 
 def main():
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    exe = os.path.join(repo, "server_cpp", "build_mingw", "nsf_lsp.exe")
+    exe = os.path.join(repo, "server_cpp", "build", "nsf_lsp.exe")
+    if not os.path.isfile(exe):
+        sys.stderr.write("nsf_lsp.exe not found under server_cpp/build\n")
+        return 1
     decls_path = os.path.join(repo, "test_files", "module_decls.nsf")
     decls_uri = "file:///" + decls_path.replace("\\", "/")
     main_path = os.path.join(repo, "test_files", "main.nsf")

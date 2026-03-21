@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct ServerRequestContext;
@@ -53,6 +54,12 @@ bool resolveFunctionParametersFromTarget(
 void inferCallArgumentTypesAtCursor(const std::string &uri,
                                     const std::string &docText,
                                     size_t cursorOffset,
+                                    uint64_t epoch,
+                                    const std::vector<std::string> &workspaceFolders,
+                                    const std::vector<std::string> &includePaths,
+                                    const std::vector<std::string> &shaderExtensions,
+                                    const std::unordered_map<std::string, int>
+                                        &defines,
                                     std::vector<TypeDesc> &outTypes);
 
 bool collectFunctionOverloadCandidates(

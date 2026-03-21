@@ -1,12 +1,12 @@
 #include "call_query.hpp"
 
 #include "callsite_parser.hpp"
-#include "fast_ast.hpp"
+#include "full_ast.hpp"
 #include "indeterminate_reasons.hpp"
 #include "macro_generated_functions.hpp"
 #include "nsf_lexer.hpp"
+#include "semantic_snapshot.hpp"
 #include "server_request_handlers.hpp"
-#include "signature_help.hpp"
 #include "text_utils.hpp"
 #include "workspace_index.hpp"
 
@@ -21,6 +21,7 @@ bool findDefinitionInIncludeGraph(
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     std::unordered_set<std::string> &visited, DefinitionLocation &outLocation);
 bool findDefinitionInIncludeGraphLegacy(
     const std::string &uri, const std::string &word,
@@ -29,19 +30,12 @@ bool findDefinitionInIncludeGraphLegacy(
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
     std::unordered_set<std::string> &visited, DefinitionLocation &outLocation);
-bool findTypeOfIdentifierInTextUpTo(const std::string &text,
-                                    const std::string &identifier,
-                                    size_t maxOffset, std::string &typeNameOut);
-bool findParameterTypeInTextUpTo(const std::string &text,
-                                 const std::string &identifier,
-                                 size_t maxOffset, std::string &typeNameOut);
-bool findTypeOfIdentifierInIncludeGraph(
-    const std::string &uri, const std::string &identifier,
+std::vector<std::string> getIncludeGraphUrisCached(
+    const std::string &rootUri,
     const std::unordered_map<std::string, Document> &documents,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions,
-    std::unordered_set<std::string> &visited, std::string &typeNameOut);
+    const std::vector<std::string> &shaderExtensions);
 
 namespace {
 
@@ -53,6 +47,136 @@ bool definitionLocationEqualsLocal(const DefinitionLocation &a,
 
 std::string trimCopyCallQuery(const std::string &value) {
   return trimRightCopy(trimLeftCopy(value));
+}
+
+std::string extractReturnTypeFromLabelCallQuery(const std::string &label,
+                                                const std::string &name) {
+  size_t namePos = label.rfind(name);
+  if (namePos == std::string::npos)
+    return std::string();
+  return trimRightCopy(label.substr(0, namePos));
+}
+
+bool inferBuiltinFunctionReturnType(const std::string &functionName,
+                                    std::string &returnTypeOut) {
+  returnTypeOut.clear();
+  const auto *signatures = lookupHlslBuiltinSignatures(functionName);
+  if (!signatures || signatures->empty())
+    return false;
+
+  std::string canonical;
+  for (const auto &signature : *signatures) {
+    std::string returnType =
+        extractReturnTypeFromLabelCallQuery(signature.label, functionName);
+    if (returnType.empty())
+      return false;
+    const std::string nextCanonical =
+        typeDescToCanonicalString(parseTypeDesc(returnType));
+    if (nextCanonical.empty())
+      return false;
+    if (canonical.empty()) {
+      canonical = nextCanonical;
+      returnTypeOut = returnType;
+      continue;
+    }
+    if (canonical != nextCanonical)
+      return false;
+  }
+  return !returnTypeOut.empty();
+}
+
+bool inferSemanticSnapshotFunctionReturnType(
+    const std::string &uri, const std::string &docText, uint64_t epoch,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
+    const std::string &functionName, std::string &returnTypeOut) {
+  returnTypeOut.clear();
+  std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
+  if (!querySemanticSnapshotFunctionOverloads(
+          uri, docText, epoch, workspaceFolders, includePaths, shaderExtensions,
+          defines, functionName, overloads) ||
+      overloads.empty()) {
+    return false;
+  }
+
+  std::string canonical;
+  for (const auto &overload : overloads) {
+    if (overload.returnType.empty())
+      return false;
+    const std::string nextCanonical =
+        typeDescToCanonicalString(parseTypeDesc(overload.returnType));
+    if (nextCanonical.empty())
+      return false;
+    if (canonical.empty()) {
+      canonical = nextCanonical;
+      returnTypeOut = overload.returnType;
+      continue;
+    }
+    if (canonical != nextCanonical)
+      return false;
+  }
+  return !returnTypeOut.empty();
+}
+
+bool queryFunctionSignatureWithFallback(
+    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
+    const std::string &functionName, int lineIndex, int nameCharacter,
+    std::string &labelOut, std::vector<std::string> &paramsOut) {
+  return querySemanticSnapshotFunctionSignature(
+             uri, text, epoch, workspaceFolders, includePaths,
+             shaderExtensions, defines, functionName, lineIndex, nameCharacter,
+             labelOut, paramsOut) ||
+         queryFullAstFunctionSignature(uri, text, epoch, functionName, lineIndex,
+                                       nameCharacter, labelOut, paramsOut);
+}
+
+static void appendSemanticSnapshotCandidatesForUri(
+    const std::string &candidateUri, const std::string &functionName,
+    const ServerRequestContext &ctx, std::unordered_set<std::string> &seen,
+    std::vector<CandidateSignature> &outCandidates) {
+  std::string defText;
+  if (!ctx.readDocumentText(candidateUri, defText))
+    return;
+  uint64_t definitionEpoch = 0;
+  if (const Document *definitionDoc = ctx.findDocument(candidateUri))
+    definitionEpoch = definitionDoc->epoch;
+
+  std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
+  if (!querySemanticSnapshotFunctionOverloads(
+          candidateUri, defText, definitionEpoch, ctx.workspaceFolders,
+          ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+          functionName, overloads)) {
+    return;
+  }
+
+  for (const auto &overload : overloads) {
+    std::string dedupKey = candidateUri + "|" + std::to_string(overload.line) +
+                           "|" + std::to_string(overload.character);
+    if (!seen.insert(dedupKey).second)
+      continue;
+    CandidateSignature candidate;
+    candidate.name = functionName;
+    candidate.displayLabel = overload.label;
+    candidate.displayParams = overload.parameters;
+    candidate.returnType = parseTypeDesc(overload.returnType);
+    candidate.sourceUri = candidateUri;
+    candidate.sourceLine = overload.line;
+    candidate.visibilityCondition = "";
+    candidate.params.reserve(overload.parameters.size());
+    for (const auto &param : overload.parameters) {
+      ParamDesc desc;
+      desc.name = extractParameterName(param);
+      desc.type = parseParamTypeDescFromDecl(param);
+      candidate.params.push_back(std::move(desc));
+    }
+    outCandidates.push_back(std::move(candidate));
+  }
 }
 
 bool resolveMacroGeneratedFunctionAtUri(
@@ -73,6 +197,35 @@ bool resolveMacroGeneratedFunctionAtUri(
   return true;
 }
 
+bool querySymbolTypeFromSemanticSnapshotInIncludeGraph(
+    const std::string &rootUri, const std::string &symbol,
+    const ServerRequestContext &ctx, std::string &typeOut) {
+  typeOut.clear();
+  if (rootUri.empty() || symbol.empty())
+    return false;
+
+  const auto orderedUris = getIncludeGraphUrisCached(
+      rootUri, ctx.documentSnapshot(), ctx.workspaceFolders, ctx.includePaths,
+      ctx.shaderExtensions);
+  prefetchDocumentTexts(orderedUris, ctx.documentSnapshot());
+  for (const auto &candidateUri : orderedUris) {
+    std::string candidateText;
+    if (!ctx.readDocumentText(candidateUri, candidateText))
+      continue;
+    uint64_t candidateEpoch = 0;
+    if (const Document *candidateDoc = ctx.findDocument(candidateUri))
+      candidateEpoch = candidateDoc->epoch;
+    if (querySemanticSnapshotSymbolType(
+            candidateUri, candidateText, candidateEpoch, ctx.workspaceFolders,
+            ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+            symbol, typeOut) &&
+        !typeOut.empty()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool locateCallOpenParenAtCursor(const std::string &text, size_t cursorOffset,
                                  size_t &openParenOut) {
   std::string functionName;
@@ -84,6 +237,12 @@ bool locateCallOpenParenAtCursor(const std::string &text, size_t cursorOffset,
 TypeDesc inferArgumentTypeDescAtCursor(const std::string &uri,
                                        const std::string &docText,
                                        size_t maxOffset,
+                                       uint64_t epoch,
+                                       const std::vector<std::string> &workspaceFolders,
+                                       const std::vector<std::string> &includePaths,
+                                       const std::vector<std::string> &shaderExtensions,
+                                       const std::unordered_map<std::string, int>
+                                           &defines,
                                        const std::string &expression) {
   std::string value = trimCopyCallQuery(expression);
   if (value.empty()) {
@@ -101,9 +260,17 @@ TypeDesc inferArgumentTypeDescAtCursor(const std::string &uri,
   if (!tokens.empty() && tokens[0].kind == LexToken::Kind::Identifier) {
     if (tokens.size() >= 2 && tokens[1].kind == LexToken::Kind::Punct &&
         tokens[1].text == "(") {
-      TypeDesc ctorType = parseTypeDesc(tokens[0].text);
+      const std::string &calleeName = tokens[0].text;
+      TypeDesc ctorType = parseTypeDesc(calleeName);
       if (ctorType.kind != TypeDescKind::Unknown) {
         return ctorType;
+      }
+      std::string returnType;
+      if (inferBuiltinFunctionReturnType(calleeName, returnType) ||
+          inferSemanticSnapshotFunctionReturnType(
+              uri, docText, epoch, workspaceFolders, includePaths,
+              shaderExtensions, defines, calleeName, returnType)) {
+        return parseTypeDesc(returnType);
       }
     }
   }
@@ -130,10 +297,19 @@ TypeDesc inferArgumentTypeDescAtCursor(const std::string &uri,
   if (tokens.size() == 1 && tokens[0].kind == LexToken::Kind::Identifier) {
     std::string symbol = tokens[0].text;
     std::string typeName;
-    if (findTypeOfIdentifierInTextUpTo(docText, symbol, maxOffset, typeName)) {
+    if (querySemanticSnapshotLocalTypeAtOffset(
+            uri, docText, epoch, workspaceFolders, includePaths,
+            shaderExtensions, defines, symbol, maxOffset, typeName)) {
       return parseTypeDesc(typeName);
     }
-    if (findParameterTypeInTextUpTo(docText, symbol, maxOffset, typeName)) {
+    if (querySemanticSnapshotParameterTypeAtOffset(
+            uri, docText, epoch, workspaceFolders, includePaths,
+            shaderExtensions, defines, symbol, maxOffset, typeName)) {
+      return parseTypeDesc(typeName);
+    }
+    if (querySemanticSnapshotGlobalType(uri, docText, epoch, workspaceFolders,
+                                        includePaths, shaderExtensions, defines,
+                                        symbol, typeName)) {
       return parseTypeDesc(typeName);
     }
     workspaceIndexGetSymbolType(symbol, typeName);
@@ -215,18 +391,28 @@ TypeEvalResult resolveHoverTypeAtDeclaration(
   TypeEvalResult result;
   isParamOut = false;
   std::string typeName;
-  if (queryFastAstLocalType(uri, doc.text, doc.epoch, symbol, cursorOffset,
-                            typeName) ||
-      findTypeOfIdentifierInTextUpTo(doc.text, symbol, cursorOffset,
-                                     typeName)) {
+  if (querySemanticSnapshotLocalTypeAtOffset(
+          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, symbol, cursorOffset,
+          typeName)) {
     result.type = typeName;
     result.confidence = TypeEvalConfidence::L2;
     return result;
   }
-  if (findParameterTypeInTextUpTo(doc.text, symbol, cursorOffset, typeName)) {
+  if (querySemanticSnapshotParameterTypeAtOffset(
+          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, symbol, cursorOffset,
+          typeName)) {
     result.type = typeName;
     result.confidence = TypeEvalConfidence::L2;
     isParamOut = true;
+    return result;
+  }
+  if (querySemanticSnapshotGlobalType(
+          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, symbol, typeName)) {
+    result.type = typeName;
+    result.confidence = TypeEvalConfidence::L2;
     return result;
   }
   workspaceIndexGetSymbolType(symbol, typeName);
@@ -235,10 +421,8 @@ TypeEvalResult resolveHoverTypeAtDeclaration(
     result.confidence = TypeEvalConfidence::L1;
     return result;
   }
-  std::unordered_set<std::string> visited;
-  if (findTypeOfIdentifierInIncludeGraph(
-          uri, symbol, ctx.documentSnapshot(), ctx.workspaceFolders,
-          ctx.includePaths, ctx.shaderExtensions, visited, typeName) &&
+  if (querySymbolTypeFromSemanticSnapshotInIncludeGraph(uri, symbol, ctx,
+                                                        typeName) &&
       !typeName.empty()) {
     result.type = typeName;
     result.confidence = TypeEvalConfidence::L1;
@@ -302,7 +486,8 @@ resolveSignatureHelpTarget(const std::string &uri,
   std::unordered_set<std::string> visited;
   if (findDefinitionInIncludeGraph(
           uri, functionName, ctx.documentSnapshot(), ctx.workspaceFolders,
-          ctx.includePaths, ctx.shaderExtensions, visited, result.definition)) {
+          ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+          visited, result.definition)) {
     result.hasDefinition = true;
     result.typeEval.type = "user_function";
     result.typeEval.confidence = TypeEvalConfidence::L1;
@@ -403,14 +588,11 @@ bool resolveFunctionParameters(const std::string &uri,
   if (targetDoc) {
     epoch = targetDoc->epoch;
   }
-  if (queryFastAstFunctionSignature(
-          target.definition.uri, defText, epoch, functionName,
-          target.definition.line, target.definition.start, label, outParams)) {
-    return true;
-  }
-  if (extractFunctionSignatureAt(defText, target.definition.line,
-                                 target.definition.start, functionName, label,
-                                 outParams)) {
+  if (queryFunctionSignatureWithFallback(
+          target.definition.uri, defText, epoch, ctx.workspaceFolders,
+          ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+          functionName, target.definition.line, target.definition.start, label,
+          outParams)) {
     return true;
   }
   MacroGeneratedFunctionInfo macroCandidate;
@@ -445,13 +627,12 @@ bool resolveFunctionParametersFromTarget(
   if (definitionDoc) {
     definitionEpoch = definitionDoc->epoch;
   }
-  const bool fastSig = queryFastAstFunctionSignature(
-      target.definition.uri, defText, definitionEpoch, functionName,
-      target.definition.line, target.definition.start, labelOut, paramsOut);
-  if ((!fastSig && !extractFunctionSignatureAt(
-                       defText, target.definition.line, target.definition.start,
-                       functionName, labelOut, paramsOut)) ||
-      labelOut.empty()) {
+  const bool fastSig = queryFunctionSignatureWithFallback(
+      target.definition.uri, defText, definitionEpoch, ctx.workspaceFolders,
+      ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+      functionName, target.definition.line, target.definition.start, labelOut,
+      paramsOut);
+  if (!fastSig || labelOut.empty()) {
     MacroGeneratedFunctionInfo macroCandidate;
     if (resolveMacroGeneratedFunctionAtUri(target.definition.uri, functionName,
                                            ctx, macroCandidate)) {
@@ -469,6 +650,12 @@ bool resolveFunctionParametersFromTarget(
 void inferCallArgumentTypesAtCursor(const std::string &uri,
                                     const std::string &docText,
                                     size_t cursorOffset,
+                                    uint64_t epoch,
+                                    const std::vector<std::string> &workspaceFolders,
+                                    const std::vector<std::string> &includePaths,
+                                    const std::vector<std::string> &shaderExtensions,
+                                    const std::unordered_map<std::string, int>
+                                        &defines,
                                     std::vector<TypeDesc> &outTypes) {
   outTypes.clear();
   size_t openParen = 0;
@@ -497,15 +684,17 @@ void inferCallArgumentTypesAtCursor(const std::string &uri,
     if (ch == ',' && parenDepth == 0 && angleDepth == 0 &&
         bracketDepth == 0) {
       std::string arg = docText.substr(start, i - start);
-      outTypes.push_back(
-          inferArgumentTypeDescAtCursor(uri, docText, openParen, arg));
+      outTypes.push_back(inferArgumentTypeDescAtCursor(
+          uri, docText, openParen, epoch, workspaceFolders, includePaths,
+          shaderExtensions, defines, arg));
       start = i + 1;
     }
   }
   std::string tail = docText.substr(start, cursorOffset - start);
   if (!trimCopyCallQuery(tail).empty()) {
-    outTypes.push_back(
-        inferArgumentTypeDescAtCursor(uri, docText, openParen, tail));
+    outTypes.push_back(inferArgumentTypeDescAtCursor(
+        uri, docText, openParen, epoch, workspaceFolders, includePaths,
+        shaderExtensions, defines, tail));
   }
 }
 
@@ -527,9 +716,18 @@ bool collectFunctionOverloadCandidates(
   }
 
   std::unordered_set<std::string> seen;
+  std::unordered_set<std::string> seenUris;
+  if (target.hasDefinition && seenUris.insert(target.definition.uri).second) {
+    appendSemanticSnapshotCandidatesForUri(target.definition.uri, functionName,
+                                           ctx, seen, outCandidates);
+  }
   for (const auto &d : defs) {
     if (d.kind != 12) {
       continue;
+    }
+    if (seenUris.insert(d.uri).second) {
+      appendSemanticSnapshotCandidatesForUri(d.uri, functionName, ctx, seen,
+                                             outCandidates);
     }
     std::string dedupKey =
         d.uri + "|" + std::to_string(d.line) + "|" + std::to_string(d.start);
@@ -547,13 +745,11 @@ bool collectFunctionOverloadCandidates(
     if (definitionDoc) {
       definitionEpoch = definitionDoc->epoch;
     }
-    const bool fastSig = queryFastAstFunctionSignature(
-        d.uri, defText, definitionEpoch, functionName, d.line, d.start, label,
-        params);
-    if ((!fastSig &&
-         !extractFunctionSignatureAt(defText, d.line, d.start, functionName,
-                                     label, params)) ||
-        label.empty()) {
+    const bool fastSig = queryFunctionSignatureWithFallback(
+        d.uri, defText, definitionEpoch, ctx.workspaceFolders,
+        ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+        functionName, d.line, d.start, label, params);
+    if (!fastSig || label.empty()) {
       continue;
     }
     CandidateSignature candidate;

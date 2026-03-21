@@ -14,6 +14,7 @@ bool findDefinitionInIncludeGraph(
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     std::unordered_set<std::string> &visited, DefinitionLocation &outLocation);
 bool findDefinitionByWorkspaceScan(const std::string &symbol,
                                    const std::vector<std::string> &roots,
@@ -131,7 +132,9 @@ bool resolveIncludeGraphSymbolDefinition(const std::string &uri,
   DefinitionLocation location;
   if (!findDefinitionInIncludeGraph(uri, word, ctx.documentSnapshot(),
                                     ctx.workspaceFolders, ctx.includePaths,
-                                    ctx.shaderExtensions, visited, location)) {
+                                    ctx.shaderExtensions,
+                                    ctx.preprocessorDefines, visited,
+                                    location)) {
     return false;
   }
   out.source = SymbolDefinitionTargetSource::IncludeGraph;

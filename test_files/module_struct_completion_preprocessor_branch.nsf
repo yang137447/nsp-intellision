@@ -1,0 +1,22 @@
+#define USE_OLD_MEMBER_LAYOUT 0
+
+struct BranchCompletionInactive
+{
+    float inactive_member;
+};
+
+struct BranchCompletionActive
+{
+    float active_member;
+    float active_gain;
+};
+
+float4 StructBranchCompletionEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if USE_OLD_MEMBER_LAYOUT
+    BranchCompletionInactive instance;
+#else
+    BranchCompletionActive instance;
+#endif
+    return instance.
+}

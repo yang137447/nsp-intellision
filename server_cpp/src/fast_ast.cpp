@@ -303,6 +303,11 @@ void invalidateFastAstByUris(const std::vector<std::string> &uris) {
   }
 }
 
+void invalidateAllFastAstCaches() {
+  std::lock_guard<std::mutex> lock(gFastAstMutex);
+  gFastAstByUri.clear();
+}
+
 FastAstMetricsSnapshot takeFastAstMetricsSnapshot() {
   std::lock_guard<std::mutex> lock(gFastAstMutex);
   FastAstMetricsSnapshot snapshot = gFastAstMetrics;

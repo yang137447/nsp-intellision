@@ -85,6 +85,12 @@ void SemanticCacheManager::invalidateUri(const std::string &uri) {
   }
 }
 
+void SemanticCacheManager::clear() {
+  std::lock_guard<std::mutex> lock(mutex);
+  snapshotsByKey.clear();
+  rootUrisByDependencyUri.clear();
+}
+
 SemanticCacheManagerStats SemanticCacheManager::consumeStats() {
   SemanticCacheManagerStats stats;
   stats.snapshotHit = snapshotHitCount.exchange(0, std::memory_order_relaxed);
@@ -119,6 +125,10 @@ void semanticCacheUpsertSnapshot(const SemanticCacheKey &key,
 
 void semanticCacheInvalidateUri(const std::string &uri) {
   gSemanticCacheManager.invalidateUri(uri);
+}
+
+void semanticCacheInvalidateAll() {
+  gSemanticCacheManager.clear();
 }
 
 SemanticCacheManagerStats semanticCacheConsumeStats() {

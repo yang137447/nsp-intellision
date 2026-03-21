@@ -31,4 +31,6 @@ void invalidateFullAstByUri(const std::string &uri);
 
 void invalidateFullAstByUris(const std::vector<std::string> &uris);
 
+void invalidateAllFullAstCaches();
+
 FullAstMetricsSnapshot takeFullAstMetricsSnapshot();

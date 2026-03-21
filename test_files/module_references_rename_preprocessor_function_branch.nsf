@@ -1,0 +1,28 @@
+#define USE_FUNCTION_BRANCH_A 0
+
+#if USE_FUNCTION_BRANCH_A
+float4 BranchFamilyFunc(float2 uv)
+{
+    return float4(uv.x, 0.0, 0.0, 1.0);
+}
+
+float4 BranchFamilyFuncCallerA(float2 uv)
+{
+    return BranchFamilyFunc(uv);
+}
+#else
+float4 BranchFamilyFunc(float2 uv)
+{
+    return float4(uv.y, 0.0, 0.0, 1.0);
+}
+
+float4 BranchFamilyFuncCallerB(float2 uv)
+{
+    return BranchFamilyFunc(uv);
+}
+#endif
+
+float4 BranchFamilyFuncEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return BranchFamilyFunc(uv);
+}

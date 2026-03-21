@@ -13,7 +13,8 @@
 		"onLanguage:nsf",
 		"onLanguage:hlsl",
 		"onCommand:nsf.checkStatus",
-		"onCommand:nsf.restartServer"
+		"onCommand:nsf.restartServer",
+		"onCommand:nsf.rebuildIndexClearCache"
 	],
 	"main": "./client/out/extension",
 	"scripts": {
@@ -51,6 +52,10 @@
 				"title": "NSF: Restart LSP Server"
 			},
 			{
+				"command": "nsf.rebuildIndexClearCache",
+				"title": "NSF: Rebuild Index (Clear Cache)"
+			},
+			{
 				"command": "nsf.selectUnit",
 				"title": "NSF: Select Unit"
 			}
@@ -81,13 +86,13 @@
 			{
 				"title": "NSF",
 				"properties": {
-					"nsf.includePaths": {
+					"nsf.intellisionPath": {
 						"type": "array",
 						"default": [],
 						"items": {
 							"type": "string"
 						},
-						"description": "额外的 #include 搜索路径（相对路径以工作区根目录为基准）"
+						"description": "NSF 工作路径列表（用于 #include 解析、索引扫描与 include-context 解析）"
 					},
 					"nsf.include.validUnderline": {
 						"type": "boolean",
@@ -155,6 +160,11 @@
 						"type": "string",
 						"default": "",
 						"markdownDescription": "高级设置：覆盖插件内置的 C++ 语言服务器路径。普通用户应保持为空。"
+					},
+					"nsf.overloadResolver.enabled": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "高级设置：开发与验证用的 overload resolver 实验开关。普通用户通常不需要修改。"
 					}
 				}
 			}

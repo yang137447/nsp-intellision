@@ -1,0 +1,6 @@
+#include "../shared/multi_context_common.hlsl"
+
+float4 MultiContextBEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return MultiContextColor(uv);
+}

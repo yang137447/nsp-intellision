@@ -1,14 +1,12 @@
 #include "member_query.hpp"
 
 #include "definition_fallback.hpp"
-#include "fast_ast.hpp"
 #include "hover_docs.hpp"
 #include "hover_markdown.hpp"
-#include "include_resolver.hpp"
+#include "semantic_snapshot.hpp"
 #include "server_parse.hpp"
 #include "server_request_handlers.hpp"
 #include "text_utils.hpp"
-#include "uri_utils.hpp"
 #include "workspace_index.hpp"
 #include "workspace_scan_plan.hpp"
 
@@ -16,186 +14,17 @@
 #include <unordered_set>
 #include <utility>
 
-bool findTypeOfIdentifierInTextUpTo(const std::string &text,
-                                    const std::string &identifier,
-                                    size_t maxOffset, std::string &typeNameOut);
-bool findParameterTypeInTextUpTo(const std::string &text,
-                                 const std::string &identifier,
-                                 size_t maxOffset, std::string &typeNameOut);
-bool findTypeOfIdentifierInIncludeGraph(
-    const std::string &uri, const std::string &identifier,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions,
-    std::unordered_set<std::string> &visited, std::string &typeNameOut);
-bool collectStructFieldsInIncludeGraph(
-    const std::string &uri, const std::string &structName,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions,
-    std::unordered_set<std::string> &visited,
-    std::vector<std::string> &fieldsOut);
-bool collectStructFieldsFromText(const std::string &text,
-                                 const std::string &structName,
-                                 std::vector<std::string> &fieldsOut);
 bool findDeclaredIdentifierInDeclarationLine(const std::string &line,
                                              const std::string &word,
                                              size_t &posOut);
-size_t positionToOffset(const std::string &text, int line, int character);
+std::vector<std::string> getIncludeGraphUrisCached(
+    const std::string &rootUri,
+    const std::unordered_map<std::string, Document> &documents,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions);
 
 namespace {
-
-void collectMemberNamesFromTextRecursive(
-    const std::string &baseUri, const std::string &text,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions, int depth,
-    std::unordered_set<std::string> &visitedUris,
-    std::unordered_set<std::string> &seenNames,
-    std::vector<std::string> &outFields) {
-  if (depth <= 0 || outFields.size() >= 512) {
-    return;
-  }
-  if (!visitedUris.insert(baseUri).second) {
-    return;
-  }
-
-  std::istringstream stream(text);
-  std::string line;
-  while (std::getline(stream, line)) {
-    std::string code = line;
-    size_t lineComment = code.find("//");
-    if (lineComment != std::string::npos) {
-      code = code.substr(0, lineComment);
-    }
-    std::string includePath;
-    if (extractIncludePath(code, includePath)) {
-      auto candidates =
-          resolveIncludeCandidates(baseUri, includePath, workspaceFolders,
-                                   includePaths, shaderExtensions);
-      std::vector<std::string> candidateUris;
-      candidateUris.reserve(candidates.size());
-      for (const auto &candidate : candidates) {
-        candidateUris.push_back(pathToUri(candidate));
-      }
-      prefetchDocumentTexts(candidateUris, documents);
-      for (const auto &candidate : candidates) {
-        std::string candidateUri = pathToUri(candidate);
-        std::string candidateText;
-        if (!loadDocumentText(candidateUri, documents, candidateText)) {
-          continue;
-        }
-        collectMemberNamesFromTextRecursive(
-            candidateUri, candidateText, documents, workspaceFolders,
-            includePaths, shaderExtensions, depth - 1, visitedUris, seenNames,
-            outFields);
-        break;
-      }
-      continue;
-    }
-    auto names = extractDeclaredNamesFromLine(code);
-    for (const auto &name : names) {
-      if (!seenNames.insert(name).second) {
-        continue;
-      }
-      outFields.push_back(name);
-    }
-    if (outFields.size() >= 512) {
-      return;
-    }
-  }
-}
-
-bool collectStructFieldsFromTextWithInlineIncludes(
-    const std::string &baseUri, const std::string &text,
-    const std::string &structName,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions,
-    std::vector<std::string> &fieldsOut) {
-  fieldsOut.clear();
-  std::unordered_set<std::string> seen;
-  std::istringstream stream(text);
-  std::string line;
-  bool inTargetStruct = false;
-  int braceDepth = 0;
-  while (std::getline(stream, line)) {
-    std::string code = line;
-    size_t lineComment = code.find("//");
-    if (lineComment != std::string::npos) {
-      code = code.substr(0, lineComment);
-    }
-    if (!inTargetStruct) {
-      std::string name;
-      if (extractStructNameInLine(code, name) && name == structName) {
-        inTargetStruct = true;
-        braceDepth = code.find('{') != std::string::npos ? 1 : 0;
-      }
-      continue;
-    }
-
-    if (braceDepth == 0) {
-      if (code.find('{') != std::string::npos) {
-        braceDepth = 1;
-      }
-      continue;
-    }
-
-    if (braceDepth == 1) {
-      std::string includePath;
-      if (extractIncludePath(code, includePath)) {
-        auto candidates =
-            resolveIncludeCandidates(baseUri, includePath, workspaceFolders,
-                                     includePaths, shaderExtensions);
-        std::vector<std::string> candidateUris;
-        candidateUris.reserve(candidates.size());
-        for (const auto &candidate : candidates) {
-          candidateUris.push_back(pathToUri(candidate));
-        }
-        prefetchDocumentTexts(candidateUris, documents);
-        for (const auto &candidate : candidates) {
-          std::string candidateUri = pathToUri(candidate);
-          std::string candidateText;
-          if (!loadDocumentText(candidateUri, documents, candidateText)) {
-            continue;
-          }
-          std::unordered_set<std::string> visited;
-          collectMemberNamesFromTextRecursive(
-              candidateUri, candidateText, documents, workspaceFolders,
-              includePaths, shaderExtensions, 12, visited, seen, fieldsOut);
-          break;
-        }
-      } else {
-        auto names = extractDeclaredNamesFromLine(code);
-        for (const auto &name : names) {
-          if (!seen.insert(name).second) {
-            continue;
-          }
-          fieldsOut.push_back(name);
-        }
-      }
-    }
-
-    for (char ch : code) {
-      if (ch == '{') {
-        braceDepth++;
-      } else if (ch == '}') {
-        braceDepth--;
-        if (braceDepth <= 0) {
-          return !fieldsOut.empty();
-        }
-      }
-    }
-    if (fieldsOut.size() >= 512) {
-      return true;
-    }
-  }
-  return false;
-}
 
 bool findStructMemberDeclarationAtOrAfterLine(const std::string &text,
                                               int startLine,
@@ -220,6 +49,16 @@ bool findStructMemberDeclarationAtOrAfterLine(const std::string &text,
     if (lineIndex < startLine) {
       lineIndex++;
       continue;
+    }
+
+    if (lineIndex == startLine) {
+      size_t pos = 0;
+      if (findDeclaredIdentifierInDeclarationLine(line, memberName, pos)) {
+        lineOut = lineIndex;
+        int endByte = static_cast<int>(pos + memberName.size());
+        minCharacterOut = byteOffsetInLineToUtf16(line, endByte);
+        return true;
+      }
     }
 
     if (bodyStarted && braceDepth == 1) {
@@ -285,6 +124,110 @@ bool findStructMemberDeclarationAtOrAfterLine(const std::string &text,
   return false;
 }
 
+bool tryResolveMemberHoverInfoFromDocument(const std::string &docUri,
+                                           const std::string &ownerType,
+                                           const std::string &memberName,
+                                           ServerRequestContext &ctx,
+                                           MemberHoverInfo &out) {
+  std::string docText;
+  if (!ctx.readDocumentText(docUri, docText))
+    return false;
+
+  uint64_t docEpoch = 0;
+  if (const Document *doc = ctx.findDocument(docUri))
+    docEpoch = doc->epoch;
+
+  SemanticSnapshotFieldQueryResult fieldInfo;
+  if (!querySemanticSnapshotStructField(
+          docUri, docText, docEpoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, ownerType, memberName,
+          fieldInfo)) {
+    return false;
+  }
+
+  out.memberType = fieldInfo.type;
+  out.ownerStructLocation.uri = docUri;
+  out.ownerStructLocation.line = fieldInfo.line;
+  out.hasStructLocation = true;
+
+  int memberLine = -1;
+  int memberMinChar = 0;
+  if (findStructMemberDeclarationAtOrAfterLine(
+          docText, fieldInfo.line >= 0 ? fieldInfo.line : 0, memberName,
+          memberLine, memberMinChar)) {
+    out.ownerStructLocation.line = memberLine;
+    out.memberLeadingDoc = extractLeadingDocumentationAtLine(docText, memberLine);
+    out.memberInlineDoc =
+        extractTrailingInlineCommentAtLine(docText, memberLine, memberMinChar);
+  }
+
+  out.found = !out.memberType.empty();
+  return out.found;
+}
+
+bool queryStructFieldsFromSemanticSnapshot(
+    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::string &structName, const ServerRequestContext &ctx,
+    std::vector<std::string> &fieldsOut) {
+  return querySemanticSnapshotStructFields(
+             uri, text, epoch, ctx.workspaceFolders, ctx.includePaths,
+             ctx.shaderExtensions, ctx.preprocessorDefines, structName,
+             fieldsOut) &&
+         !fieldsOut.empty();
+}
+
+bool collectStructFieldsFromSemanticSnapshotInIncludeGraph(
+    const std::string &rootUri, const std::string &structName,
+    const ServerRequestContext &ctx, std::vector<std::string> &fieldsOut) {
+  const auto orderedUris = getIncludeGraphUrisCached(
+      rootUri, ctx.documentSnapshot(), ctx.workspaceFolders, ctx.includePaths,
+      ctx.shaderExtensions);
+  prefetchDocumentTexts(orderedUris, ctx.documentSnapshot());
+  for (const auto &candidateUri : orderedUris) {
+    std::string candidateText;
+    if (!ctx.readDocumentText(candidateUri, candidateText))
+      continue;
+    uint64_t candidateEpoch = 0;
+    if (const Document *candidateDoc = ctx.findDocument(candidateUri))
+      candidateEpoch = candidateDoc->epoch;
+    if (queryStructFieldsFromSemanticSnapshot(candidateUri, candidateText,
+                                             candidateEpoch, structName, ctx,
+                                             fieldsOut)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool querySymbolTypeFromSemanticSnapshotInIncludeGraph(
+    const std::string &rootUri, const std::string &symbol,
+    const ServerRequestContext &ctx, std::string &typeOut) {
+  typeOut.clear();
+  if (rootUri.empty() || symbol.empty())
+    return false;
+
+  const auto orderedUris = getIncludeGraphUrisCached(
+      rootUri, ctx.documentSnapshot(), ctx.workspaceFolders, ctx.includePaths,
+      ctx.shaderExtensions);
+  prefetchDocumentTexts(orderedUris, ctx.documentSnapshot());
+  for (const auto &candidateUri : orderedUris) {
+    std::string candidateText;
+    if (!ctx.readDocumentText(candidateUri, candidateText))
+      continue;
+    uint64_t candidateEpoch = 0;
+    if (const Document *candidateDoc = ctx.findDocument(candidateUri))
+      candidateEpoch = candidateDoc->epoch;
+    if (querySemanticSnapshotSymbolType(
+            candidateUri, candidateText, candidateEpoch, ctx.workspaceFolders,
+            ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+            symbol, typeOut) &&
+        !typeOut.empty()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace
 
 MemberAccessBaseTypeResult resolveMemberAccessBaseType(
@@ -292,14 +235,25 @@ MemberAccessBaseTypeResult resolveMemberAccessBaseType(
     size_t cursorOffset, const ServerRequestContext &ctx,
     const MemberAccessBaseTypeOptions &options) {
   MemberAccessBaseTypeResult result;
-  if (queryFastAstLocalType(uri, doc.text, doc.epoch, base, cursorOffset,
-                            result.typeName) ||
-      findTypeOfIdentifierInTextUpTo(doc.text, base, cursorOffset,
-                                     result.typeName) ||
-      findParameterTypeInTextUpTo(doc.text, base, cursorOffset,
-                                  result.typeName)) {
+  if (querySemanticSnapshotLocalTypeAtOffset(
+          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, base, cursorOffset,
+          result.typeName) ||
+      querySemanticSnapshotParameterTypeAtOffset(
+          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, base, cursorOffset,
+          result.typeName)) {
     result.resolved = true;
     return result;
+  }
+
+  if (querySemanticSnapshotGlobalType(
+          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, base,
+          result.typeName)) {
+    result.resolved = !result.typeName.empty();
+    if (result.resolved)
+      return result;
   }
 
   if (options.includeWorkspaceIndexFallback &&
@@ -311,11 +265,8 @@ MemberAccessBaseTypeResult resolveMemberAccessBaseType(
   }
 
   if (options.includeIncludeGraphFallback) {
-    std::unordered_set<std::string> visitedTypes;
-    if (findTypeOfIdentifierInIncludeGraph(
-            uri, base, ctx.documentSnapshot(), ctx.workspaceFolders,
-            ctx.includePaths, ctx.shaderExtensions, visitedTypes,
-            result.typeName)) {
+    if (querySymbolTypeFromSemanticSnapshotInIncludeGraph(uri, base, ctx,
+                                                          result.typeName)) {
       result.resolved = !result.typeName.empty();
     }
   }
@@ -331,6 +282,11 @@ bool resolveMemberHoverInfo(const std::string &uri,
   out = MemberHoverInfo{};
   if (ownerType.empty() || memberName.empty()) {
     return false;
+  }
+
+  if (tryResolveMemberHoverInfoFromDocument(uri, ownerType, memberName, ctx,
+                                            out)) {
+    return true;
   }
 
   workspaceIndexGetStructMemberType(ownerType, memberName, out.memberType);
@@ -351,16 +307,22 @@ bool resolveMemberHoverInfo(const std::string &uri,
     if (out.hasStructLocation) {
       std::string structText;
       if (ctx.readDocumentText(out.ownerStructLocation.uri, structText)) {
+        uint64_t structEpoch = 0;
+        if (const Document *structDoc = ctx.findDocument(out.ownerStructLocation.uri))
+          structEpoch = structDoc->epoch;
+        SemanticSnapshotFieldQueryResult fieldInfo;
+        if (querySemanticSnapshotStructField(
+                out.ownerStructLocation.uri, structText, structEpoch,
+                ctx.workspaceFolders, ctx.includePaths, ctx.shaderExtensions,
+                ctx.preprocessorDefines, ownerType, memberName, fieldInfo)) {
+          out.memberType = fieldInfo.type;
+        }
         int memberLine = -1;
         int memberMinChar = 0;
         if (findStructMemberDeclarationAtOrAfterLine(
-                structText, out.ownerStructLocation.line, memberName, memberLine,
-                memberMinChar)) {
-          size_t memberOffset = positionToOffset(
-              structText, memberLine, std::max(0, memberMinChar));
-          findTypeOfIdentifierInTextUpTo(
-              structText, memberName, memberOffset + memberName.size(),
-              out.memberType);
+                structText,
+                fieldInfo.line >= 0 ? fieldInfo.line : out.ownerStructLocation.line,
+                memberName, memberLine, memberMinChar)) {
           out.memberLeadingDoc =
               extractLeadingDocumentationAtLine(structText, memberLine);
           out.memberInlineDoc = extractTrailingInlineCommentAtLine(
@@ -400,11 +362,21 @@ bool collectMemberCompletionQuery(const std::string &uri,
 
   listHlslBuiltinMethodsForType(ownerType, out.methods);
 
-  std::unordered_set<std::string> visitedStructs;
-  if (collectStructFieldsInIncludeGraph(
-          uri, ownerType, ctx.documentSnapshot(), ctx.workspaceFolders,
-          ctx.includePaths, ctx.shaderExtensions, visitedStructs, out.fields) &&
-      !out.fields.empty()) {
+  std::string currentText;
+  if (ctx.readDocumentText(uri, currentText)) {
+    std::vector<std::string> localFields;
+    uint64_t currentEpoch = 0;
+    if (const Document *currentDoc = ctx.findDocument(uri))
+      currentEpoch = currentDoc->epoch;
+    if (queryStructFieldsFromSemanticSnapshot(uri, currentText, currentEpoch,
+                                              ownerType, ctx, localFields)) {
+      out.fields = std::move(localFields);
+      return true;
+    }
+  }
+
+  if (collectStructFieldsFromSemanticSnapshotInIncludeGraph(uri, ownerType, ctx,
+                                                            out.fields)) {
     return true;
   }
 
@@ -434,8 +406,12 @@ bool collectMemberCompletionQuery(const std::string &uri,
       std::string defText;
       if (ctx.readDocumentText(scanned.uri, defText)) {
         std::vector<std::string> scannedFields;
-        if (collectStructFieldsFromText(defText, ownerType, scannedFields) &&
-            !scannedFields.empty()) {
+        uint64_t scannedEpoch = 0;
+        if (const Document *scannedDoc = ctx.findDocument(scanned.uri))
+          scannedEpoch = scannedDoc->epoch;
+        if (queryStructFieldsFromSemanticSnapshot(scanned.uri, defText,
+                                                  scannedEpoch, ownerType, ctx,
+                                                  scannedFields)) {
           ctx.scanStructFieldsCache.emplace(ownerType, scannedFields);
           out.fields = std::move(scannedFields);
           return true;

@@ -1,0 +1,3 @@
+#ifndef USE_LAYER1_PARALLAX
+#define USE_LAYER1_PARALLAX 1
+#endif

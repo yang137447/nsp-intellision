@@ -56,11 +56,16 @@ bool workspaceIndexGetSymbolType(const std::string &symbol,
 bool workspaceIndexIsReady();
 Json workspaceIndexGetIndexingState();
 void workspaceIndexKickIndexing(const std::string &reason);
+void workspaceIndexRebuild(const std::string &reason, bool clearDiskCache);
 void workspaceIndexSetConcurrencyLimits(size_t workerCount,
                                         size_t queueCapacity);
 
 void workspaceIndexCollectReverseIncludeClosure(
     const std::vector<std::string> &uris, std::vector<std::string> &outPaths,
     size_t limit);
+
+void workspaceIndexCollectIncludingUnits(const std::vector<std::string> &uris,
+                                         std::vector<std::string> &outPaths,
+                                         size_t limit);
 
 void workspaceIndexShutdown();

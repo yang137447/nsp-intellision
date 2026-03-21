@@ -1,0 +1,121 @@
+
+> nsf-lsp@1.0.0 test:client:repo
+> npm run compile && node .\out\test\runCodeTests.js --mode repo
+
+
+> nsf-lsp@1.0.0 compile
+> tsc -b
+
+[runCodeTests] launching C:\Software\Microsoft VS Code\Code.exe
+[runCodeTests] mode=repo workspace=D:\YYBWorkSpace\GitHub\nsp-intellision
+
+[main 2026-03-21T11:51:33.608Z] Error: Error mutex already exists
+    at ds.installMutex (file:///C:/Software/Microsoft%20VS%20Code/07ff9d6178/resources/app/out/main.js:584:23368)
+[main 2026-03-21T11:51:33.787Z] update#setState idle
+Started initializing default profile extensions in extensions installation folder. file:///d%3A/YYBWorkSpace/GitHub/nsp-intellision/.vscode-test/extensions/1774093892780-15280
+Started local extension host with pid 63532.
+MCP Registry configured: https://api.mcp.github.com
+Completed initializing default profile extensions in extensions installation folder. file:///d%3A/YYBWorkSpace/GitHub/nsp-intellision/.vscode-test/extensions/1774093892780-15280
+Loading development extension at d:\YYBWorkSpace\GitHub\nsp-intellision
+Settings Sync: Account status changed from uninitialized to unavailable
+[suite] loading 3 test file(s)
+[0m[0m
+[0m  NSF client integration[0m
+  [32m  √[0m[90m registers configured shader extensions on the client[0m[31m (1028ms)[0m
+  [32m  √[0m[90m provides completion items through the client[0m[31m (107ms)[0m
+  [32m  √[0m[90m provides completion items for HLSL attributes inside brackets[0m[33m (54ms)[0m
+  [32m  √[0m[90m shows hover documentation for declarations and HLSL intrinsics[0m[31m (80ms)[0m
+  [32m  √[0m[90m surfaces include-context ambiguity in hover when no active unit is selected[0m[31m (802ms)[0m
+  [32m  √[0m[90m shows include-context candidate definition summaries in hover[0m[31m (223ms)[0m
+  [32m  √[0m[90m shows hover documentation for discard keyword resources[0m[31m (98ms)[0m
+  [32m  √[0m[90m includes trailing inline comments in hover documentation[0m[33m (43ms)[0m
+  [32m  √[0m[90m shows hover types for UI metadata declarations[0m[33m (52ms)[0m
+  [32m  √[0m[90m keeps local variable hover type in assignment statements[0m[33m (43ms)[0m
+  [32m  √[0m[90m keeps local variable hover type on the active preprocessor branch[0m[33m (50ms)[0m
+  [32m  √[0m[90m shows full hover info for struct member access[0m[33m (49ms)[0m
+  [32m  √[0m[90m includes struct member leading and inline comments in hover[0m[33m (47ms)[0m
+  [32m  √[0m[90m shows struct hover members from active inline include fragments[0m[33m (57ms)[0m
+  [32m  √[0m[90m shows struct hover members from active inline include fragments in included struct files[0m[33m (45ms)[0m
+  [32m  √[0m[90m shows hover info on member-access base symbol[0m
+  [32m  √[0m[90m resolves function definitions through includes for assignment calls[0m[33m (53ms)[0m
+  [32m  √[0m[90m keeps hover and definition aligned for include-resolved function calls[0m
+  [32m  √[0m[90m prefers the active preprocessor branch for hover and definition[0m[33m (43ms)[0m
+  [32m  √[0m[90m shows full hover info for local multiline function call sites[0m[33m (50ms)[0m
+  [32m  √[0m[90m publishes diagnostics for missing includes and unterminated comments[0m[31m (1042ms)[0m
+  [32m  √[0m[90m publishes diagnostics for invalid include syntax[0m[31m (1043ms)[0m
+  [32m  √[0m[90m does not report diagnostics for nested preprocessor directives[0m
+  [32m  √[0m[90m publishes diagnostics for unterminated preprocessor conditionals[0m[31m (1061ms)[0m
+  [32m  √[0m[90m filters diagnostics based on #if evaluation for numeric defines[0m[31m (1088ms)[0m
+  [32m  √[0m[90m expands object-like macros and arithmetic comparisons in #if expressions[0m[31m (1113ms)[0m
+  [32m  √[0m[90m uses macros defined in active includes for #if diagnostics evaluation[0m
+  [32m  √[0m[90m does not report include diagnostics inside comments[0m[33m (50ms)[0m
+  [32m  √[0m[90m publishes diagnostics for unmatched brackets[0m[31m (1064ms)[0m
+  [32m  √[0m[90m publishes diagnostics for missing return and invalid return usage[0m[31m (1039ms)[0m
+  [32m  √[0m[90m publishes diagnostics for assignment and operator type mismatches[0m[31m (3099ms)[0m
+  [32m  √[0m[90m does not misinfer cast initialization types[0m
+  [32m  √[0m[90m does not treat parenthesized identifiers as cast types[0m[33m (44ms)[0m
+  [32m  √[0m[90m infers struct member swizzles for assignment type checking[0m[31m (1107ms)[0m
+  [32m  √[0m[90m infers cbuffer member types for assignment type checking[0m[31m (1096ms)[0m
+  [32m  √[0m[90m resolves cbuffer members from other files through workspace scan[0m[31m (1080ms)[0m
+  [32m  √[0m[90m supports float4x4 and matrix mul type inference[0m[31m (1033ms)[0m
+  [32m  √[0m[90m supports matrix index type inference in arithmetic expressions[0m[31m (1035ms)[0m
+  [32m  √[0m[90m publishes diagnostics for undefined identifiers[0m[31m (3557ms)[0m
+  [32m  √[0m[90m does not mark second variable undefined in single-line multi declarations[0m
+  [32m  √[0m[90m does not treat member assignments or return statements as declarations[0m[33m (47ms)[0m
+  [32m  √[0m[90m does not mark multiline function parameters as undefined[0m[33m (49ms)[0m
+  [32m  √[0m[90m treats hex literals as numeric values[0m[31m (1067ms)[0m
+  [32m  √[0m[90m does not flag builtin function calls as undefined identifiers[0m[33m (38ms)[0m
+  [32m  √[0m[90m does not flag discard as an undefined identifier[0m[33m (52ms)[0m
+  [32m  √[0m[90m does not mark include-resolvable types and globals as undefined[0m[33m (74ms)[0m
+  [32m  √[0m[90m infers texture Sample() call return types[0m[31m (1091ms)[0m
+  [32m  √[0m[90m does not report diagnostics for complex member-call base expressions[0m
+  [32m  √[0m[90m publishes diagnostics for duplicate and shadowed declarations[0m[31m (1064ms)[0m
+[main 2026-03-21T11:52:03.801Z] update#setState checking for updates
+[main 2026-03-21T11:52:03.910Z] update#setState idle
+  [32m  √[0m[90m treats undefined #if macros as errors and keeps only the #else branch active[0m[31m (2054ms)[0m
+  [32m  √[0m[90m publishes diagnostics for narrowing assignment into half[0m[31m (2059ms)[0m
+  [32m  √[0m[90m keeps hover return type consistent with diagnostics assignment mismatch source type[0m[33m (41ms)[0m
+  [32m  √[0m[90m publishes narrowing warnings for pow and normalize into half-family targets[0m[31m (3104ms)[0m
+  [32m  √[0m[90m publishes indeterminate diagnostics instead of false narrowing on unknown half call[0m[31m (1057ms)[0m
+  [32m  √[0m[90m publishes diagnostics for builtin overload argument mismatches[0m[31m (2059ms)[0m
+  [32m  √[0m[90m publishes diagnostics for user function call argument mismatches[0m[31m (2074ms)[0m
+  [32m  √[0m[90m resolves macro-generated function signatures without fallback pseudo params[0m[31m (1056ms)[0m
+  [32m  √[0m[90m displays inferred argument types instead of nearby identifiers in user function mismatch[0m[31m (1060ms)[0m
+  [32m  √[0m[90m treats texture and sampler aliases as compatible in function calls[0m
+  [32m  √[0m[90m does not report narrowing for builtin scalar results with half inputs[0m[33m (71ms)[0m
+  [32m  √[0m[90m does not mark defined macro names as undefined identifiers[0m[31m (80ms)[0m
+  [32m  √[0m[90m publishes diagnostics for missing semicolons[0m[31m (1087ms)[0m
+  [32m  √[0m[90m publishes diagnostics for control statements missing parentheses[0m[31m (1039ms)[0m
+  [32m  √[0m[90m publishes diagnostics for unreachable code[0m[31m (2066ms)[0m
+  [32m  √[0m[90m publishes diagnostics for potentially missing return paths[0m[31m (2063ms)[0m
+  [32m  √[0m[90m publishes diagnostics for comparison operator type mismatches[0m[31m (1058ms)[0m
+  [32m  √[0m[90m infers bitwise expressions when checking return types[0m
+  [32m  √[0m[90m infers shift operators inside bitwise expressions[0m[33m (67ms)[0m
+  [32m  √[0m[90m supports HLSL attributes like [unroll] without false diagnostics[0m[31m (90ms)[0m
+  [32m  √[0m[90m provides semantic tokens for documents and ranges[0m[31m (106ms)[0m
+  [32m  √[0m[90m highlights HLSL attributes as keywords in semantic tokens[0m[33m (68ms)[0m
+  [32m  √[0m[90m highlights discard as a keyword in semantic tokens[0m[31m (83ms)[0m
+  [32m  √[0m[90m provides signature help with correct active parameter[0m[33m (73ms)[0m
+  [32m  √[0m[90m provides signature help for overload benchmark fixture[0m[33m (63ms)[0m
+  [32m  √[0m[90m keeps hover and signature help aligned for overload-selected call sites[0m
+  [32m  √[0m[90m keeps signature help available when overload resolver flag toggles[0m[31m (1003ms)[0m
+  [32m  √[0m[90m provides signature help for HLSL built-in functions[0m[31m (78ms)[0m
+  [32m  √[0m[90m provides signature help for member calls with spaced dot access[0m[33m (75ms)[0m
+  [32m  √[0m[90m provides signature help for indexed member calls[0m[33m (64ms)[0m
+  [32m  √[0m[90m provides signature help for parenthesized member calls[0m
+  [32m  √[0m[90m provides signature help for parenthesized indexed member calls[0m
+  [32m  √[0m[90m provides signature help for macro wrapped member calls[0m
+  [32m  √[0m[90m provides signature help for nested macro argument member calls[0m
+  [32m  √[0m[90m provides signature help for multi-parenthesized indexed member calls[0m
+  [32m  √[0m[90m shows hover info for complex member-call method sites[0m
+  [32m  √[0m[90m keeps member hover and completion aligned for complex base expressions[0m[31m (1212ms)[0m
+  [32m  √[0m[90m provides completion items for complex member-call base expressions[0m[31m (2409ms)[0m
+  [32m  √[0m[90m provides inlay hints for user and built-in function parameters[0m[31m (85ms)[0m
+[hover-under-inlay] samples=469,37,17,52,22 p80=52 max=469
+  [32m  √[0m[90m keeps hover responsive while inlay requests are queued[0m[31m (671ms)[0m
+  [32m  √[0m[90m handles same-uri inlay bursts with cancellation-safe responses[0m[31m (97ms)[0m
+  [32m  √[0m[90m falls back to workspace scan for type definitions when not included[0m[31m (113ms)[0m
+  [32m  √[0m[90m exposes indexing status on the client[0m
+  [31m  1) clears disk index caches before rebuilding when requested[0m
+(node:63532) [DEP0147] DeprecationWarning: In future versions of Node.js, fs.rmdir(path, { recursive: true }) will be removed. Use fs.rm(path, { recursive: true }) instead
+(Use `Code --trace-deprecation ...` to show where the warning was created)

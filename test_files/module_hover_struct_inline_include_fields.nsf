@@ -1,0 +1,11 @@
+struct HoverInlineInclude
+{
+#include "module_hover_struct_inline_include_fields_members.ush"
+};
+
+float4 HoverInlineIncludeEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    HoverInlineInclude value = (HoverInlineInclude)0;
+    value.inline_scalar = uv.x;
+    return value.inline_color;
+}

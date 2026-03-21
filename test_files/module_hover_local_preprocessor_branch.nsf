@@ -1,0 +1,22 @@
+#define USE_INACTIVE_LAYOUT 0
+
+struct HoverPreprocInactive
+{
+    float inactive_only;
+};
+
+struct HoverPreprocActive
+{
+    float active_only;
+};
+
+float4 HoverLocalPreprocessorTypeEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if USE_INACTIVE_LAYOUT
+    HoverPreprocInactive value = (HoverPreprocInactive)0;
+#else
+    HoverPreprocActive value = (HoverPreprocActive)0;
+#endif
+    value.active_only = uv.x;
+    return float4(value.active_only, 0.0, 0.0, 1.0);
+}

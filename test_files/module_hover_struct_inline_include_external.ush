@@ -1,0 +1,4 @@
+struct HoverInlineIncludeExternal
+{
+#include "module_hover_struct_inline_include_external_members.ush"
+};

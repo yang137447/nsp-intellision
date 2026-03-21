@@ -81,13 +81,13 @@
 
 - 资源/schema 变更：`npm run json:validate`
 - TypeScript/client 变更：`npm run compile`
-- C++ server 变更：`cmake --build .\\server_cpp\\build_mingw`
+- C++ server 变更：`cmake --build .\\server_cpp\\build`
 - 默认集成回归：`npm run test:client:repo`
 - 发版前全量门禁：`npm run gate:d3`
 - 发版打包：`npm run package:vsix`
 
 ## Windows 注意事项
 
-- `server_cpp\\build_mingw\\nsf_lsp.exe` 可能因为运行中的 VS Code 扩展宿主或测试进程被锁住。
+- `server_cpp\\build\\nsf_lsp.exe` 可能因为运行中的 VS Code 扩展宿主或测试进程被锁住。
 - 如果 C++ 链接失败且提示 `permission denied`，先确认占用进程已退出，再重新构建。
 - 对单条集成测试的偶发失败，先重跑一次再判断是否为真实回归；不要直接据此改业务逻辑。

@@ -22,7 +22,8 @@ import {
 	InlayHintKind,
 	EventEmitter,
 	CancellationToken,
-	DecorationRangeBehavior
+	DecorationRangeBehavior,
+	ProgressLocation
 } from 'vscode';
 
 import { computeSingleFileIncludePaths } from './single_file_config';
@@ -354,6 +355,8 @@ export function activate(context: ExtensionContext) {
 				return 'Config';
 			case LSP_METHOD_KEYS.setActiveUnit:
 				return 'Unit';
+			case LSP_METHOD_KEYS.rebuildIndex:
+				return 'Index';
 			default: {
 				if (!method) {
 					return '';
@@ -583,9 +586,7 @@ export function activate(context: ExtensionContext) {
 		if (configured.length > 0) {
 			candidates.push(resolveConfiguredServerPath(configured));
 		}
-		candidates.push(context.asAbsolutePath(path.join('server_cpp', 'build_mingw', 'nsf_lsp.exe')));
 		candidates.push(context.asAbsolutePath(path.join('server_cpp', 'build', 'nsf_lsp.exe')));
-		candidates.push(context.asAbsolutePath(path.join('server_cpp', 'build_mingw', 'nsf_lsp')));
 		candidates.push(context.asAbsolutePath(path.join('server_cpp', 'build', 'nsf_lsp')));
 
 		for (const candidate of candidates) {
@@ -769,8 +770,8 @@ export function activate(context: ExtensionContext) {
 	const buildRuntimeSettings = (includePathsOverride?: string[]) => {
 		const config = workspace.getConfiguration('nsf');
 		return {
-			includePaths:
-				includePathsOverride ?? normalizeIncludePaths(config.get<string[]>('includePaths', [])),
+			intellisionPath:
+				includePathsOverride ?? normalizeIncludePaths(config.get<string[]>('intellisionPath', [])),
 			shaderFileExtensions: config.get<string[]>(
 				'shaderFileExtensions',
 				['.nsf', '.hlsl', '.fx', '.usf', '.ush']
@@ -808,39 +809,7 @@ export function activate(context: ExtensionContext) {
 		};
 	};
 
-	const autoSetupIncludePathsDismissedKey = 'nsf.autoSetupIncludePathsDismissed';
-	const detectRecommendedIncludePaths = (): string[] => {
-		const folders = workspace.workspaceFolders ?? [];
-		const candidates: string[] = [];
-		const addIfExists = (candidate: string): void => {
-			try {
-				if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
-					candidates.push(path.resolve(candidate));
-				}
-			} catch {
-				return;
-			}
-		};
-		for (const folder of folders) {
-			const root = folder.uri.fsPath;
-			const baseName = path.basename(root).toLowerCase();
-			if (baseName === 'shader-source') {
-				addIfExists(root);
-			}
-			addIfExists(path.join(root, 'shader-source'));
-		}
-		const seen = new Set<string>();
-		const deduped: string[] = [];
-		for (const item of candidates) {
-			const key = item.toLowerCase();
-			if (seen.has(key)) {
-				continue;
-			}
-			seen.add(key);
-			deduped.push(item);
-		}
-		return deduped;
-	};
+	const intellisionPathPromptDismissedKey = 'nsf.intellisionPathPromptDismissed';
 	const normalizeIncludePaths = (paths: string[]): string[] => {
 		const resolved = paths
 			.map((item) => item.trim())
@@ -877,34 +846,30 @@ export function activate(context: ExtensionContext) {
 		}
 		return kept;
 	};
-	const tryAutoSetupIncludePaths = async (): Promise<void> => {
+	const promptIntellisionPathIfMissing = async (): Promise<void> => {
 		const config = workspace.getConfiguration('nsf');
-		const configured = config.get<string[]>('includePaths', []);
-		if (configured.some((item) => item.trim().length > 0)) {
+		const configured = normalizeIncludePaths(config.get<string[]>('intellisionPath', []));
+		if (configured.length > 0) {
+			await context.workspaceState.update(intellisionPathPromptDismissedKey, false);
 			return;
 		}
-		const dismissed = context.workspaceState.get<boolean>(autoSetupIncludePathsDismissedKey, false);
+		const dismissed = context.workspaceState.get<boolean>(intellisionPathPromptDismissedKey, false);
 		if (dismissed) {
 			return;
 		}
-		const detected = detectRecommendedIncludePaths();
-		if (detected.length === 0) {
-			return;
-		}
-		const applyAction = '应用推荐配置';
-		const skipAction = '暂不';
-		const pick = await window.showInformationMessage(
-			`NSF: 检测到 ${detected.length} 个可能的 Shader 目录，是否自动配置 includePaths？`,
-			applyAction,
-			skipAction
+		const openSettingsAction = '打开设置';
+		const dismissAction = '稍后';
+		const pick = await window.showWarningMessage(
+			'NSF: 未配置 nsf.intellisionPath。请填写 Shader 根目录，否则索引与 include-context 功能不可用。',
+			openSettingsAction,
+			dismissAction
 		);
-		if (pick === applyAction) {
-			await config.update('includePaths', detected, ConfigurationTarget.Workspace);
-			window.showInformationMessage('NSF: 已自动写入 includePaths 配置');
+		if (pick === openSettingsAction) {
+			await commands.executeCommand('workbench.action.openSettings', 'nsf.intellisionPath');
 			return;
 		}
-		if (pick === skipAction) {
-			await context.workspaceState.update(autoSetupIncludePathsDismissedKey, true);
+		if (pick === dismissAction) {
+			await context.workspaceState.update(intellisionPathPromptDismissedKey, true);
 		}
 	};
 
@@ -1008,6 +973,60 @@ export function activate(context: ExtensionContext) {
 		});
 		return task;
 	};
+	const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+	const waitForIndexingReasonToSettle = async (
+		targetReason: string,
+		previousEpoch: number | undefined,
+		timeoutMs = 180000
+	): Promise<ServerIndexingState | undefined> => {
+		const deadline = Date.now() + timeoutMs;
+		let sawRebuildStart = false;
+		while (Date.now() < deadline) {
+			const state = await fetchIndexingState(true);
+			if (state) {
+				const epoch = typeof state.epoch === 'number' ? state.epoch : undefined;
+				const epochAdvanced =
+					typeof previousEpoch === 'number' && typeof epoch === 'number' ? epoch > previousEpoch : false;
+				if (epochAdvanced || (state.reason === targetReason && hasServerIndexingWork(state))) {
+					sawRebuildStart = true;
+				}
+				if (
+					state.reason === targetReason &&
+					isIndexingStateStable(state) &&
+					(sawRebuildStart || typeof previousEpoch !== 'number')
+				) {
+					return state;
+				}
+			}
+			await sleep(350);
+		}
+		return undefined;
+	};
+	const requestIndexRebuild = async (
+		reason: string,
+		clearDiskCache: boolean
+	): Promise<ServerIndexingState | undefined> => {
+		if (!client || !client.initializeResult) {
+			return undefined;
+		}
+		const beforeState = lastIndexingState ?? (await fetchIndexingState(true));
+		const previousEpoch = typeof beforeState?.epoch === 'number' ? beforeState.epoch : undefined;
+		beginRpcActivity(LSP_METHOD_KEYS.rebuildIndex);
+		try {
+			await client.sendRequest<void>(LSP_METHOD_KEYS.rebuildIndex, {
+				reason,
+				clearDiskCache
+			});
+		} catch (error) {
+			appendClientTrace(`send nsf/rebuildIndex failed ${(error as Error).message ?? String(error)}`);
+			logClient(`send nsf/rebuildIndex failed ${(error as Error).message ?? String(error)}`);
+			pushRecentClientError('nsf/rebuildIndex', error);
+			throw error;
+		} finally {
+			endRpcActivity();
+		}
+		return waitForIndexingReasonToSettle(reason, previousEpoch);
+	};
 	const refreshIndexingStateAndMaybeTriggerInlay = async (): Promise<void> => {
 		const state = await fetchIndexingState(true);
 		if (!state) {
@@ -1097,7 +1116,7 @@ export function activate(context: ExtensionContext) {
 			return /^[a-zA-Z]:[\\/]/.test(value);
 		};
 		const workspaceFolders = (workspace.workspaceFolders ?? []).map((item) => item.uri.fsPath);
-		const includePaths = workspace.getConfiguration('nsf').get<string[]>('includePaths', []);
+		const includePaths = workspace.getConfiguration('nsf').get<string[]>('intellisionPath', []);
 		const candidates: string[] = [];
 		if (isAbsolutePath(includePath)) {
 			candidates.push(includePath);
@@ -1392,11 +1411,15 @@ export function activate(context: ExtensionContext) {
 			return;
 		}
 		let includePathsOverride: string[] | undefined;
+		const configuredIncludePaths = normalizeIncludePaths(
+			workspace.getConfiguration('nsf').get<string[]>('intellisionPath', [])
+		);
 		if (filePath && !isInAnyWorkspaceFolder(filePath)) {
-			const configuredIncludePaths = normalizeIncludePaths(
-				workspace.getConfiguration('nsf').get<string[]>('includePaths', [])
-			);
-			includePathsOverride = computeSingleFileIncludePaths(filePath, configuredIncludePaths);
+			if (configuredIncludePaths.length > 0) {
+				includePathsOverride = computeSingleFileIncludePaths(filePath, configuredIncludePaths);
+			} else {
+				includePathsOverride = [];
+			}
 		}
 		const runtimeSettings = buildRuntimeSettings(includePathsOverride);
 		const key = JSON.stringify(runtimeSettings);
@@ -1910,6 +1933,58 @@ export function activate(context: ExtensionContext) {
 		await ensureClientStarted(true);
 	}));
 
+	context.subscriptions.push(commands.registerCommand('nsf.rebuildIndexClearCache', async () => {
+		const continueLabel = '继续';
+		if (!isTestMode) {
+			const picked = await window.showWarningMessage(
+				'NSF: 这会清除当前工作区索引缓存并执行一次完整重建。',
+				{ modal: true },
+				continueLabel
+			);
+			if (picked !== continueLabel) {
+				return;
+			}
+		}
+		clientOutputChannel.show(true);
+		logClient('manual clear-cache rebuild requested');
+		try {
+			await ensureClientStarted(false);
+			if (!client?.initializeResult) {
+				throw new Error('Language client is not ready.');
+			}
+			const targetReason = 'manualClearCache';
+			await window.withProgress(
+				{
+					location: ProgressLocation.Notification,
+					title: 'NSF: 正在清缓存并完整重建索引',
+					cancellable: false
+				},
+				async (progress) => {
+					progress.report({ message: '正在请求服务端清缓存...' });
+					const state = await requestIndexRebuild(targetReason, true);
+					if (!state) {
+						throw new Error('Timed out waiting for the clear-cache rebuild to finish.');
+					}
+					progress.report({ message: '索引已稳定。' });
+				}
+			);
+			scheduleInlayHintsRefreshWave([0, 120]);
+			window.showInformationMessage('NSF: 已清缓存并完成完整索引重建。');
+		} catch (error) {
+			pushRecentClientError('nsf.rebuildIndexClearCache', error);
+			const message = (error as Error).message ?? String(error);
+			const configuredServerPath = workspace.getConfiguration('nsf').get<string>('serverPath', '').trim();
+			if (message.includes('Method not implemented') && configuredServerPath.length > 0) {
+				window.showErrorMessage(
+					'NSF: 当前配置的 serverPath 指向的语言服务不支持清缓存重建索引。请重建该二进制或清空 nsf.serverPath。'
+				);
+			} else {
+				window.showErrorMessage(`NSF: 清缓存重建索引失败：${message}`);
+			}
+			throw error;
+		}
+	}));
+
 	context.subscriptions.push(
 		commands.registerCommand('nsf._getInternalStatus', async () => {
 			return {
@@ -1933,6 +2008,24 @@ export function activate(context: ExtensionContext) {
 			initialInlayRefreshTriggerCount = 0;
 			indexSettledInlayRefreshTriggerCount = 0;
 			refreshStatusBar();
+		})
+	);
+	context.subscriptions.push(
+		commands.registerCommand('nsf._clearActiveUnitForTests', async () => {
+			pinnedUnitUri = undefined;
+			lastActiveNsfUri = undefined;
+			effectiveUnitUri = undefined;
+			lastSentUnitUri = '';
+			await context.workspaceState.update(pinnedUnitStorageKey, undefined);
+			refreshUnitStatusBar();
+			if (client?.initializeResult) {
+				beginRpcActivity(LSP_METHOD_KEYS.setActiveUnit);
+				try {
+					await client.sendNotification(LSP_METHOD_KEYS.setActiveUnit, {});
+				} finally {
+					endRpcActivity();
+				}
+			}
 		})
 	);
 	context.subscriptions.push(
@@ -2045,7 +2138,7 @@ export function activate(context: ExtensionContext) {
 			void ensureClientStarted(true);
 		}
 		if (
-			e.affectsConfiguration('nsf.includePaths') ||
+			e.affectsConfiguration('nsf.intellisionPath') ||
 			e.affectsConfiguration('nsf.include.validUnderline') ||
 			e.affectsConfiguration('nsf.shaderFileExtensions') ||
 			e.affectsConfiguration('nsf.defines') ||
@@ -2066,16 +2159,19 @@ export function activate(context: ExtensionContext) {
 				inlayHintsChanged.fire();
 			}
 			if (
-				e.affectsConfiguration('nsf.includePaths') ||
+				e.affectsConfiguration('nsf.intellisionPath') ||
 				e.affectsConfiguration('nsf.include.validUnderline') ||
 				e.affectsConfiguration('nsf.shaderFileExtensions')
 			) {
 				scheduleIncludeUnderlineRefresh();
 			}
+			if (e.affectsConfiguration('nsf.intellisionPath')) {
+				void promptIntellisionPathIfMissing();
+			}
 		}
 	}));
 
-	void tryAutoSetupIncludePaths();
+	void promptIntellisionPathIfMissing();
 	scheduleIncludeUnderlineRefresh();
 	void ensureClientStarted(false).catch((error) => {
 		appendClientTrace(`initial ensure client failed ${(error as Error).message ?? String(error)}`);

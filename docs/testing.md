@@ -8,7 +8,7 @@
 
 1. `npm run json:validate`
 2. `npm run compile`
-3. `cmake --build .\\server_cpp\\build_mingw`
+3. `cmake --build .\\server_cpp\\build`
 4. `npm run test:client:repo`
 5. `npm run test:client:all`
 6. `npm run gate:d3`
@@ -41,7 +41,7 @@
 - 修改 `src/test/`
 - 修改根级 TypeScript 配置
 
-### `cmake --build .\\server_cpp\\build_mingw`
+### `cmake --build .\\server_cpp\\build`
 
 用途：
 
@@ -90,6 +90,7 @@
 说明：
 
 - `real` 模式依赖外部工作区路径配置，成本比 repo 模式高
+- `real` 模式下的 smoke 断言应优先验证“结果存在且链路打通”，不要依赖外部项目里固定不变的引用数或编辑数
 
 ### `npm run gate:d3`
 
@@ -101,7 +102,7 @@
 
 1. `npm run json:validate`
 2. `npm run compile`
-3. `cmake --build .\\server_cpp\\build_mingw`
+3. `cmake --build .\\server_cpp\\build`
 4. `python .\\server_cpp\\tools\\hover_smoke_test.py`
 5. `npm run test:client:all`
 
@@ -143,7 +144,7 @@
 
 通常还应跑：
 
-- `cmake --build .\\server_cpp\\build_mingw`
+- `cmake --build .\\server_cpp\\build`
 - `npm run test:client:repo`
 
 ### 改 TypeScript client
@@ -160,7 +161,7 @@
 
 至少跑：
 
-- `cmake --build .\\server_cpp\\build_mingw`
+- `cmake --build .\\server_cpp\\build`
 
 如果影响行为，再跑：
 

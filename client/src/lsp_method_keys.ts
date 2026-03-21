@@ -12,5 +12,6 @@ export const LSP_METHOD_KEYS = {
 	publishDiagnostics: 'textDocument/publishDiagnostics',
 	inlayHint: 'textDocument/inlayHint',
 	didChangeConfiguration: 'workspace/didChangeConfiguration',
-	setActiveUnit: 'nsf/setActiveUnit'
+	setActiveUnit: 'nsf/setActiveUnit',
+	rebuildIndex: 'nsf/rebuildIndex'
 } as const;

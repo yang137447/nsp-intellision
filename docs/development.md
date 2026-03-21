@@ -45,7 +45,7 @@
 
 当你需要在 VS Code 中调试本地刚编出来的 server：
 
-1. 构建 `server_cpp/build_mingw/nsf_lsp.exe` 或 `server_cpp/build/nsf_lsp.exe`
+1. 构建 `server_cpp/build/nsf_lsp.exe`
 2. 在 VS Code 设置中配置 `nsf.serverPath`
 3. 执行命令 `NSF: Restart LSP Server`
 
@@ -120,7 +120,7 @@
 ### 改资源
 
 1. `npm run json:validate`
-2. `cmake --build .\\server_cpp\\build_mingw`
+2. `cmake --build .\\server_cpp\\build`
 3. `npm run test:client:repo`
 
 ### 改 client
@@ -131,8 +131,7 @@
 ### 改 server
 
 1. `cmake --build .\\server_cpp\\build`
-2. `cmake --build .\\server_cpp\\build_mingw`
-3. `npm run test:client:repo`
+2. `npm run test:client:repo`
 
 ### 发版前
 

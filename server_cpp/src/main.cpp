@@ -27,6 +27,7 @@
 #include "definition_fallback.hpp"
 #include "definition_location.hpp"
 #include "diagnostics.hpp"
+#include "expanded_source.hpp"
 #include "fast_ast.hpp"
 #include "full_ast.hpp"
 #include "hlsl_builtin_docs.hpp"
@@ -37,6 +38,8 @@
 #include "lsp_helpers.hpp"
 #include "lsp_io.hpp"
 #include "nsf_lexer.hpp"
+#include "preprocessor_view.hpp"
+#include "semantic_snapshot.hpp"
 #include "semantic_cache.hpp"
 #include "server_documents.hpp"
 #include "server_occurrences.hpp"
@@ -65,370 +68,15 @@ static bool isControlOrOperatorToken(const std::string &token) {
 bool findMacroDefinitionInLine(const std::string &line, const std::string &word,
                                size_t &posOut);
 
-static bool findTypeOfIdentifierInText(const std::string &text,
-                                       const std::string &identifier,
-                                       std::string &typeNameOut) {
-  std::istringstream stream(text);
-  std::string scanLine;
-  while (std::getline(stream, scanLine)) {
-    std::string code = scanLine;
-    size_t lineComment = code.find("//");
-    if (lineComment != std::string::npos)
-      code = code.substr(0, lineComment);
-    auto tokens = lexLineTokens(code);
-    if (tokens.empty())
-      continue;
-    if (tokens[0].text == "#")
-      continue;
+std::vector<std::string> getIncludeGraphUrisCached(
+    const std::string &rootUri,
+    const std::unordered_map<std::string, Document> &documents,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions);
 
-    int angleDepth = 0;
-    int parenDepth = 0;
-    int bracketDepth = 0;
-    size_t semiIndex = tokens.size();
-    for (size_t idx = 0; idx < tokens.size(); idx++) {
-      const std::string &t = tokens[idx].text;
-      if (t == "<")
-        angleDepth++;
-      else if (t == ">" && angleDepth > 0)
-        angleDepth--;
-      else if (t == "(")
-        parenDepth++;
-      else if (t == ")" && parenDepth > 0)
-        parenDepth--;
-      else if (t == "[")
-        bracketDepth++;
-      else if (t == "]" && bracketDepth > 0)
-        bracketDepth--;
-      if (angleDepth == 0 && parenDepth == 0 && bracketDepth == 0 && t == ";") {
-        semiIndex = idx;
-        break;
-      }
-    }
-    if (semiIndex == tokens.size())
-      continue;
-
-    struct Segment {
-      size_t start = 0;
-      size_t end = 0;
-    };
-    std::vector<Segment> segments;
-    size_t segStart = 0;
-    angleDepth = 0;
-    parenDepth = 0;
-    bracketDepth = 0;
-    for (size_t idx = 0; idx < semiIndex; idx++) {
-      const std::string &t = tokens[idx].text;
-      if (t == "<")
-        angleDepth++;
-      else if (t == ">" && angleDepth > 0)
-        angleDepth--;
-      else if (t == "(")
-        parenDepth++;
-      else if (t == ")" && parenDepth > 0)
-        parenDepth--;
-      else if (t == "[")
-        bracketDepth++;
-      else if (t == "]" && bracketDepth > 0)
-        bracketDepth--;
-      if (angleDepth == 0 && parenDepth == 0 && bracketDepth == 0 && t == ",") {
-        segments.push_back(Segment{segStart, idx});
-        segStart = idx + 1;
-      }
-    }
-    segments.push_back(Segment{segStart, semiIndex});
-    if (segments.empty())
-      continue;
-
-    auto findBaseType = [&](const Segment &seg) -> std::string {
-      int a = 0, p = 0, b = 0;
-      for (size_t idx = seg.start; idx < seg.end; idx++) {
-        const auto &tok = tokens[idx];
-        const std::string &t = tok.text;
-        if (t == "<")
-          a++;
-        else if (t == ">" && a > 0)
-          a--;
-        else if (t == "(")
-          p++;
-        else if (t == ")" && p > 0)
-          p--;
-        else if (t == "[")
-          b++;
-        else if (t == "]" && b > 0)
-          b--;
-        if (!(a == 0 && p == 0 && b == 0))
-          continue;
-        if (tok.kind != LexToken::Kind::Identifier)
-          continue;
-        if (isQualifierToken(t))
-          continue;
-        return t;
-      }
-      return "";
-    };
-
-    auto findDeclaratorName = [&](const Segment &seg) -> std::string {
-      int a = 0, p = 0, b = 0;
-      std::string name;
-      for (size_t idx = seg.start; idx < seg.end; idx++) {
-        const auto &tok = tokens[idx];
-        const std::string &t = tok.text;
-        if (t == "<")
-          a++;
-        else if (t == ">" && a > 0)
-          a--;
-        else if (t == "(")
-          p++;
-        else if (t == ")" && p > 0)
-          p--;
-        else if (t == "[")
-          b++;
-        else if (t == "]" && b > 0)
-          b--;
-        if (!(a == 0 && p == 0 && b == 0))
-          continue;
-        if (t == ":" || t == "=" || t == "[")
-          break;
-        if (tok.kind != LexToken::Kind::Identifier)
-          continue;
-        if (isQualifierToken(t))
-          continue;
-        name = t;
-      }
-      return name;
-    };
-
-    std::string baseType = findBaseType(segments.front());
-    if (baseType.empty())
-      continue;
-    for (const auto &seg : segments) {
-      std::string name = findDeclaratorName(seg);
-      if (name == identifier) {
-        typeNameOut = baseType;
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-static bool findParameterTypeInText(const std::string &text,
-                                    const std::string &identifier,
-                                    std::string &typeNameOut) {
-  bool inLineComment = false;
-  bool inBlockComment = false;
-  bool inString = false;
-  auto isFuncHeaderKeyword = [&](const std::string &t) {
-    return t == "if" || t == "for" || t == "while" || t == "switch" ||
-           t == "return";
-  };
-
-  for (size_t i = 0; i < text.size(); i++) {
-    char ch = text[i];
-    char next = i + 1 < text.size() ? text[i + 1] : '\0';
-    if (inLineComment) {
-      if (ch == '\n')
-        inLineComment = false;
-      continue;
-    }
-    if (inBlockComment) {
-      if (ch == '*' && next == '/') {
-        inBlockComment = false;
-        i++;
-      }
-      continue;
-    }
-    if (inString) {
-      if (ch == '"' && (i == 0 || text[i - 1] != '\\'))
-        inString = false;
-      continue;
-    }
-    if (ch == '/' && next == '/') {
-      inLineComment = true;
-      i++;
-      continue;
-    }
-    if (ch == '/' && next == '*') {
-      inBlockComment = true;
-      i++;
-      continue;
-    }
-    if (ch == '"') {
-      inString = true;
-      continue;
-    }
-    if (ch != '(')
-      continue;
-
-    size_t back = i;
-    while (back > 0 && std::isspace(static_cast<unsigned char>(text[back - 1])))
-      back--;
-    if (back == 0)
-      continue;
-    size_t nameEnd = back;
-    size_t nameStart = nameEnd;
-    while (nameStart > 0 && isIdentifierChar(text[nameStart - 1]))
-      nameStart--;
-    if (nameStart == nameEnd)
-      continue;
-    std::string funcName = text.substr(nameStart, nameEnd - nameStart);
-    if (isFuncHeaderKeyword(funcName))
-      continue;
-
-    size_t back2 = nameStart;
-    while (back2 > 0 &&
-           std::isspace(static_cast<unsigned char>(text[back2 - 1])))
-      back2--;
-    size_t typeEnd = back2;
-    size_t typeStart = typeEnd;
-    while (typeStart > 0 && isIdentifierChar(text[typeStart - 1]))
-      typeStart--;
-    if (typeStart == typeEnd)
-      continue;
-
-    size_t j = i + 1;
-    int parenDepth = 0;
-    int angleDepth = 0;
-    int bracketDepth = 0;
-    std::vector<LexToken> current;
-    bool localLineComment = false;
-    bool localBlockComment = false;
-    bool localString = false;
-    auto flushParam = [&]() -> bool {
-      if (current.empty())
-        return false;
-      std::string typeToken;
-      std::string nameToken;
-      int a = 0, b = 0, p = 0;
-      for (size_t ti = 0; ti < current.size(); ti++) {
-        const auto &tok = current[ti];
-        const std::string &t = tok.text;
-        if (t == "<")
-          a++;
-        else if (t == ">" && a > 0)
-          a--;
-        else if (t == "[")
-          b++;
-        else if (t == "]" && b > 0)
-          b--;
-        else if (t == "(")
-          p++;
-        else if (t == ")" && p > 0)
-          p--;
-        bool top = a == 0 && b == 0 && p == 0;
-        if (!top)
-          continue;
-        if (t == ":" || t == "=")
-          break;
-        if (tok.kind != LexToken::Kind::Identifier)
-          continue;
-        if (isQualifierToken(t))
-          continue;
-        if (typeToken.empty()) {
-          typeToken = t;
-        } else {
-          nameToken = t;
-        }
-      }
-      if (typeToken.empty() || nameToken.empty())
-        return false;
-      if (nameToken != identifier)
-        return false;
-      typeNameOut = typeToken;
-      return true;
-    };
-
-    for (; j < text.size(); j++) {
-      char cj = text[j];
-      char nj = j + 1 < text.size() ? text[j + 1] : '\0';
-
-      if (localLineComment) {
-        if (cj == '\n')
-          localLineComment = false;
-        continue;
-      }
-      if (localBlockComment) {
-        if (cj == '*' && nj == '/') {
-          localBlockComment = false;
-          j++;
-        }
-        continue;
-      }
-      if (localString) {
-        if (cj == '"' && text[j - 1] != '\\')
-          localString = false;
-        continue;
-      }
-      if (cj == '/' && nj == '/') {
-        localLineComment = true;
-        j++;
-        continue;
-      }
-      if (cj == '/' && nj == '*') {
-        localBlockComment = true;
-        j++;
-        continue;
-      }
-      if (cj == '"') {
-        localString = true;
-        continue;
-      }
-
-      if (cj == '(') {
-        parenDepth++;
-      } else if (cj == ')' && parenDepth > 0) {
-        parenDepth--;
-      } else if (cj == '<') {
-        angleDepth++;
-      } else if (cj == '>' && angleDepth > 0) {
-        angleDepth--;
-      } else if (cj == '[') {
-        bracketDepth++;
-      } else if (cj == ']' && bracketDepth > 0) {
-        bracketDepth--;
-      }
-
-      if (cj == ')' && parenDepth == 0 && angleDepth == 0 &&
-          bracketDepth == 0) {
-        if (flushParam())
-          return true;
-        break;
-      }
-      if (cj == ',' && parenDepth == 0 && angleDepth == 0 &&
-          bracketDepth == 0) {
-        if (flushParam())
-          return true;
-        current.clear();
-        continue;
-      }
-
-      if (std::isspace(static_cast<unsigned char>(cj)))
-        continue;
-
-      if (isIdentifierChar(cj)) {
-        size_t start = j;
-        j++;
-        while (j < text.size() && isIdentifierChar(text[j]))
-          j++;
-        current.push_back(LexToken{LexToken::Kind::Identifier,
-                                   text.substr(start, j - start), start, j});
-        j--;
-        continue;
-      }
-      if (j + 1 < text.size()) {
-        std::string two = text.substr(j, 2);
-        if (two == "::" || two == "->" || two == "&&" || two == "||" ||
-            two == "<=" || two == ">=" || two == "==" || two == "!=") {
-          current.push_back(LexToken{LexToken::Kind::Punct, two, j, j + 2});
-          j++;
-          continue;
-        }
-      }
-      current.push_back(
-          LexToken{LexToken::Kind::Punct, std::string(1, cj), j, j + 1});
-    }
-  }
-  return false;
+size_t positionToOffset(const std::string &text, int line, int character) {
+  return positionToOffsetUtf16(text, line, character);
 }
 
 std::vector<std::string> getIncludeGraphUrisCached(
@@ -438,15 +86,15 @@ std::vector<std::string> getIncludeGraphUrisCached(
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions);
 
-bool findTypeOfIdentifierInIncludeGraph(
-    const std::string &uri, const std::string &identifier,
+bool collectStructFieldsInIncludeGraph(
+    const std::string &uri, const std::string &structName,
     const std::unordered_map<std::string, Document> &documents,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
-    std::unordered_set<std::string> &visited, std::string &typeNameOut) {
-  if (!visited.insert(uri).second)
-    return false;
+    const std::unordered_map<std::string, int> &defines,
+    std::unordered_set<std::string> &visited,
+    std::vector<std::string> &fieldsOut) {
   const auto orderedUris = getIncludeGraphUrisCached(
       uri, documents, workspaceFolders, includePaths, shaderExtensions);
   prefetchDocumentTexts(orderedUris, documents);
@@ -456,641 +104,20 @@ bool findTypeOfIdentifierInIncludeGraph(
     std::string text;
     if (!loadDocumentText(candidateUri, documents, text))
       continue;
-    if (findParameterTypeInText(text, identifier, typeNameOut))
+    uint64_t candidateEpoch = 0;
+    auto candidateIt = documents.find(candidateUri);
+    if (candidateIt != documents.end())
+      candidateEpoch = candidateIt->second.epoch;
+    std::vector<SemanticSnapshotStructFieldInfo> fieldInfos;
+    if (querySemanticSnapshotStructFieldInfos(
+            candidateUri, text, candidateEpoch, workspaceFolders, includePaths,
+            shaderExtensions, defines, structName, fieldInfos) &&
+        !fieldInfos.empty()) {
+      fieldsOut.clear();
+      fieldsOut.reserve(fieldInfos.size());
+      for (const auto &field : fieldInfos)
+        fieldsOut.push_back(field.name);
       return true;
-    if (findTypeOfIdentifierInText(text, identifier, typeNameOut))
-      return true;
-  }
-  return false;
-}
-
-size_t positionToOffset(const std::string &text, int line, int character) {
-  return positionToOffsetUtf16(text, line, character);
-}
-
-static bool findTypeOfIdentifierInDeclarationLine(const std::string &line,
-                                                  const std::string &identifier,
-                                                  std::string &typeNameOut) {
-  std::string code = line;
-  size_t lineComment = code.find("//");
-  if (lineComment != std::string::npos)
-    code = code.substr(0, lineComment);
-
-  auto tokens = lexLineTokens(code);
-  if (tokens.empty())
-    return false;
-  if (tokens[0].text == "#")
-    return false;
-
-  int angleDepth = 0;
-  int parenDepth = 0;
-  int bracketDepth = 0;
-  size_t semiIndex = tokens.size();
-  for (size_t idx = 0; idx < tokens.size(); idx++) {
-    const std::string &t = tokens[idx].text;
-    if (t == "<")
-      angleDepth++;
-    else if (t == ">" && angleDepth > 0)
-      angleDepth--;
-    else if (t == "(")
-      parenDepth++;
-    else if (t == ")" && parenDepth > 0)
-      parenDepth--;
-    else if (t == "[")
-      bracketDepth++;
-    else if (t == "]" && bracketDepth > 0)
-      bracketDepth--;
-    if (angleDepth == 0 && parenDepth == 0 && bracketDepth == 0 && t == ";") {
-      semiIndex = idx;
-      break;
-    }
-  }
-  if (semiIndex == tokens.size())
-    return false;
-
-  struct Segment {
-    size_t start = 0;
-    size_t end = 0;
-  };
-  std::vector<Segment> segments;
-  size_t segStart = 0;
-  angleDepth = 0;
-  parenDepth = 0;
-  bracketDepth = 0;
-  for (size_t idx = 0; idx < semiIndex; idx++) {
-    const std::string &t = tokens[idx].text;
-    if (t == "<")
-      angleDepth++;
-    else if (t == ">" && angleDepth > 0)
-      angleDepth--;
-    else if (t == "(")
-      parenDepth++;
-    else if (t == ")" && parenDepth > 0)
-      parenDepth--;
-    else if (t == "[")
-      bracketDepth++;
-    else if (t == "]" && bracketDepth > 0)
-      bracketDepth--;
-    if (angleDepth == 0 && parenDepth == 0 && bracketDepth == 0 && t == ",") {
-      segments.push_back(Segment{segStart, idx});
-      segStart = idx + 1;
-    }
-  }
-  segments.push_back(Segment{segStart, semiIndex});
-  if (segments.empty())
-    return false;
-
-  auto isMemberAccessIdentifier = [&](size_t idx) -> bool {
-    if (idx == 0)
-      return false;
-    if (tokens[idx - 1].kind != LexToken::Kind::Punct)
-      return false;
-    const std::string &p = tokens[idx - 1].text;
-    return p == "." || p == "->" || p == "::";
-  };
-
-  auto collectTopLevelIdentifiers = [&](const Segment &seg) {
-    std::vector<std::string> names;
-    int a = 0, p = 0, b = 0;
-    for (size_t idx = seg.start; idx < seg.end; idx++) {
-      const auto &tok = tokens[idx];
-      const std::string &t = tok.text;
-      if (t == "<")
-        a++;
-      else if (t == ">" && a > 0)
-        a--;
-      else if (t == "(")
-        p++;
-      else if (t == ")" && p > 0)
-        p--;
-      else if (t == "[")
-        b++;
-      else if (t == "]" && b > 0)
-        b--;
-      if (!(a == 0 && p == 0 && b == 0))
-        continue;
-      if (tok.kind != LexToken::Kind::Identifier)
-        continue;
-      if (isQualifierToken(t))
-        continue;
-      if (isMemberAccessIdentifier(idx))
-        continue;
-      names.push_back(t);
-    }
-    return names;
-  };
-
-  std::vector<std::string> declHead =
-      collectTopLevelIdentifiers(segments.front());
-  if (declHead.size() < 2)
-    return false;
-  {
-    std::vector<std::string> beforeAssign;
-    int a = 0, p = 0, b = 0;
-    for (size_t idx = segments.front().start; idx < segments.front().end;
-         idx++) {
-      const auto &tok = tokens[idx];
-      const std::string &t = tok.text;
-      if (t == "<")
-        a++;
-      else if (t == ">" && a > 0)
-        a--;
-      else if (t == "(")
-        p++;
-      else if (t == ")" && p > 0)
-        p--;
-      else if (t == "[")
-        b++;
-      else if (t == "]" && b > 0)
-        b--;
-      if (!(a == 0 && p == 0 && b == 0))
-        continue;
-      if (t == ":" || t == "=" || t == "[")
-        break;
-      if (tok.kind != LexToken::Kind::Identifier)
-        continue;
-      if (isQualifierToken(t))
-        continue;
-      if (isMemberAccessIdentifier(idx))
-        continue;
-      beforeAssign.push_back(t);
-    }
-    if (beforeAssign.size() < 2)
-      return false;
-  }
-
-  auto findBaseType = [&](const Segment &seg) -> std::string {
-    int a = 0, p = 0, b = 0;
-    for (size_t idx = seg.start; idx < seg.end; idx++) {
-      const auto &tok = tokens[idx];
-      const std::string &t = tok.text;
-      if (t == "<")
-        a++;
-      else if (t == ">" && a > 0)
-        a--;
-      else if (t == "(")
-        p++;
-      else if (t == ")" && p > 0)
-        p--;
-      else if (t == "[")
-        b++;
-      else if (t == "]" && b > 0)
-        b--;
-      if (!(a == 0 && p == 0 && b == 0))
-        continue;
-      if (tok.kind != LexToken::Kind::Identifier)
-        continue;
-      if (isQualifierToken(t))
-        continue;
-      if (isMemberAccessIdentifier(idx))
-        continue;
-      return t;
-    }
-    return "";
-  };
-
-  auto findDeclaratorName = [&](const Segment &seg) -> std::string {
-    int a = 0, p = 0, b = 0;
-    std::string name;
-    for (size_t idx = seg.start; idx < seg.end; idx++) {
-      const auto &tok = tokens[idx];
-      const std::string &t = tok.text;
-      if (t == "<")
-        a++;
-      else if (t == ">" && a > 0)
-        a--;
-      else if (t == "(")
-        p++;
-      else if (t == ")" && p > 0)
-        p--;
-      else if (t == "[")
-        b++;
-      else if (t == "]" && b > 0)
-        b--;
-      if (!(a == 0 && p == 0 && b == 0))
-        continue;
-      if (t == ":" || t == "=" || t == "[")
-        break;
-      if (tok.kind != LexToken::Kind::Identifier)
-        continue;
-      if (isQualifierToken(t))
-        continue;
-      if (isMemberAccessIdentifier(idx))
-        continue;
-      name = t;
-    }
-    return name;
-  };
-
-  std::string baseType = findBaseType(segments.front());
-  if (baseType.empty())
-    return false;
-  for (const auto &seg : segments) {
-    std::string name = findDeclaratorName(seg);
-    if (name == identifier) {
-      typeNameOut = baseType;
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool findUiMetadataDeclarationHeaderLine(const std::string &line,
-                                                const std::string &identifier,
-                                                std::string &typeNameOut) {
-  std::string code = line;
-  size_t lineComment = code.find("//");
-  if (lineComment != std::string::npos)
-    code = code.substr(0, lineComment);
-  auto tokens = lexLineTokens(code);
-  if (tokens.size() < 2)
-    return false;
-  if (tokens[0].text == "#")
-    return false;
-  for (const auto &tok : tokens) {
-    if (tok.kind != LexToken::Kind::Punct)
-      continue;
-    const std::string &t = tok.text;
-    if (t == "(" || t == ")" || t == ";" || t == "," || t == "=" || t == ":" ||
-        t == "<" || t == ">" || t == "[" || t == "]" || t == "{" || t == "}")
-      return false;
-  }
-  std::string baseType;
-  std::string name;
-  int identCount = 0;
-  for (const auto &tok : tokens) {
-    if (tok.kind != LexToken::Kind::Identifier)
-      continue;
-    const std::string &t = tok.text;
-    if (isQualifierToken(t))
-      continue;
-    if (baseType.empty())
-      baseType = t;
-    name = t;
-    identCount++;
-  }
-  if (identCount < 2)
-    return false;
-  if (baseType.empty() || name != identifier)
-    return false;
-  typeNameOut = baseType;
-  return true;
-}
-
-bool findParameterTypeInTextUpTo(const std::string &text,
-                                 const std::string &identifier,
-                                 size_t maxOffset, std::string &typeNameOut) {
-  bool found = false;
-  bool inLineComment = false;
-  bool inBlockComment = false;
-  bool inString = false;
-  auto isFuncHeaderKeyword = [&](const std::string &t) {
-    return t == "if" || t == "for" || t == "while" || t == "switch" ||
-           t == "return";
-  };
-
-  size_t limit = std::min(maxOffset, text.size());
-  for (size_t i = 0; i < limit; i++) {
-    char ch = text[i];
-    char next = i + 1 < limit ? text[i + 1] : '\0';
-
-    if (inLineComment) {
-      if (ch == '\n')
-        inLineComment = false;
-      continue;
-    }
-    if (inBlockComment) {
-      if (ch == '*' && next == '/') {
-        inBlockComment = false;
-        i++;
-      }
-      continue;
-    }
-    if (inString) {
-      if (ch == '"' && (i == 0 || text[i - 1] != '\\'))
-        inString = false;
-      continue;
-    }
-    if (ch == '/' && next == '/') {
-      inLineComment = true;
-      i++;
-      continue;
-    }
-    if (ch == '/' && next == '*') {
-      inBlockComment = true;
-      i++;
-      continue;
-    }
-    if (ch == '"') {
-      inString = true;
-      continue;
-    }
-    if (ch != '(')
-      continue;
-
-    size_t back = i;
-    while (back > 0 && std::isspace(static_cast<unsigned char>(text[back - 1])))
-      back--;
-    if (back == 0)
-      continue;
-    size_t nameEnd = back;
-    size_t nameStart = nameEnd;
-    while (nameStart > 0 && isIdentifierChar(text[nameStart - 1]))
-      nameStart--;
-    if (nameStart == nameEnd)
-      continue;
-    std::string funcName = text.substr(nameStart, nameEnd - nameStart);
-    if (isFuncHeaderKeyword(funcName))
-      continue;
-
-    size_t j = i + 1;
-    int parenDepth = 0;
-    int angleDepth = 0;
-    int bracketDepth = 0;
-    std::vector<LexToken> current;
-    bool localLineComment = false;
-    bool localBlockComment = false;
-    bool localString = false;
-    auto flushParam = [&]() -> void {
-      if (current.empty())
-        return;
-      std::string typeToken;
-      std::string nameToken;
-      int a = 0, b = 0, p = 0;
-      for (size_t ti = 0; ti < current.size(); ti++) {
-        const auto &tok = current[ti];
-        const std::string &t = tok.text;
-        if (t == "<")
-          a++;
-        else if (t == ">" && a > 0)
-          a--;
-        else if (t == "[")
-          b++;
-        else if (t == "]" && b > 0)
-          b--;
-        else if (t == "(")
-          p++;
-        else if (t == ")" && p > 0)
-          p--;
-        bool top = a == 0 && b == 0 && p == 0;
-        if (!top)
-          continue;
-        if (t == ":" || t == "=")
-          break;
-        if (tok.kind != LexToken::Kind::Identifier)
-          continue;
-        if (isQualifierToken(t))
-          continue;
-        if (typeToken.empty()) {
-          typeToken = t;
-        } else {
-          nameToken = t;
-        }
-      }
-      if (typeToken.empty() || nameToken.empty())
-        return;
-      if (nameToken != identifier)
-        return;
-      typeNameOut = typeToken;
-      found = true;
-    };
-
-    for (; j < limit; j++) {
-      char cj = text[j];
-      char nj = j + 1 < limit ? text[j + 1] : '\0';
-
-      if (localLineComment) {
-        if (cj == '\n')
-          localLineComment = false;
-        continue;
-      }
-      if (localBlockComment) {
-        if (cj == '*' && nj == '/') {
-          localBlockComment = false;
-          j++;
-        }
-        continue;
-      }
-      if (localString) {
-        if (cj == '"' && text[j - 1] != '\\')
-          localString = false;
-        continue;
-      }
-      if (cj == '/' && nj == '/') {
-        localLineComment = true;
-        j++;
-        continue;
-      }
-      if (cj == '/' && nj == '*') {
-        localBlockComment = true;
-        j++;
-        continue;
-      }
-      if (cj == '"') {
-        localString = true;
-        continue;
-      }
-
-      if (cj == '(') {
-        parenDepth++;
-      } else if (cj == ')' && parenDepth > 0) {
-        parenDepth--;
-      } else if (cj == '<') {
-        angleDepth++;
-      } else if (cj == '>' && angleDepth > 0) {
-        angleDepth--;
-      } else if (cj == '[') {
-        bracketDepth++;
-      } else if (cj == ']' && bracketDepth > 0) {
-        bracketDepth--;
-      }
-
-      if (cj == ')' && parenDepth == 0 && angleDepth == 0 &&
-          bracketDepth == 0) {
-        flushParam();
-        break;
-      }
-      if (cj == ',' && parenDepth == 0 && angleDepth == 0 &&
-          bracketDepth == 0) {
-        flushParam();
-        current.clear();
-        continue;
-      }
-
-      if (std::isspace(static_cast<unsigned char>(cj)))
-        continue;
-
-      if (isIdentifierChar(cj)) {
-        size_t start = j;
-        j++;
-        while (j < limit && isIdentifierChar(text[j]))
-          j++;
-        current.push_back(LexToken{LexToken::Kind::Identifier,
-                                   text.substr(start, j - start), start, j});
-        j--;
-        continue;
-      }
-      if (j + 1 < limit) {
-        std::string two = text.substr(j, 2);
-        if (two == "::" || two == "->" || two == "&&" || two == "||" ||
-            two == "<=" || two == ">=" || two == "==" || two == "!=") {
-          current.push_back(LexToken{LexToken::Kind::Punct, two, j, j + 2});
-          j++;
-          continue;
-        }
-      }
-      current.push_back(
-          LexToken{LexToken::Kind::Punct, std::string(1, cj), j, j + 1});
-    }
-  }
-  return found;
-}
-
-bool findTypeOfIdentifierInTextUpTo(const std::string &text,
-                                    const std::string &identifier,
-                                    size_t maxOffset,
-                                    std::string &typeNameOut) {
-  bool found = false;
-  int bestDepth = -1;
-  int currentDepth = 0;
-  bool inBlockComment = false;
-  bool inString = false;
-  size_t lineStartOffset = 0;
-  std::string line;
-  bool pendingUi = false;
-  std::string pendingUiType;
-  int pendingUiDepth = 0;
-  std::istringstream stream(text);
-  while (std::getline(stream, line)) {
-    if (lineStartOffset >= maxOffset)
-      break;
-    int lineDepth = currentDepth;
-    std::string lineType;
-    if (pendingUi) {
-      std::string code = line;
-      size_t lineComment = code.find("//");
-      if (lineComment != std::string::npos)
-        code = code.substr(0, lineComment);
-      size_t start = 0;
-      while (start < code.size() &&
-             std::isspace(static_cast<unsigned char>(code[start])))
-        start++;
-      if (start < code.size()) {
-        if (code[start] == '<') {
-          if (!found || pendingUiDepth > bestDepth ||
-              pendingUiDepth == bestDepth) {
-            typeNameOut = pendingUiType;
-            bestDepth = pendingUiDepth;
-            found = true;
-          }
-          pendingUi = false;
-        } else {
-          pendingUi = false;
-        }
-      }
-    }
-    if (findTypeOfIdentifierInDeclarationLine(line, identifier, lineType)) {
-      if (!found || lineDepth > bestDepth || lineDepth == bestDepth) {
-        typeNameOut = lineType;
-        bestDepth = lineDepth;
-        found = true;
-      }
-    }
-    if (!pendingUi) {
-      std::string uiType;
-      if (findUiMetadataDeclarationHeaderLine(line, identifier, uiType)) {
-        pendingUi = true;
-        pendingUiType = uiType;
-        pendingUiDepth = lineDepth;
-      }
-    }
-    for (size_t i = 0; i < line.size(); i++) {
-      char ch = line[i];
-      char next = i + 1 < line.size() ? line[i + 1] : '\0';
-      if (inBlockComment) {
-        if (ch == '*' && next == '/') {
-          inBlockComment = false;
-          i++;
-        }
-        continue;
-      }
-      if (inString) {
-        if (ch == '"' && (i == 0 || line[i - 1] != '\\'))
-          inString = false;
-        continue;
-      }
-      if (ch == '/' && next == '*') {
-        inBlockComment = true;
-        i++;
-        continue;
-      }
-      if (ch == '/' && next == '/') {
-        break;
-      }
-      if (ch == '"') {
-        inString = true;
-        continue;
-      }
-      if (ch == '{')
-        currentDepth++;
-      else if (ch == '}' && currentDepth > 0)
-        currentDepth--;
-    }
-    lineStartOffset += line.size() + 1;
-  }
-  return found;
-}
-
-std::vector<std::string> getIncludeGraphUrisCached(
-    const std::string &rootUri,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions);
-
-bool collectStructFieldsFromText(const std::string &text,
-                                 const std::string &structName,
-                                 std::vector<std::string> &fieldsOut) {
-  std::istringstream stream(text);
-  std::string line;
-  bool inTargetStruct = false;
-  int braceDepth = 0;
-  while (std::getline(stream, line)) {
-    std::string code = line;
-    size_t lineComment = code.find("//");
-    if (lineComment != std::string::npos)
-      code = code.substr(0, lineComment);
-    if (!inTargetStruct) {
-      std::string name;
-      if (extractStructNameInLine(code, name) && name == structName) {
-        inTargetStruct = true;
-        if (code.find('{') != std::string::npos)
-          braceDepth = 1;
-        else
-          braceDepth = 0;
-      }
-      continue;
-    }
-
-    if (braceDepth == 0) {
-      if (code.find('{') != std::string::npos)
-        braceDepth = 1;
-      continue;
-    }
-
-    if (braceDepth == 1) {
-      auto names = extractDeclaredNamesFromLine(code);
-      fieldsOut.insert(fieldsOut.end(), names.begin(), names.end());
-    }
-
-    for (char ch : code) {
-      if (ch == '{')
-        braceDepth++;
-      else if (ch == '}') {
-        braceDepth--;
-        if (braceDepth <= 0)
-          return !fieldsOut.empty();
-      }
     }
   }
   return false;
@@ -1104,19 +131,11 @@ bool collectStructFieldsInIncludeGraph(
     const std::vector<std::string> &shaderExtensions,
     std::unordered_set<std::string> &visited,
     std::vector<std::string> &fieldsOut) {
-  const auto orderedUris = getIncludeGraphUrisCached(
-      uri, documents, workspaceFolders, includePaths, shaderExtensions);
-  prefetchDocumentTexts(orderedUris, documents);
-  for (const auto &candidateUri : orderedUris) {
-    if (!visited.insert(candidateUri).second)
-      continue;
-    std::string text;
-    if (!loadDocumentText(candidateUri, documents, text))
-      continue;
-    if (collectStructFieldsFromText(text, structName, fieldsOut))
-      return true;
-  }
-  return false;
+  static const std::unordered_map<std::string, int> emptyDefines;
+  return collectStructFieldsInIncludeGraph(uri, structName, documents,
+                                           workspaceFolders, includePaths,
+                                           shaderExtensions, emptyDefines,
+                                           visited, fieldsOut);
 }
 
 bool findMacroDefinitionInLine(const std::string &line, const std::string &word,
@@ -1607,8 +626,10 @@ static bool findFxBlockDeclarationInLine(const std::string &line,
 }
 
 static bool findNamedDefinitionInText(const std::string &text,
-                                      const std::string &word, int &defLine,
-                                      int &defStart, int &defEnd) {
+                                      const std::string &word,
+                                      const PreprocessorView *preprocessorView,
+                                      int &defLine, int &defStart,
+                                      int &defEnd) {
   std::istringstream stream(text);
   std::string scanLine;
   int scanIndex = 0;
@@ -1617,6 +638,13 @@ static bool findNamedDefinitionInText(const std::string &text,
   size_t pendingUiVarStart = 0;
   std::string pendingUiVarLineText;
   while (std::getline(stream, scanLine)) {
+    if (preprocessorView &&
+        scanIndex < static_cast<int>(preprocessorView->lineActive.size()) &&
+        !preprocessorView->lineActive[scanIndex]) {
+      scanIndex++;
+      continue;
+    }
+
     std::string trimmed = scanLine;
     trimmed.erase(trimmed.begin(), std::find_if(trimmed.begin(), trimmed.end(),
                                                 [](unsigned char ch) {
@@ -1794,6 +822,206 @@ static bool findNamedDefinitionInText(const std::string &text,
   return false;
 }
 
+static bool findNamedDefinitionInText(const std::string &text,
+                                      const std::string &word, int &defLine,
+                                      int &defStart, int &defEnd) {
+  return findNamedDefinitionInText(text, word, nullptr, defLine, defStart,
+                                   defEnd);
+}
+
+static bool hasSameBranchFamilyShape(const PreprocBranchSig &a,
+                                     const PreprocBranchSig &b) {
+  if (a.size() != b.size())
+    return false;
+  for (size_t i = 0; i < a.size(); i++) {
+    if (a[i].first != b[i].first)
+      return false;
+  }
+  return true;
+}
+
+static bool branchSigStartsWith(const PreprocBranchSig &value,
+                                const PreprocBranchSig &prefix) {
+  if (prefix.size() > value.size())
+    return false;
+  for (size_t i = 0; i < prefix.size(); i++) {
+    if (value[i] != prefix[i])
+      return false;
+  }
+  return true;
+}
+
+static bool branchSigsCompatible(const PreprocBranchSig &a,
+                                 const PreprocBranchSig &b) {
+  size_t i = 0;
+  size_t j = 0;
+  while (i < a.size() && j < b.size()) {
+    if (a[i].first < b[j].first) {
+      i++;
+      continue;
+    }
+    if (b[j].first < a[i].first) {
+      j++;
+      continue;
+    }
+    if (a[i].second != b[j].second)
+      return false;
+    i++;
+    j++;
+  }
+  return true;
+}
+
+static bool findConditionalFamilyDeclarationOnLine(const std::string &lineText,
+                                                   const std::string &word) {
+  auto findFunctionDefinitionOnLine = [&](size_t &posOut) {
+    size_t funcPos = lineText.find(word);
+    while (funcPos != std::string::npos) {
+      if (!isWordBoundary(lineText, funcPos, funcPos + word.size())) {
+        funcPos = lineText.find(word, funcPos + word.size());
+        continue;
+      }
+      size_t openParen = lineText.find('(', funcPos + word.size());
+      if (openParen == std::string::npos) {
+        funcPos = lineText.find(word, funcPos + word.size());
+        continue;
+      }
+      std::string signaturePrefix = lineText.substr(0, openParen);
+      if (signaturePrefix.find('=') != std::string::npos) {
+        funcPos = lineText.find(word, funcPos + word.size());
+        continue;
+      }
+      std::string trimmedPrefix = signaturePrefix;
+      trimmedPrefix.erase(
+          trimmedPrefix.begin(),
+          std::find_if(trimmedPrefix.begin(), trimmedPrefix.end(),
+                       [](unsigned char ch) { return !std::isspace(ch); }));
+      if (!trimmedPrefix.empty() && trimmedPrefix.rfind("//", 0) != 0) {
+        std::istringstream prefixStream(signaturePrefix);
+        std::vector<std::string> tokens;
+        std::string token;
+        while (prefixStream >> token)
+          tokens.push_back(token);
+        if (tokens.size() >= 2 && tokens.back() == word) {
+          const std::string &firstToken = tokens.front();
+          if (firstToken != "return" && firstToken != "if" &&
+              firstToken != "for" && firstToken != "while" &&
+              firstToken != "switch") {
+            size_t closeParen = lineText.find(')', openParen + 1);
+            if (closeParen != std::string::npos) {
+              std::string suffix = lineText.substr(closeParen + 1);
+              size_t suffixStart = suffix.find_first_not_of(" \t");
+              suffix = suffixStart == std::string::npos
+                           ? ""
+                           : suffix.substr(suffixStart);
+              if (suffix.empty() || suffix[0] == ':' || suffix[0] == '{' ||
+                  suffix[0] == ';') {
+                posOut = funcPos;
+                return true;
+              }
+            }
+          }
+        }
+      }
+      funcPos = lineText.find(word, funcPos + word.size());
+    }
+    return false;
+  };
+
+  size_t pos = 0;
+  if (findDeclaredIdentifierInDeclarationLine(lineText, word, pos))
+    return true;
+  if (findFunctionDefinitionOnLine(pos))
+    return true;
+  if (findMacroDefinitionInLine(lineText, word, pos))
+    return true;
+  if (findFxBlockDeclarationInLine(lineText, word, pos))
+    return true;
+  return false;
+}
+
+static bool collectConditionalFamilyOccurrencesInSingleDocument(
+    const std::string &uri, const std::string &text, const std::string &word,
+    const std::unordered_map<std::string, int> &defines,
+    const DefinitionLocation &definition,
+    std::vector<LocatedOccurrence> &locationsOut) {
+  locationsOut.clear();
+  if (definition.uri != uri || definition.line < 0)
+    return false;
+
+  const PreprocessorView preprocessorView = buildPreprocessorView(text, defines);
+  if (definition.line >= static_cast<int>(preprocessorView.branchSigs.size()))
+    return false;
+
+  const PreprocBranchSig &targetSig = preprocessorView.branchSigs[definition.line];
+  if (targetSig.empty())
+    return false;
+
+  std::vector<PreprocBranchSig> familyVariants;
+  std::istringstream stream(text);
+  std::string lineText;
+  int lineIndex = 0;
+  while (std::getline(stream, lineText)) {
+    if (lineIndex >= static_cast<int>(preprocessorView.branchSigs.size()))
+      break;
+    if (findConditionalFamilyDeclarationOnLine(lineText, word) &&
+        hasSameBranchFamilyShape(preprocessorView.branchSigs[lineIndex],
+                                 targetSig)) {
+      familyVariants.push_back(preprocessorView.branchSigs[lineIndex]);
+    }
+    lineIndex++;
+  }
+
+  if (familyVariants.size() < 2)
+    return false;
+
+  auto occurrences = findOccurrences(text, word);
+  for (const auto &occ : occurrences) {
+    if (occ.line < 0 ||
+        occ.line >= static_cast<int>(preprocessorView.branchSigs.size()))
+      continue;
+    const PreprocBranchSig &occSig = preprocessorView.branchSigs[occ.line];
+    for (const auto &familySig : familyVariants) {
+      if (branchSigsCompatible(occSig, familySig)) {
+        locationsOut.push_back(LocatedOccurrence{uri, occ.line, occ.start,
+                                                 occ.end});
+        break;
+      }
+    }
+  }
+
+  return !locationsOut.empty();
+}
+
+static std::vector<LocatedOccurrence> collectActiveOccurrencesInDocument(
+    const std::string &uri, const std::string &text, const std::string &word,
+    const std::unordered_map<std::string, int> &defines) {
+  std::vector<LocatedOccurrence> locations;
+  const PreprocessorView preprocessorView = buildPreprocessorView(text, defines);
+  auto occurrences = findOccurrences(text, word);
+  for (const auto &occ : occurrences) {
+    if (occ.line >= 0 &&
+        occ.line < static_cast<int>(preprocessorView.lineActive.size()) &&
+        !preprocessorView.lineActive[occ.line]) {
+      continue;
+    }
+    locations.push_back(LocatedOccurrence{uri, occ.line, occ.start, occ.end});
+  }
+  return locations;
+}
+
+static void appendUniqueOccurrence(
+    std::vector<LocatedOccurrence> &locations,
+    std::unordered_set<std::string> &seenKeys,
+    const LocatedOccurrence &occurrence) {
+  const std::string key =
+      occurrence.uri + "|" + std::to_string(occurrence.line) + "|" +
+      std::to_string(occurrence.start) + "|" + std::to_string(occurrence.end);
+  if (!seenKeys.insert(key).second)
+    return;
+  locations.push_back(occurrence);
+}
+
 struct IncludeGraphCacheMetricsSnapshot {
   uint64_t lookups = 0;
   uint64_t cacheHits = 0;
@@ -1892,7 +1120,7 @@ static std::vector<std::string> getIncludeGraphUrisCachedImpl(
     SemanticCacheKey key = makeSemanticCacheKeyForUri(
         rootUri, workspaceFolders, includePaths, shaderExtensions);
     auto snapshot = semanticCacheGetSnapshot(key, rootUri, rootEpoch);
-    if (snapshot)
+    if (snapshot && snapshot->includeGraphComplete)
       return snapshot->includeGraphUrisOrdered;
   }
   {
@@ -1927,6 +1155,7 @@ static std::vector<std::string> getIncludeGraphUrisCachedImpl(
     created.uri = rootUri;
     created.documentEpoch = rootEpoch;
     created.includeGraphUrisOrdered = orderedUris;
+    created.includeGraphComplete = true;
     semanticCacheUpsertSnapshot(key, created);
   }
   return orderedUris;
@@ -1976,12 +1205,20 @@ IncludeGraphCacheMetricsSnapshot takeIncludeGraphCacheMetricsSnapshot() {
   return snapshot;
 }
 
+void invalidateAllIncludeGraphCaches() {
+  std::lock_guard<std::mutex> lock(gIncludeGraphCacheMutex);
+  gIncludeGraphCacheMetrics.invalidations++;
+  gIncludeGraphOrderedByRoot.clear();
+  gIncludeGraphRootsByUri.clear();
+}
+
 bool findDefinitionInIncludeGraph(
     const std::string &uri, const std::string &word,
     const std::unordered_map<std::string, Document> &documents,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     std::unordered_set<std::string> &visited, DefinitionLocation &location) {
   if (!visited.insert(uri).second)
     return false;
@@ -2003,7 +1240,10 @@ bool findDefinitionInIncludeGraph(
         int defLine = -1;
         int defStart = -1;
         int defEnd = -1;
-        if (findNamedDefinitionInText(text, word, defLine, defStart, defEnd)) {
+        const PreprocessorView preprocessorView =
+            buildPreprocessorView(text, defines);
+        if (findNamedDefinitionInText(text, word, &preprocessorView, defLine,
+                                      defStart, defEnd)) {
           location =
               DefinitionLocation{candidateUri, defLine, defStart, defEnd};
           return true;
@@ -2022,12 +1262,28 @@ bool findDefinitionInIncludeGraph(
     int defLine = -1;
     int defStart = -1;
     int defEnd = -1;
-    if (findNamedDefinitionInText(text, word, defLine, defStart, defEnd)) {
+    const PreprocessorView preprocessorView =
+        buildPreprocessorView(text, defines);
+    if (findNamedDefinitionInText(text, word, &preprocessorView, defLine,
+                                  defStart, defEnd)) {
       location = DefinitionLocation{candidateUri, defLine, defStart, defEnd};
       return true;
     }
   }
   return false;
+}
+
+bool findDefinitionInIncludeGraph(
+    const std::string &uri, const std::string &word,
+    const std::unordered_map<std::string, Document> &documents,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    std::unordered_set<std::string> &visited, DefinitionLocation &location) {
+  static const std::unordered_map<std::string, int> emptyDefines;
+  return findDefinitionInIncludeGraph(uri, word, documents, workspaceFolders,
+                                      includePaths, shaderExtensions,
+                                      emptyDefines, visited, location);
 }
 
 bool findDefinitionInIncludeGraphLegacy(
@@ -2063,7 +1319,8 @@ static std::vector<LocatedOccurrence> collectOccurrencesInIncludeGraph(
     const std::unordered_map<std::string, Document> &documents,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions) {
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines) {
   auto orderedUris = getIncludeGraphUrisCached(uri, documents, workspaceFolders,
                                                includePaths, shaderExtensions);
   prefetchDocumentTexts(orderedUris, documents);
@@ -2072,22 +1329,66 @@ static std::vector<LocatedOccurrence> collectOccurrencesInIncludeGraph(
     std::string text;
     if (!loadDocumentText(candidateUri, documents, text))
       continue;
-    auto occurrences = findOccurrences(text, word);
-    for (const auto &occ : occurrences) {
-      locations.push_back(
-          LocatedOccurrence{candidateUri, occ.line, occ.start, occ.end});
-    }
+    auto docLocations =
+        collectActiveOccurrencesInDocument(candidateUri, text, word, defines);
+    locations.insert(locations.end(), docLocations.begin(), docLocations.end());
   }
   return locations;
 }
 static std::vector<LocatedOccurrence> collectOccurrencesInSingleDocument(
-    const std::string &uri, const std::string &text, const std::string &word) {
-  std::vector<LocatedOccurrence> locations;
-  auto occurrences = findOccurrences(text, word);
-  for (const auto &occ : occurrences) {
-    locations.push_back(LocatedOccurrence{uri, occ.line, occ.start, occ.end});
+    const std::string &uri, const std::string &text, const std::string &word,
+    const std::unordered_map<std::string, int> &defines) {
+  return collectActiveOccurrencesInDocument(uri, text, word, defines);
+}
+
+std::vector<LocatedOccurrence> collectOccurrencesForSymbol(
+    const std::string &uri, const std::string &word,
+    const std::unordered_map<std::string, Document> &documents,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines) {
+  std::string currentText;
+  if (!loadDocumentText(uri, documents, currentText))
+    return {};
+
+  DefinitionLocation definition;
+  std::unordered_set<std::string> visited;
+  if (findDefinitionInIncludeGraph(uri, word, documents, workspaceFolders,
+                                   includePaths, shaderExtensions, defines,
+                                   visited, definition)) {
+    if (definition.uri == uri) {
+      std::vector<LocatedOccurrence> conditionalFamilyLocations;
+      if (collectConditionalFamilyOccurrencesInSingleDocument(
+              uri, currentText, word, defines, definition,
+              conditionalFamilyLocations)) {
+        return conditionalFamilyLocations;
+      }
+      return collectOccurrencesInSingleDocument(uri, currentText, word, defines);
+    }
+    auto locations = collectOccurrencesInIncludeGraph(
+        uri, word, documents, workspaceFolders, includePaths, shaderExtensions,
+        defines);
+    std::string definitionText;
+    if (loadDocumentText(definition.uri, documents, definitionText)) {
+      std::vector<LocatedOccurrence> familyLocations;
+      if (collectConditionalFamilyOccurrencesInSingleDocument(
+              definition.uri, definitionText, word, defines, definition,
+              familyLocations)) {
+        std::vector<LocatedOccurrence> merged;
+        std::unordered_set<std::string> seenKeys;
+        merged.reserve(locations.size() + familyLocations.size());
+        for (const auto &occ : locations)
+          appendUniqueOccurrence(merged, seenKeys, occ);
+        for (const auto &occ : familyLocations)
+          appendUniqueOccurrence(merged, seenKeys, occ);
+        return merged;
+      }
+    }
+    return locations;
   }
-  return locations;
+
+  return collectOccurrencesInSingleDocument(uri, currentText, word, defines);
 }
 
 std::vector<LocatedOccurrence> collectOccurrencesForSymbol(
@@ -2096,23 +1397,10 @@ std::vector<LocatedOccurrence> collectOccurrencesForSymbol(
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions) {
-  std::string currentText;
-  if (!loadDocumentText(uri, documents, currentText))
-    return {};
-
-  DefinitionLocation definition;
-  std::unordered_set<std::string> visited;
-  if (findDefinitionInIncludeGraph(uri, word, documents, workspaceFolders,
-                                   includePaths, shaderExtensions, visited,
-                                   definition)) {
-    if (definition.uri == uri) {
-      return collectOccurrencesInSingleDocument(uri, currentText, word);
-    }
-    return collectOccurrencesInIncludeGraph(
-        uri, word, documents, workspaceFolders, includePaths, shaderExtensions);
-  }
-
-  return collectOccurrencesInSingleDocument(uri, currentText, word);
+  static const std::unordered_map<std::string, int> emptyDefines;
+  return collectOccurrencesForSymbol(uri, word, documents, workspaceFolders,
+                                     includePaths, shaderExtensions,
+                                     emptyDefines);
 }
 
 int main(int argc, char **argv) {
@@ -3158,6 +2446,11 @@ int main(int argc, char **argv) {
       std::vector<Document> documentSnapshot;
       {
         std::lock_guard<std::mutex> lock(coreMutex);
+        core.scanDefinitionCache.clear();
+        core.scanDefinitionMisses.clear();
+        core.scanStructFieldsCache.clear();
+        core.scanStructFieldsMisses.clear();
+        core.scanCacheKey.clear();
         workspaceFoldersSnapshot = core.workspaceFolders;
         includePathsSnapshot = core.includePaths;
         shaderExtensionsSnapshot = core.shaderExtensions;
@@ -3171,6 +2464,7 @@ int main(int argc, char **argv) {
         for (const auto &entry : core.documents)
           documentSnapshot.push_back(entry.second);
       }
+      invalidateAllIncludeGraphCaches();
       workspaceIndexConfigure(workspaceFoldersSnapshot, includePathsSnapshot,
                               shaderExtensionsSnapshot);
       namespace fs = std::filesystem;
@@ -3234,6 +2528,37 @@ int main(int argc, char **argv) {
         }
       }
       workspaceIndexKickIndexing(reason);
+      if (id.type != Json::Type::Null)
+        writeResponse(id, makeNull());
+      continue;
+    }
+
+    if (method == "nsf/rebuildIndex") {
+      std::string reason = "manual";
+      bool clearDiskCache = false;
+      if (params && params->type == Json::Type::Object) {
+        const Json *reasonValue = getObjectValue(*params, "reason");
+        if (reasonValue && reasonValue->type == Json::Type::String &&
+            !reasonValue->s.empty()) {
+          reason = reasonValue->s;
+        }
+        const Json *clearValue = getObjectValue(*params, "clearDiskCache");
+        if (clearValue)
+          clearDiskCache = getBoolValue(*clearValue, false);
+      }
+      {
+        std::lock_guard<std::mutex> lock(coreMutex);
+        core.scanCacheKey.clear();
+        core.scanDefinitionCache.clear();
+        core.scanDefinitionMisses.clear();
+        core.scanStructFieldsCache.clear();
+        core.scanStructFieldsMisses.clear();
+      }
+      invalidateAllIncludeGraphCaches();
+      invalidateAllFastAstCaches();
+      invalidateAllFullAstCaches();
+      semanticCacheInvalidateAll();
+      workspaceIndexRebuild(reason, clearDiskCache);
       if (id.type != Json::Type::Null)
         writeResponse(id, makeNull());
       continue;
@@ -3367,6 +2692,20 @@ int main(int argc, char **argv) {
         uri = pathToUri(unitPath);
       }
       setActiveUnit(uri, unitPath);
+      continue;
+    }
+
+    if (method == "nsf/_debugIncludeContextUnits" && params) {
+      const Json *uriValue = getObjectValue(*params, "uri");
+      Json result = makeArray();
+      if (uriValue && uriValue->type == Json::Type::String) {
+        std::vector<std::string> units;
+        workspaceIndexCollectIncludingUnits({uriValue->s}, units, 256);
+        for (const auto &unit : units)
+          result.a.push_back(makeString(unit));
+      }
+      if (id.type != Json::Type::Null)
+        writeResponse(id, result);
       continue;
     }
 

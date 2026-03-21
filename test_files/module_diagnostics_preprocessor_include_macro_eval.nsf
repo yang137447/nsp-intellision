@@ -1,0 +1,11 @@
+#include "module_diagnostics_preprocessor_include_macro_defs.hlsl"
+
+float4 PreprocIncludeMacroEval(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if USE_LAYER1_PARALLAX
+    return float4(uv, 0.0, 1.0);
+#else
+    float2 bad = float4(0.0, 0.0, 0.0, 0.0);
+    return float4(uv, bad.x, 1.0);
+#endif
+}

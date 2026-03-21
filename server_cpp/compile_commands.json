@@ -1,38 +1,290 @@
 [
-  {
-    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
-    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\main.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\main.cpp",
-    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/main.cpp",
-    "output": "CMakeFiles/nsf_lsp.dir/src/main.cpp.obj"
-  },
-  {
-    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
-    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\json.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\json.cpp",
-    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/json.cpp",
-    "output": "CMakeFiles/nsf_lsp.dir/src/json.cpp.obj"
-  },
-  {
-    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
-    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\lsp_io.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\lsp_io.cpp",
-    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/lsp_io.cpp",
-    "output": "CMakeFiles/nsf_lsp.dir/src/lsp_io.cpp.obj"
-  },
-  {
-    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
-    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\lsp_helpers.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\lsp_helpers.cpp",
-    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/lsp_helpers.cpp",
-    "output": "CMakeFiles/nsf_lsp.dir/src/lsp_helpers.cpp.obj"
-  },
-  {
-    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
-    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\uri_utils.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\uri_utils.cpp",
-    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/uri_utils.cpp",
-    "output": "CMakeFiles/nsf_lsp.dir/src/uri_utils.cpp.obj"
-  },
-  {
-    "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build_mingw",
-    "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\text_utils.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\text_utils.cpp",
-    "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/text_utils.cpp",
-    "output": "CMakeFiles/nsf_lsp.dir/src/text_utils.cpp.obj"
-  }
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\main.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\main.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/main.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/main.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\active_unit.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\active_unit.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/active_unit.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/active_unit.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\definition_fallback.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\definition_fallback.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/definition_fallback.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/definition_fallback.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\workspace_index.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\workspace_index.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/workspace_index.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/workspace_index.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\server_documents.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\server_documents.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/server_documents.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/server_documents.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\server_parse.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\server_parse.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/server_parse.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/server_parse.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\server_settings.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\server_settings.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/server_settings.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/server_settings.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\server_request_handlers.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\server_request_handlers.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/server_request_handlers.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/server_request_handlers.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\workspace_scan_plan.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\workspace_scan_plan.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/workspace_scan_plan.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/workspace_scan_plan.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\call_query.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\call_query.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/call_query.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/call_query.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\symbol_query.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\symbol_query.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/symbol_query.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/symbol_query.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\hover_rendering.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\hover_rendering.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/hover_rendering.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/hover_rendering.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\member_query.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\member_query.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/member_query.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/member_query.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\completion_rendering.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\completion_rendering.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/completion_rendering.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/completion_rendering.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\declaration_query.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\declaration_query.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/declaration_query.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/declaration_query.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\ast_signature_index.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\ast_signature_index.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/ast_signature_index.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/ast_signature_index.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\fast_ast.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\fast_ast.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/fast_ast.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/fast_ast.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\full_ast.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\full_ast.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/full_ast.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/full_ast.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\include_resolver.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\include_resolver.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/include_resolver.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/include_resolver.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\nsf_lexer.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\nsf_lexer.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/nsf_lexer.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/nsf_lexer.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\hover_docs.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\hover_docs.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/hover_docs.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/hover_docs.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\hover_markdown.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\hover_markdown.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/hover_markdown.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/hover_markdown.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\hlsl_builtin_docs.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\hlsl_builtin_docs.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/hlsl_builtin_docs.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/hlsl_builtin_docs.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\language_registry.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\language_registry.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/language_registry.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/language_registry.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\conditional_ast.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\conditional_ast.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/conditional_ast.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/conditional_ast.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\expanded_source.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\expanded_source.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/expanded_source.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/expanded_source.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\hlsl_ast.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\hlsl_ast.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/hlsl_ast.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/hlsl_ast.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\semantic_snapshot.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\semantic_snapshot.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/semantic_snapshot.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/semantic_snapshot.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\preprocessor_view.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\preprocessor_view.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/preprocessor_view.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/preprocessor_view.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\executable_path.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\executable_path.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/executable_path.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/executable_path.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\diagnostics.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\diagnostics.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/diagnostics.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/diagnostics.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\semantic_cache.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\semantic_cache.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/semantic_cache.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/semantic_cache.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\type_eval.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\type_eval.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/type_eval.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/type_eval.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\type_desc.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\type_desc.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/type_desc.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/type_desc.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\type_model.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\type_model.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/type_model.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/type_model.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\type_relation.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\type_relation.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/type_relation.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/type_relation.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\overload_resolver.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\overload_resolver.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/overload_resolver.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/overload_resolver.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\visibility_evaluator.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\visibility_evaluator.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/visibility_evaluator.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/visibility_evaluator.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\semantic_tokens.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\semantic_tokens.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/semantic_tokens.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/semantic_tokens.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\callsite_parser.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\callsite_parser.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/callsite_parser.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/callsite_parser.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\json.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\json.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/json.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/json.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\resource_registry.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\resource_registry.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/resource_registry.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/resource_registry.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\lsp_io.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\lsp_io.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/lsp_io.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/lsp_io.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\crash_handler.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\crash_handler.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/crash_handler.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/crash_handler.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\lsp_helpers.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\lsp_helpers.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/lsp_helpers.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/lsp_helpers.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\uri_utils.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\uri_utils.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/uri_utils.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/uri_utils.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\text_utils.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\text_utils.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/text_utils.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/text_utils.cpp.obj"
+},
+{
+  "directory": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/build",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\clang++.exe   -O0 -g -Xclang -gcodeview -std=c++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\nsf_lsp.dir\\src\\macro_generated_functions.cpp.obj -c D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\src\\macro_generated_functions.cpp",
+  "file": "D:/YYBWorkSpace/GitHub/nsp-intellision/server_cpp/src/macro_generated_functions.cpp",
+  "output": "CMakeFiles/nsf_lsp.dir/src/macro_generated_functions.cpp.obj"
+}
 ]

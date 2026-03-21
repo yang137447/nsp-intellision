@@ -29,7 +29,7 @@ void applySettingsFromJson(
   }
   if (!target || target->type != Json::Type::Object)
     return;
-  const Json *incPaths = getObjectValue(*target, "includePaths");
+  const Json *incPaths = getObjectValue(*target, "intellisionPath");
   if (incPaths && incPaths->type == Json::Type::Array) {
     includePaths.clear();
     for (const auto &item : incPaths->a) {

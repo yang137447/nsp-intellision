@@ -278,6 +278,47 @@ indexCacheDir(const std::vector<std::string> &workspaceFolders) {
   return p;
 }
 
+static void
+clearIndexCacheStorage(const std::vector<std::string> &workspaceFolders) {
+  const fs::path baseDir = indexCacheDir(workspaceFolders);
+  std::error_code ec;
+  if (!fs::exists(baseDir, ec) || !fs::is_directory(baseDir, ec))
+    return;
+
+  std::vector<fs::path> directoriesToRemove;
+  std::vector<fs::path> filesToRemove;
+  fs::directory_iterator it(baseDir, ec);
+  fs::directory_iterator endIt;
+  for (; it != endIt && !ec; it.increment(ec)) {
+    const fs::path entryPath = it->path();
+    const std::string name = entryPath.filename().string();
+    if (it->is_directory(ec)) {
+      if (name.rfind("index_v2_", 0) == 0)
+        directoriesToRemove.push_back(entryPath);
+      ec.clear();
+      continue;
+    }
+    if (!it->is_regular_file(ec)) {
+      ec.clear();
+      continue;
+    }
+    if (name == "index_v1.json" ||
+        (name.rfind("index_v1_", 0) == 0 &&
+         entryPath.extension().string() == ".json")) {
+      filesToRemove.push_back(entryPath);
+    }
+    ec.clear();
+  }
+  for (const auto &path : filesToRemove) {
+    fs::remove(path, ec);
+    ec.clear();
+  }
+  for (const auto &path : directoriesToRemove) {
+    fs::remove_all(path, ec);
+    ec.clear();
+  }
+}
+
 static uint64_t fnv1a64(const std::string &text) {
   uint64_t hash = 1469598103934665603ull;
   for (unsigned char ch : text) {
@@ -781,17 +822,6 @@ extractStructMembers(const std::string &uri, const std::string &text,
   }
 }
 
-static bool isGlobalDeclDisqualifier(const std::vector<LexToken> &tokens) {
-  for (const auto &t : tokens) {
-    if (t.kind != LexToken::Kind::Punct)
-      continue;
-    if (t.text == ";" || t.text == "=" || t.text == "(" || t.text == "{" ||
-        t.text == "}" || t.text == "<" || t.text == ">")
-      return true;
-  }
-  return false;
-}
-
 static void extractDefinitions(const std::string &uri, const std::string &text,
                                std::vector<IndexedDefinition> &defsOut) {
   std::istringstream stream(text);
@@ -859,7 +889,9 @@ static void extractDefinitions(const std::string &uri, const std::string &text,
       }
     }
 
-    if (!inCbuffer && braceDepth == 0 && trimmed.rfind("cbuffer", 0) == 0) {
+    std::string cbufferName;
+    if (!inCbuffer && braceDepth == 0 &&
+        extractCBufferNameInLineShared(lineText, cbufferName)) {
       pendingCbuffer = true;
     }
 
@@ -877,12 +909,24 @@ static void extractDefinitions(const std::string &uri, const std::string &text,
         }
       }
 
-      if (trimmed.rfind("struct", 0) == 0 || trimmed.rfind("cbuffer", 0) == 0 ||
-          trimmed.rfind("technique", 0) == 0 || trimmed.rfind("pass", 0) == 0) {
+      std::string aggregateName;
+      const bool isStructDecl = extractStructNameInLine(lineText, aggregateName);
+      const bool isCBufferDecl =
+          !isStructDecl && extractCBufferNameInLineShared(lineText, aggregateName);
+      if (isStructDecl || isCBufferDecl || trimmed.rfind("technique", 0) == 0 ||
+          trimmed.rfind("pass", 0) == 0) {
         for (size_t i = 0; i + 1 < tokens.size(); i++) {
+          if (isStructDecl || isCBufferDecl) {
+            if (tokens[i].kind == LexToken::Kind::Identifier &&
+                tokens[i].text == aggregateName) {
+              record(tokens[i].text, "", 23, static_cast<int>(tokens[i].start),
+                     static_cast<int>(tokens[i].end), lineIndex);
+              break;
+            }
+            continue;
+          }
           if (tokens[i].kind == LexToken::Kind::Identifier &&
-              (tokens[i].text == "struct" || tokens[i].text == "cbuffer" ||
-               tokens[i].text == "technique" || tokens[i].text == "pass") &&
+              (tokens[i].text == "technique" || tokens[i].text == "pass") &&
               tokens[i + 1].kind == LexToken::Kind::Identifier) {
             record(tokens[i + 1].text, "", 23,
                    static_cast<int>(tokens[i + 1].start),
@@ -919,13 +963,17 @@ static void extractDefinitions(const std::string &uri, const std::string &text,
           if (nameIndex != std::string::npos) {
             const std::string name = tokens[nameIndex].text;
             const std::string type = tokens[typeIndex].text;
-            if (!isGlobalDeclDisqualifier(tokens)) {
+            std::string uiType;
+            std::string uiName;
+            if (extractUiMetadataDeclarationHeaderShared(lineText, uiType,
+                                                         uiName) &&
+                uiName == name) {
               pendingUiVar = true;
               pendingUiLine = lineIndex;
               pendingUiStartByte = static_cast<int>(tokens[nameIndex].start);
               pendingUiEndByte = static_cast<int>(tokens[nameIndex].end);
-              pendingUiName = name;
-              pendingUiType = type;
+              pendingUiName = uiName;
+              pendingUiType = uiType;
             } else if (nameIndex + 1 < tokens.size() &&
                        tokens[nameIndex + 1].kind == LexToken::Kind::Punct &&
                        tokens[nameIndex + 1].text == "(") {
@@ -1329,6 +1377,7 @@ public:
         configuredIncludePaths.clear();
         configuredExtensions.clear();
         pendingRebuild = false;
+        pendingRebuildClearDiskCache = false;
         pendingChangedUris.clear();
         ready = false;
         indexingEpoch++;
@@ -1382,6 +1431,7 @@ public:
       configuredIncludePaths = includePaths;
       configuredExtensions = std::move(exts);
       pendingRebuild = true;
+      pendingRebuildClearDiskCache = false;
       pendingRebuildReason = hadConfigured ? "configChange" : "startup";
       pendingChangedUris.clear();
       ready = false;
@@ -1529,21 +1579,29 @@ public:
   }
 
   void kickIndexing(const std::string &reason) {
+    rebuildIndex(reason, false);
+  }
+
+  void rebuildIndex(const std::string &reason, bool clearDiskCache) {
     bool shouldNotify = false;
     {
       std::lock_guard<std::mutex> lock(mutex);
       if (!configured)
         return;
       pendingRebuild = true;
+      pendingRebuildClearDiskCache = clearDiskCache;
       pendingChangedUris.clear();
-      pendingRebuildReason = reason.empty() ? "manual" : reason;
+      pendingRebuildReason = reason.empty()
+                                 ? (clearDiskCache ? "manualClearCache"
+                                                   : "manual")
+                                 : reason;
       ready = false;
       indexingEpoch++;
-      indexingState = "Validating";
+      indexingState = clearDiskCache ? "Reindexing" : "Validating";
       indexingReason = pendingRebuildReason;
-      progressPhase = "Validating";
+      progressPhase = clearDiskCache ? "ClearingCache" : "Validating";
       progressVisited = 0;
-      progressTotal = store.filesByPath.size();
+      progressTotal = clearDiskCache ? 0 : store.filesByPath.size();
       pendingQueuedTasks = 1;
       pendingRunningWorkers = 0;
       pendingDirtyFiles = 0;
@@ -1598,11 +1656,39 @@ public:
     }
   }
 
+  void collectIncludingUnits(const std::vector<std::string> &uris,
+                             std::vector<std::string> &outPaths,
+                             size_t limit) const {
+    outPaths.clear();
+    if (limit == 0)
+      return;
+    std::vector<std::string> closure;
+    collectReverseIncludeClosure(uris, closure, limit * 8);
+    std::unordered_set<std::string> seen;
+    for (const auto &path : closure) {
+      if (path.empty())
+        continue;
+      std::string ext = fs::path(path).extension().string();
+      std::transform(ext.begin(), ext.end(), ext.begin(),
+                     [](unsigned char ch) {
+                       return static_cast<char>(std::tolower(ch));
+                     });
+      if (ext != ".nsf")
+        continue;
+      if (!seen.insert(path).second)
+        continue;
+      outPaths.push_back(path);
+      if (outPaths.size() >= limit)
+        break;
+    }
+  }
+
   void shutdown() {
     {
       std::lock_guard<std::mutex> lock(mutex);
       stopping = true;
       pendingRebuild = false;
+      pendingRebuildClearDiskCache = false;
       pendingChangedUris.clear();
     }
     cv.notify_one();
@@ -1857,6 +1943,7 @@ private:
       std::vector<std::string> includePaths;
       std::vector<std::string> exts;
       bool doRebuild = false;
+      bool rebuildClearDiskCache = false;
       std::string rebuildReason;
       std::vector<std::string> changed;
       {
@@ -1868,6 +1955,8 @@ private:
           break;
         doRebuild = pendingRebuild;
         pendingRebuild = false;
+        rebuildClearDiskCache = pendingRebuildClearDiskCache;
+        pendingRebuildClearDiskCache = false;
         rebuildReason = pendingRebuildReason;
         changed.swap(pendingChangedUris);
         pendingQueuedTasks = pendingChangedUris.size();
@@ -1880,7 +1969,7 @@ private:
 
       if (doRebuild) {
         buildAll(localKey, workspaceFolders, includePaths, roots, exts,
-                 rebuildReason);
+                 rebuildReason, rebuildClearDiskCache);
         continue;
       }
       if (!changed.empty()) {
@@ -1895,7 +1984,7 @@ private:
                 const std::vector<std::string> &includePaths,
                 const std::vector<std::string> &roots,
                 const std::vector<std::string> &extensions,
-                const std::string &reason) {
+                const std::string &reason, bool clearDiskCache) {
     const int token = ++indexToken;
     sendIndexingEvent("begin", token, "backgroundIndex", 0, 0);
     {
@@ -1922,7 +2011,20 @@ private:
     newStore.key = key;
     bool cacheHit = false;
 
-    {
+    if (clearDiskCache) {
+      sendIndexingEvent("update", token, "backgroundIndex", 0, 0,
+                        "clearCache");
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        indexingState = "Reindexing";
+        progressPhase = "ClearingCache";
+        progressVisited = 0;
+        progressTotal = 0;
+        indexingUpdatedAtMs = nowUnixMs();
+      }
+      publishIndexingStateChanged(false);
+      clearIndexCacheStorage(workspaceFolders);
+    } else {
       IndexStore cached;
       if (loadFromDisk(key, workspaceFolders, cached)) {
         newStore = std::move(cached);
@@ -2769,6 +2871,7 @@ private:
 
   bool configured = false;
   bool pendingRebuild = false;
+  bool pendingRebuildClearDiskCache = false;
   std::string pendingRebuildReason = "startup";
   bool ready = false;
   std::string configuredKey;
@@ -2855,6 +2958,10 @@ void workspaceIndexKickIndexing(const std::string &reason) {
   getIndex().kickIndexing(reason);
 }
 
+void workspaceIndexRebuild(const std::string &reason, bool clearDiskCache) {
+  getIndex().rebuildIndex(reason, clearDiskCache);
+}
+
 void workspaceIndexSetConcurrencyLimits(size_t workerCount,
                                         size_t queueCapacity) {
   getIndex().setConcurrencyLimits(workerCount, queueCapacity);
@@ -2864,6 +2971,12 @@ void workspaceIndexCollectReverseIncludeClosure(
     const std::vector<std::string> &uris, std::vector<std::string> &outPaths,
     size_t limit) {
   getIndex().collectReverseIncludeClosure(uris, outPaths, limit);
+}
+
+void workspaceIndexCollectIncludingUnits(const std::vector<std::string> &uris,
+                                         std::vector<std::string> &outPaths,
+                                         size_t limit) {
+  getIndex().collectIncludingUnits(uris, outPaths, limit);
 }
 
 void workspaceIndexShutdown() { getIndex().shutdown(); }

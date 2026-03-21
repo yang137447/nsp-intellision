@@ -31,6 +31,11 @@ add_executable(nsf_lsp
   src/hover_markdown.cpp
   src/hlsl_builtin_docs.cpp
   src/language_registry.cpp
+  src/conditional_ast.cpp
+  src/expanded_source.cpp
+  src/hlsl_ast.cpp
+  src/semantic_snapshot.cpp
+  src/preprocessor_view.cpp
   src/executable_path.cpp
   src/diagnostics.cpp
   src/semantic_cache.cpp
@@ -41,7 +46,6 @@ add_executable(nsf_lsp
   src/overload_resolver.cpp
   src/visibility_evaluator.cpp
   src/semantic_tokens.cpp
-  src/signature_help.cpp
   src/callsite_parser.cpp
   src/json.cpp
   src/resource_registry.cpp

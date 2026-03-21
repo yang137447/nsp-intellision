@@ -1,12 +1,15 @@
 #include "server_request_handlers.hpp"
 
+#include "active_unit.hpp"
 #include "callsite_parser.hpp"
 #include "call_query.hpp"
 #include "completion_rendering.hpp"
 #include "declaration_query.hpp"
 #include "definition_fallback.hpp"
 #include "definition_location.hpp"
-#include "fast_ast.hpp"
+#include "expanded_source.hpp"
+#include "full_ast.hpp"
+#include "hlsl_ast.hpp"
 #include "hlsl_builtin_docs.hpp"
 #include "hover_docs.hpp"
 #include "hover_markdown.hpp"
@@ -20,10 +23,10 @@
 #include "member_query.hpp"
 #include "nsf_lexer.hpp"
 #include "overload_resolver.hpp"
+#include "semantic_snapshot.hpp"
 #include "semantic_tokens.hpp"
 #include "server_occurrences.hpp"
 #include "server_parse.hpp"
-#include "signature_help.hpp"
 #include "symbol_query.hpp"
 #include "text_utils.hpp"
 #include "type_desc.hpp"
@@ -39,6 +42,7 @@
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -55,6 +59,7 @@ bool findDefinitionInIncludeGraph(
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     std::unordered_set<std::string> &visited, DefinitionLocation &outLocation);
 bool findDefinitionInIncludeGraphLegacy(
     const std::string &uri, const std::string &word,
@@ -68,39 +73,27 @@ static bool definitionLocationEquals(const DefinitionLocation &a,
 static std::string
 definitionLocationToString(const DefinitionLocation &location);
 
-bool findTypeOfIdentifierInTextUpTo(const std::string &text,
-                                    const std::string &identifier,
-                                    size_t maxOffset, std::string &typeNameOut);
-
-bool findParameterTypeInTextUpTo(const std::string &text,
-                                 const std::string &identifier,
-                                 size_t maxOffset, std::string &typeNameOut);
-
-bool findTypeOfIdentifierInIncludeGraph(
-    const std::string &uri, const std::string &identifier,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions,
-    std::unordered_set<std::string> &visited, std::string &typeNameOut);
-
 bool collectStructFieldsInIncludeGraph(
     const std::string &uri, const std::string &structName,
     const std::unordered_map<std::string, Document> &documents,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     std::unordered_set<std::string> &visited,
     std::vector<std::string> &fieldsOut);
-
-bool collectStructFieldsFromText(const std::string &text,
-                                 const std::string &structName,
-                                 std::vector<std::string> &fieldsOut);
 
 size_t positionToOffset(const std::string &text, int line, int character);
 
 std::vector<LocatedOccurrence> collectOccurrencesForSymbol(
     const std::string &uri, const std::string &word,
+    const std::unordered_map<std::string, Document> &documents,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines);
+std::vector<std::string> getIncludeGraphUrisCached(
+    const std::string &rootUri,
     const std::unordered_map<std::string, Document> &documents,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
@@ -112,6 +105,14 @@ bool findMacroDefinitionInLine(const std::string &line, const std::string &word,
 bool findDeclaredIdentifierInDeclarationLine(const std::string &line,
                                              const std::string &word,
                                              size_t &posOut);
+static std::string extractReturnTypeFromFunctionLabel(const std::string &label,
+                                                      const std::string &name);
+
+static bool queryFunctionSignatureWithSemanticFallback(
+    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::string &name, int lineIndex, int nameCharacter,
+    ServerRequestContext &ctx, std::string &labelOut,
+    std::vector<std::string> &parametersOut);
 
 namespace {
 
@@ -161,6 +162,13 @@ static bool handleReferencesRequest(const std::string &, const Json &,
                                     const Json *, ServerRequestContext &,
                                     const std::vector<std::string> &,
                                     const std::vector<std::string> &);
+static bool collectIncludeContextDefinitionLocations(
+    const std::string &uri, const std::string &word, ServerRequestContext &ctx,
+    std::vector<DefinitionLocation> &outLocations);
+
+static void appendStructFieldMarkdown(
+    std::string &markdown,
+    const std::vector<SemanticSnapshotStructFieldInfo> &fields);
 
 static const std::vector<std::string> &getHlslScalarVectorMatrixTypeNames() {
   static const std::vector<std::string> names = []() {
@@ -754,8 +762,8 @@ static bool handleSignatureHelpRequest(const std::string &method,
   size_t cursorOffset = positionToOffset(doc->text, line, character);
   std::string functionName;
   int activeParameter = 0;
-  if (!parseCallAtOffset(doc->text, cursorOffset, functionName,
-                         activeParameter)) {
+  if (!parseCallSiteAtOffset(doc->text, cursorOffset, functionName,
+                             activeParameter)) {
     writeResponse(id, makeNull());
     return true;
   }
@@ -879,6 +887,9 @@ static bool handleSignatureHelpRequest(const std::string &method,
                                           candidates)) {
       std::vector<TypeDesc> argumentTypes;
       inferCallArgumentTypesAtCursor(uri, doc->text, cursorOffset,
+                                     doc->epoch, ctx.workspaceFolders,
+                                     ctx.includePaths, ctx.shaderExtensions,
+                                     ctx.preprocessorDefines,
                                      argumentTypes);
       ResolveCallContext resolveContext;
       resolveContext.defines = ctx.preprocessorDefines;
@@ -1333,11 +1344,25 @@ static bool handleDefinitionRequest(const std::string &method, const Json &id,
     writeResponse(id, makeArray());
     return true;
   }
+  {
+    std::vector<DefinitionLocation> includeContextLocations;
+    if (collectIncludeContextDefinitionLocations(uri, word, ctx,
+                                                 includeContextLocations)) {
+      Json locations = makeArray();
+      for (const auto &location : includeContextLocations) {
+        locations.a.push_back(makeLocationRange(location.uri, location.line,
+                                                location.start, location.end));
+      }
+      writeResponse(id, locations);
+      return true;
+    }
+  }
   DefinitionLocation newPathDefinition;
   std::unordered_set<std::string> visited;
   const bool newPathFound = findDefinitionInIncludeGraph(
       uri, word, ctx.documentSnapshot(), ctx.workspaceFolders, ctx.includePaths,
-      ctx.shaderExtensions, visited, newPathDefinition);
+      ctx.shaderExtensions, ctx.preprocessorDefines, visited,
+      newPathDefinition);
   DefinitionLocation oldPathDefinition;
   bool oldPathFound = false;
   if (kEnableSemanticCacheShadowCompare) {
@@ -1418,6 +1443,496 @@ static std::string formatFileLineDisplay(const std::string &uri, int line,
   if (base.empty())
     base = path;
   return base + ":" + std::to_string(oneBased);
+}
+
+static bool pathHasNsfExtension(const std::string &path) {
+  std::filesystem::path fsPath(path);
+  std::string ext = fsPath.extension().string();
+  std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return ext == ".nsf";
+}
+
+static std::string normalizeComparablePath(std::string value) {
+  value = std::filesystem::path(value).lexically_normal().string();
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char ch) {
+                   char c = static_cast<char>(std::tolower(ch));
+                   return c == '\\' ? '/' : c;
+                 });
+  while (value.size() > 1 && value.back() == '/')
+    value.pop_back();
+  return value;
+}
+
+static bool extractIncludePathOutsideCommentsLocal(
+    const std::string &line, bool &inBlockCommentInOut,
+    std::string &outIncludePath) {
+  outIncludePath.clear();
+  bool inString = false;
+  bool escape = false;
+  for (size_t i = 0; i < line.size();) {
+    const char ch = line[i];
+    const char next = (i + 1 < line.size()) ? line[i + 1] : '\0';
+
+    if (inBlockCommentInOut) {
+      if (ch == '*' && next == '/') {
+        inBlockCommentInOut = false;
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (!inString && ch == '/' && next == '*') {
+      inBlockCommentInOut = true;
+      i += 2;
+      continue;
+    }
+    if (!inString && ch == '/' && next == '/')
+      break;
+
+    if (ch == '"' && !escape) {
+      inString = !inString;
+      i++;
+      continue;
+    }
+    if (inString) {
+      escape = (!escape && ch == '\\');
+      i++;
+      continue;
+    }
+    escape = false;
+
+    if (ch != '#') {
+      i++;
+      continue;
+    }
+
+    size_t j = i + 1;
+    while (j < line.size() &&
+           std::isspace(static_cast<unsigned char>(line[j]))) {
+      j++;
+    }
+    if (j + 7 > line.size() || line.compare(j, 7, "include") != 0) {
+      i++;
+      continue;
+    }
+    j += 7;
+    while (j < line.size() &&
+           std::isspace(static_cast<unsigned char>(line[j]))) {
+      j++;
+    }
+    if (j >= line.size())
+      return false;
+
+    const char opener = line[j];
+    const char closer = opener == '<' ? '>' : (opener == '"' ? '"' : '\0');
+    if (closer == '\0')
+      return false;
+    j++;
+    const size_t start = j;
+    while (j < line.size() && line[j] != closer)
+      j++;
+    if (j >= line.size())
+      return false;
+    outIncludePath = line.substr(start, j - start);
+    return !outIncludePath.empty();
+  }
+  return false;
+}
+
+static void collectIncludeContextUnitsByWorkspaceScan(
+    const std::string &uri, const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    std::vector<std::string> &unitPaths) {
+  const std::string targetPath = uriToPath(uri);
+  if (targetPath.empty())
+    return;
+  const std::string targetPathN = normalizeComparablePath(targetPath);
+  std::unordered_set<std::string> seen;
+  for (const auto &path : unitPaths)
+    seen.insert(normalizeComparablePath(path));
+  const auto timeBudget = std::chrono::milliseconds(600);
+  const auto startedAt = std::chrono::steady_clock::now();
+  size_t visitedFiles = 0;
+  const size_t fileBudget = 2048;
+
+  auto isAbsolutePath = [](const std::string &path) {
+    if (path.size() >= 2 &&
+        std::isalpha(static_cast<unsigned char>(path[0])) &&
+        path[1] == ':')
+      return true;
+    return path.rfind("\\\\", 0) == 0 || path.rfind("/", 0) == 0;
+  };
+  auto joinPath = [](const std::string &base, const std::string &child) {
+    if (base.empty())
+      return child;
+    if (base.back() == '/' || base.back() == '\\')
+      return base + child;
+    return base + "\\" + child;
+  };
+
+  std::vector<std::string> searchRoots;
+  std::unordered_set<std::string> seenRoots;
+  auto addSearchRoot = [&](const std::string &root) {
+    if (root.empty())
+      return;
+    const std::string normalized = normalizeComparablePath(root);
+    if (!seenRoots.insert(normalized).second)
+      return;
+    searchRoots.push_back(root);
+  };
+
+  for (const auto &inc : includePaths) {
+    if (inc.empty())
+      continue;
+    if (isAbsolutePath(inc)) {
+      addSearchRoot(inc);
+      continue;
+    }
+    for (const auto &folder : workspaceFolders) {
+      if (folder.empty())
+        continue;
+      addSearchRoot(joinPath(folder, inc));
+    }
+  }
+
+  if (searchRoots.empty())
+    return;
+
+  for (const auto &folder : searchRoots) {
+    std::error_code ec;
+    std::filesystem::path root(folder);
+    if (!std::filesystem::exists(root, ec))
+      continue;
+    std::filesystem::recursive_directory_iterator it(
+        root, std::filesystem::directory_options::skip_permission_denied, ec);
+    std::filesystem::recursive_directory_iterator endIt;
+    for (; it != endIt && !ec; it.increment(ec)) {
+      if (visitedFiles >= fileBudget)
+        return;
+      if (std::chrono::steady_clock::now() - startedAt > timeBudget)
+        return;
+      if (!it->is_regular_file(ec))
+        continue;
+      const std::filesystem::path candidatePath = it->path();
+      if (!pathHasNsfExtension(candidatePath.string()))
+        continue;
+      visitedFiles++;
+
+      std::ifstream stream(candidatePath, std::ios::binary);
+      if (!stream)
+        continue;
+      bool inBlockComment = false;
+      std::string line;
+      const std::string candidateUri = pathToUri(candidatePath.string());
+      while (std::getline(stream, line)) {
+        std::string includePath;
+        if (!extractIncludePathOutsideCommentsLocal(line, inBlockComment,
+                                                    includePath)) {
+          continue;
+        }
+        auto resolvedCandidates = resolveIncludeCandidates(
+            candidateUri, includePath, workspaceFolders, includePaths,
+            shaderExtensions);
+        for (const auto &resolved : resolvedCandidates) {
+          if (normalizeComparablePath(resolved) != targetPathN)
+            continue;
+          const std::string candidateUnitPath = candidatePath.string();
+          const std::string candidateUnitPathN =
+              normalizeComparablePath(candidateUnitPath);
+          if (seen.insert(candidateUnitPathN).second)
+            unitPaths.push_back(candidateUnitPath);
+          break;
+        }
+      }
+    }
+  }
+}
+
+static std::vector<std::string>
+collectIncludeContextUnitPaths(const std::string &uri,
+                               const ServerRequestContext &ctx) {
+  std::vector<std::string> unitPaths;
+  if (!getActiveUnitPath().empty())
+    return unitPaths;
+
+  const std::string path = uriToPath(uri);
+  if (path.empty() || pathHasNsfExtension(path))
+    return unitPaths;
+
+  workspaceIndexCollectIncludingUnits({uri}, unitPaths, 256);
+  if (unitPaths.size() <= 1) {
+    collectIncludeContextUnitsByWorkspaceScan(
+        uri, ctx.workspaceFolders, ctx.includePaths, ctx.shaderExtensions,
+        unitPaths);
+  }
+  std::sort(unitPaths.begin(), unitPaths.end());
+  unitPaths.erase(std::unique(unitPaths.begin(), unitPaths.end()),
+                  unitPaths.end());
+  return unitPaths;
+}
+
+static std::vector<std::string>
+collectIncludeContextUnitsForHover(const std::string &uri,
+                                   const ServerRequestContext &ctx) {
+  std::vector<std::string> labels;
+  std::unordered_set<std::string> seen;
+  for (const auto &candidatePath : collectIncludeContextUnitPaths(uri, ctx)) {
+    std::filesystem::path fsPath(candidatePath);
+    std::string label = fsPath.filename().string();
+    if (label.empty())
+      label = candidatePath;
+    if (!seen.insert(label).second)
+      continue;
+    labels.push_back(label);
+  }
+  std::sort(labels.begin(), labels.end());
+  return labels;
+}
+
+static std::string
+buildIncludeContextHoverNote(const std::vector<std::string> &unitLabels) {
+  if (unitLabels.size() <= 1)
+    return std::string();
+  std::string note = "(Include context ambiguous) Candidate units: ";
+  for (size_t i = 0; i < unitLabels.size(); i++) {
+    if (i > 0)
+      note += ", ";
+    note += unitLabels[i];
+  }
+  return note;
+}
+
+static bool collectIncludeContextDefinitionLocations(
+    const std::string &uri, const std::string &word, ServerRequestContext &ctx,
+    std::vector<DefinitionLocation> &outLocations) {
+  outLocations.clear();
+  if (!getActiveUnitPath().empty())
+    return false;
+
+  const std::string path = uriToPath(uri);
+  if (path.empty() || pathHasNsfExtension(path))
+    return false;
+
+  std::vector<std::string> candidateUnitPaths =
+      collectIncludeContextUnitPaths(uri, ctx);
+  if (candidateUnitPaths.size() <= 1)
+    return false;
+
+  std::unordered_set<std::string> seen;
+  for (const auto &candidateUnitPath : candidateUnitPaths) {
+    const std::string candidateUnitUri = pathToUri(candidateUnitPath);
+    std::unordered_set<std::string> visited;
+    DefinitionLocation location;
+    if (!findDefinitionInIncludeGraph(
+            candidateUnitUri, word, ctx.documentSnapshot(), ctx.workspaceFolders,
+            ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+            visited, location)) {
+      continue;
+    }
+    const std::string key =
+        location.uri + "|" + std::to_string(location.line) + "|" +
+        std::to_string(location.start) + "|" + std::to_string(location.end);
+    if (!seen.insert(key).second)
+      continue;
+    outLocations.push_back(location);
+  }
+
+  return outLocations.size() > 1;
+}
+
+static void appendIncludeContextDefinitionListItems(
+    const std::string &uri, const std::string &word, ServerRequestContext &ctx,
+    std::vector<HoverLocationListItem> &outItems) {
+  outItems.clear();
+  std::vector<std::string> candidateUnitPaths =
+      collectIncludeContextUnitPaths(uri, ctx);
+  if (candidateUnitPaths.size() <= 1)
+    return;
+
+  std::unordered_set<std::string> seen;
+  for (const auto &candidateUnitPath : candidateUnitPaths) {
+    const std::string candidateUnitUri = pathToUri(candidateUnitPath);
+    std::unordered_set<std::string> visited;
+    DefinitionLocation location;
+    if (!findDefinitionInIncludeGraph(
+            candidateUnitUri, word, ctx.documentSnapshot(), ctx.workspaceFolders,
+            ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+            visited, location)) {
+      continue;
+    }
+    HoverLocationListItem item;
+    item.label = std::filesystem::path(candidateUnitPath).filename().string();
+    if (item.label.empty())
+      item.label = candidateUnitPath;
+    item.locationDisplay =
+        formatFileLineDisplay(location.uri, location.line, uri);
+    std::string defText;
+    if (ctx.readDocumentText(location.uri, defText)) {
+      std::string label;
+      std::vector<std::string> paramsOut;
+      uint64_t dEpoch = 0;
+      const Document *dDoc = ctx.findDocument(location.uri);
+      if (dDoc)
+        dEpoch = dDoc->epoch;
+      const bool fastSig = queryFunctionSignatureWithSemanticFallback(
+          location.uri, defText, dEpoch, word, location.line, location.start,
+          ctx, label, paramsOut);
+      if (fastSig && !label.empty()) {
+        item.locationDisplay =
+            label + " @ " + formatFileLineDisplay(location.uri, location.line,
+                                                  uri);
+      }
+    }
+    const std::string key = item.label + "|" + item.locationDisplay;
+    if (!seen.insert(key).second)
+      continue;
+    outItems.push_back(std::move(item));
+  }
+}
+
+static std::vector<LocatedOccurrence> collectActiveOccurrencesInDocumentLocal(
+    const std::string &uri, const std::string &text, const std::string &word,
+    const std::unordered_map<std::string, int> &defines) {
+  std::vector<LocatedOccurrence> locations;
+  const ExpandedSource expandedSource =
+      buildLinePreservingExpandedSource(text, defines);
+  auto occurrences = findOccurrences(expandedSource.text, word);
+  for (const auto &occ : occurrences) {
+    locations.push_back(LocatedOccurrence{uri, occ.line, occ.start, occ.end});
+  }
+  return locations;
+}
+
+static bool collectIncludeContextOccurrences(
+    const std::string &uri, const std::string &word, ServerRequestContext &ctx,
+    std::vector<LocatedOccurrence> &outOccurrences) {
+  outOccurrences.clear();
+  std::vector<std::string> candidateUnitPaths =
+      collectIncludeContextUnitPaths(uri, ctx);
+  if (candidateUnitPaths.size() <= 1)
+    return false;
+
+  std::unordered_set<std::string> seen;
+  const auto documents = ctx.documentSnapshot();
+  for (const auto &candidateUnitPath : candidateUnitPaths) {
+    const std::string candidateUnitUri = pathToUri(candidateUnitPath);
+    auto orderedUris =
+        getIncludeGraphUrisCached(candidateUnitUri, documents,
+                                  ctx.workspaceFolders, ctx.includePaths,
+                                  ctx.shaderExtensions);
+    prefetchDocumentTexts(orderedUris, documents);
+    for (const auto &candidateUri : orderedUris) {
+      std::string text;
+      if (!loadDocumentText(candidateUri, documents, text))
+        continue;
+      auto occurrences = collectActiveOccurrencesInDocumentLocal(
+          candidateUri, text, word, ctx.preprocessorDefines);
+      for (const auto &occ : occurrences) {
+        const std::string key =
+            occ.uri + "|" + std::to_string(occ.line) + "|" +
+            std::to_string(occ.start) + "|" + std::to_string(occ.end);
+        if (!seen.insert(key).second)
+          continue;
+        outOccurrences.push_back(occ);
+      }
+    }
+  }
+  return !outOccurrences.empty();
+}
+
+static bool queryFunctionSignatureWithSemanticFallback(
+    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::string &name, int lineIndex, int nameCharacter,
+    ServerRequestContext &ctx, std::string &labelOut,
+    std::vector<std::string> &parametersOut) {
+  return querySemanticSnapshotFunctionSignature(
+             uri, text, epoch, ctx.workspaceFolders, ctx.includePaths,
+             ctx.shaderExtensions, ctx.preprocessorDefines, name, lineIndex,
+             nameCharacter, labelOut, parametersOut) ||
+         queryFullAstFunctionSignature(uri, text, epoch, name, lineIndex,
+                                       nameCharacter, labelOut,
+                                       parametersOut);
+}
+
+static void appendStructFieldMarkdown(
+    std::string &markdown,
+    const std::vector<SemanticSnapshotStructFieldInfo> &fields) {
+  if (fields.empty())
+    return;
+  markdown += "\n\nMembers:";
+  size_t shown = 0;
+  for (size_t i = 0; i < fields.size() && shown < 256; i++) {
+    markdown += "\n- `";
+    if (!fields[i].type.empty()) {
+      markdown += fields[i].type;
+      markdown += " ";
+    }
+    markdown += fields[i].name;
+    markdown += "`";
+    shown++;
+  }
+  if (fields.size() > shown)
+    markdown += "\n- `...`";
+}
+
+static bool writeIncludeContextHoverResponse(
+    const Json &id, const std::string &uri, const std::string &word,
+    const std::string &includeContextNote, ServerRequestContext &ctx) {
+  if (includeContextNote.empty())
+    return false;
+
+  std::vector<DefinitionLocation> locations;
+  if (!collectIncludeContextDefinitionLocations(uri, word, ctx, locations) ||
+      locations.empty()) {
+    return false;
+  }
+
+  std::vector<HoverLocationListItem> listItems;
+  appendIncludeContextDefinitionListItems(uri, word, ctx, listItems);
+  if (listItems.empty())
+    return false;
+
+  const DefinitionLocation &primary = locations.front();
+  std::string defText;
+  if (!ctx.readDocumentText(primary.uri, defText))
+    return false;
+
+  std::string label;
+  std::vector<std::string> paramsOut;
+  uint64_t locEpoch = 0;
+  const Document *locDoc = ctx.findDocument(primary.uri);
+  if (locDoc)
+    locEpoch = locDoc->epoch;
+  const bool fastSig = queryFunctionSignatureWithSemanticFallback(
+      primary.uri, defText, locEpoch, word, primary.line, primary.start, ctx,
+      label, paramsOut);
+  if (!fastSig || label.empty()) {
+    return false;
+  }
+
+  HoverFunctionMarkdownInput functionInput;
+  functionInput.code = label;
+  functionInput.kindLabel = "(HLSL function)";
+  functionInput.returnType = extractReturnTypeFromFunctionLabel(label, word);
+  functionInput.parameters = paramsOut;
+  functionInput.definedAt = formatFileLineDisplay(primary.uri, primary.line, uri);
+  functionInput.leadingDoc = extractLeadingDocumentationAtLine(defText, primary.line);
+  functionInput.inlineDoc =
+      extractTrailingInlineCommentAtLine(defText, primary.line, primary.end);
+  functionInput.selectionNote = includeContextNote;
+  functionInput.listTitle = "Candidate units";
+  functionInput.listItems = std::move(listItems);
+
+  Json hover = makeObject();
+  hover.o["contents"] = makeMarkup(renderHoverFunctionMarkdown(functionInput));
+  writeResponse(id, hover);
+  return true;
 }
 
 static bool tryExtractIncludeSpan(const std::string &lineText, int cursorChar,
@@ -1561,100 +2076,30 @@ static bool findLocalFunctionDeclarationUpTo(const std::string &text,
   return found;
 }
 
-static void collectMemberNamesFromTextRecursive(
+static void collectFieldInfosFromTextRecursive(
     const std::string &baseUri, const std::string &text,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions, int depth,
-    std::unordered_set<std::string> &visitedUris,
-    std::unordered_set<std::string> &seenNames,
-    std::vector<std::string> &outFields) {
-  if (depth <= 0)
-    return;
-  if (!visitedUris.insert(baseUri).second)
-    return;
-  std::istringstream stream(text);
-  std::string line;
-  while (std::getline(stream, line)) {
-    std::string code = line;
-    size_t lineComment = code.find("//");
-    if (lineComment != std::string::npos)
-      code = code.substr(0, lineComment);
-    std::string includePath;
-    if (extractIncludePath(code, includePath)) {
-      auto candidates =
-          resolveIncludeCandidates(baseUri, includePath, workspaceFolders,
-                                   includePaths, shaderExtensions);
-      std::vector<std::string> candidateUris;
-      candidateUris.reserve(candidates.size());
-      for (const auto &candidate : candidates)
-        candidateUris.push_back(pathToUri(candidate));
-      prefetchDocumentTexts(candidateUris, documents);
-      for (const auto &candidate : candidates) {
-        std::string candidateUri = pathToUri(candidate);
-        std::string candidateText;
-        if (!loadDocumentText(candidateUri, documents, candidateText))
-          continue;
-        collectMemberNamesFromTextRecursive(
-            candidateUri, candidateText, documents, workspaceFolders,
-            includePaths, shaderExtensions, depth - 1, visitedUris, seenNames,
-            outFields);
-        break;
-      }
-      continue;
-    }
-    auto names = extractDeclaredNamesFromLine(code);
-    for (const auto &n : names) {
-      if (!seenNames.insert(n).second)
-        continue;
-      outFields.push_back(n);
-    }
-    if (outFields.size() >= 512)
-      return;
-  }
-}
-
-static bool collectStructFieldsFromTextWithInlineIncludes(
-    const std::string &baseUri, const std::string &text,
-    const std::string &structName,
     const std::unordered_map<std::string, Document> &documents,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
-    std::vector<std::string> &fieldsOut) {
-  fieldsOut.clear();
-  std::unordered_set<std::string> seen;
-  std::istringstream stream(text);
-  std::string line;
-  bool inTargetStruct = false;
-  int braceDepth = 0;
-  while (std::getline(stream, line)) {
-    std::string code = line;
-    size_t lineComment = code.find("//");
-    if (lineComment != std::string::npos)
-      code = code.substr(0, lineComment);
-    if (!inTargetStruct) {
-      std::string name;
-      if (extractStructNameInLine(code, name) && name == structName) {
-        inTargetStruct = true;
-        if (code.find('{') != std::string::npos)
-          braceDepth = 1;
-        else
-          braceDepth = 0;
-      }
-      continue;
-    }
+    const std::unordered_map<std::string, int> &defines, int depth,
+    std::unordered_set<std::string> &visitedUris,
+    std::unordered_set<std::string> &seenNames,
+    std::vector<SemanticSnapshotStructFieldInfo> &outFields) {
+  if (depth <= 0 || outFields.size() >= 512)
+    return;
+  if (!visitedUris.insert(baseUri).second)
+    return;
 
-    if (braceDepth == 0) {
-      if (code.find('{') != std::string::npos)
-        braceDepth = 1;
-      continue;
-    }
+  const ExpandedSource expandedSource =
+      buildLinePreservingExpandedSource(text, defines);
+  const HlslAstDocument ast = buildHlslAstDocument(expandedSource);
+  std::vector<char> globalConsumed(ast.globalVariables.size(), 0);
 
-    if (braceDepth == 1) {
-      std::string includePath;
-      if (extractIncludePath(code, includePath)) {
+  for (const auto &decl : ast.topLevelDecls) {
+    if (decl.kind == HlslTopLevelDeclKind::Include) {
+      const std::string includePath = decl.name;
+      if (!includePath.empty()) {
         auto candidates =
             resolveIncludeCandidates(baseUri, includePath, workspaceFolders,
                                      includePaths, shaderExtensions);
@@ -1668,35 +2113,184 @@ static bool collectStructFieldsFromTextWithInlineIncludes(
           std::string candidateText;
           if (!loadDocumentText(candidateUri, documents, candidateText))
             continue;
-          std::unordered_set<std::string> visited;
-          collectMemberNamesFromTextRecursive(
+          collectFieldInfosFromTextRecursive(
               candidateUri, candidateText, documents, workspaceFolders,
-              includePaths, shaderExtensions, 12, visited, seen, fieldsOut);
+              includePaths, shaderExtensions, defines, depth - 1, visitedUris,
+              seenNames, outFields);
           break;
         }
-      } else {
-        auto names = extractDeclaredNamesFromLine(code);
-        for (const auto &n : names) {
-          if (!seen.insert(n).second)
-            continue;
-          fieldsOut.push_back(n);
-        }
       }
+    } else if (decl.kind == HlslTopLevelDeclKind::GlobalVariable) {
+      const HlslAstGlobalVariableDecl *matchedGlobal = nullptr;
+      size_t matchedIndex = 0;
+      for (size_t index = 0; index < ast.globalVariables.size(); index++) {
+        if (globalConsumed[index])
+          continue;
+        const auto &candidate = ast.globalVariables[index];
+        if (candidate.line != decl.line || candidate.name != decl.name)
+          continue;
+        matchedGlobal = &candidate;
+        matchedIndex = index;
+        break;
+      }
+      if (!matchedGlobal)
+        continue;
+      globalConsumed[matchedIndex] = 1;
+      if (!seenNames.insert(matchedGlobal->name).second)
+        continue;
+      SemanticSnapshotStructFieldInfo item;
+      item.name = matchedGlobal->name;
+      item.type = matchedGlobal->type;
+      item.line = matchedGlobal->line;
+      outFields.push_back(std::move(item));
+      if (outFields.size() >= 512)
+        return;
     }
+    if (outFields.size() >= 512)
+      return;
+  }
+}
 
-    for (char ch : code) {
-      if (ch == '{')
-        braceDepth++;
-      else if (ch == '}') {
-        braceDepth--;
-        if (braceDepth <= 0)
-          return !fieldsOut.empty();
-      }
+static bool collectStructFieldInfosFromTextWithInlineIncludes(
+    const std::string &baseUri, const std::string &text,
+    const std::string &structName,
+    const std::unordered_map<std::string, Document> &documents,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
+    std::vector<SemanticSnapshotStructFieldInfo> &fieldsOut) {
+  fieldsOut.clear();
+  const ExpandedSource expandedSource =
+      buildLinePreservingExpandedSource(text, defines);
+  const HlslAstDocument ast = buildHlslAstDocument(expandedSource);
+
+  const HlslAstStructDecl *targetStruct = nullptr;
+  for (const auto &decl : ast.structs) {
+    if (decl.name == structName) {
+      targetStruct = &decl;
+      break;
+    }
+  }
+
+  std::unordered_set<std::string> seen;
+  if (targetStruct) {
+    for (const auto &field : targetStruct->fields) {
+      if (!seen.insert(field.name).second)
+        continue;
+      SemanticSnapshotStructFieldInfo item;
+      item.name = field.name;
+      item.type = field.type;
+      item.line = field.line;
+      fieldsOut.push_back(std::move(item));
+      if (fieldsOut.size() >= 512)
+        return true;
+    }
+  }
+
+  std::vector<std::string> inlineIncludePaths;
+  if (targetStruct) {
+    inlineIncludePaths.reserve(targetStruct->inlineIncludes.size());
+    for (const auto &inlineInclude : targetStruct->inlineIncludes) {
+      if (!inlineInclude.path.empty())
+        inlineIncludePaths.push_back(inlineInclude.path);
+    }
+  }
+
+  std::unordered_set<std::string> seenIncludePaths;
+  for (const auto &inlineIncludePath : inlineIncludePaths) {
+    if (inlineIncludePath.empty() ||
+        !seenIncludePaths.insert(inlineIncludePath).second) {
+      continue;
+    }
+    auto candidates =
+        resolveIncludeCandidates(baseUri, inlineIncludePath, workspaceFolders,
+                                 includePaths, shaderExtensions);
+    std::vector<std::string> candidateUris;
+    candidateUris.reserve(candidates.size());
+    for (const auto &candidate : candidates)
+      candidateUris.push_back(pathToUri(candidate));
+    prefetchDocumentTexts(candidateUris, documents);
+    for (const auto &candidate : candidates) {
+      std::string candidateUri = pathToUri(candidate);
+      std::string candidateText;
+      if (!loadDocumentText(candidateUri, documents, candidateText))
+        continue;
+      std::unordered_set<std::string> visited;
+      collectFieldInfosFromTextRecursive(
+          candidateUri, candidateText, documents, workspaceFolders,
+          includePaths, shaderExtensions, defines, 12, visited, seen,
+          fieldsOut);
+      break;
     }
     if (fieldsOut.size() >= 512)
       return true;
   }
+  return !fieldsOut.empty();
+}
+
+static bool structHasActiveInlineInclude(
+    const std::string &text, const std::string &structName,
+    const std::unordered_map<std::string, int> &defines) {
+  if (structName.empty())
+    return false;
+
+  const ExpandedSource expandedSource =
+      buildLinePreservingExpandedSource(text, defines);
+  const HlslAstDocument ast = buildHlslAstDocument(expandedSource);
+  for (const auto &decl : ast.structs) {
+    if (decl.name != structName)
+      continue;
+    if (!decl.inlineIncludes.empty())
+      return true;
+  }
   return false;
+}
+
+static void appendStructFieldInfosUniqueByName(
+    const std::vector<SemanticSnapshotStructFieldInfo> &source,
+    std::unordered_set<std::string> &seenNames,
+    std::vector<SemanticSnapshotStructFieldInfo> &dest) {
+  for (const auto &field : source) {
+    if (field.name.empty() || !seenNames.insert(field.name).second)
+      continue;
+    dest.push_back(field);
+  }
+}
+
+static bool queryStructFieldInfosWithInlineIncludeFallback(
+    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::string &structName, bool allowInlineIncludeFallback,
+    ServerRequestContext &ctx,
+    std::vector<SemanticSnapshotStructFieldInfo> &fieldsOut) {
+  fieldsOut.clear();
+  std::unordered_set<std::string> seenNames;
+
+  std::vector<SemanticSnapshotStructFieldInfo> snapshotFields;
+  if (querySemanticSnapshotStructFieldInfos(
+          uri, text, epoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, structName,
+          snapshotFields) &&
+      !snapshotFields.empty()) {
+    appendStructFieldInfosUniqueByName(snapshotFields, seenNames, fieldsOut);
+  }
+
+  if (!allowInlineIncludeFallback ||
+      !structHasActiveInlineInclude(text, structName, ctx.preprocessorDefines)) {
+    return !fieldsOut.empty();
+  }
+
+  std::vector<SemanticSnapshotStructFieldInfo> inlineIncludeFields;
+  if (!collectStructFieldInfosFromTextWithInlineIncludes(
+          uri, text, structName, ctx.documentSnapshot(), ctx.workspaceFolders,
+          ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+          inlineIncludeFields) ||
+      inlineIncludeFields.empty()) {
+    return !fieldsOut.empty();
+  }
+
+  appendStructFieldInfosUniqueByName(inlineIncludeFields, seenNames, fieldsOut);
+  return !fieldsOut.empty();
 }
 
 static bool
@@ -1720,6 +2314,16 @@ findStructMemberDeclarationAtOrAfterLine(const std::string &text, int startLine,
     if (lineIndex < startLine) {
       lineIndex++;
       continue;
+    }
+
+    if (lineIndex == startLine) {
+      size_t pos = 0;
+      if (findDeclaredIdentifierInDeclarationLine(line, memberName, pos)) {
+        lineOut = lineIndex;
+        int endByte = static_cast<int>(pos + memberName.size());
+        minCharacterOut = byteOffsetInLineToUtf16(line, endByte);
+        return true;
+      }
     }
 
     if (bodyStarted && braceDepth == 1) {
@@ -1810,6 +2414,8 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
     writeResponse(id, makeNull());
     return true;
   }
+  const std::string includeContextNote =
+      buildIncludeContextHoverNote(collectIncludeContextUnitsForHover(uri, ctx));
   std::string lineText = getLineAt(doc->text, line);
   size_t cursorOffset = positionToOffset(doc->text, line, character);
 
@@ -1998,6 +2604,9 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
     return true;
   }
 
+  if (writeIncludeContextHoverResponse(id, uri, word, includeContextNote, ctx))
+    return true;
+
   bool looksLikeCall = false;
   {
     std::string callName;
@@ -2015,13 +2624,10 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
                                          localDeclLine, localDeclChar)) {
       std::string label;
       std::vector<std::string> paramsOut;
-      const bool fastSig = queryFastAstFunctionSignature(
-          uri, doc->text, doc->epoch, word, localDeclLine, localDeclChar, label,
-          paramsOut);
-      if ((fastSig ||
-           extractFunctionSignatureAt(doc->text, localDeclLine, localDeclChar,
-                                      word, label, paramsOut)) &&
-          !label.empty()) {
+      const bool fastSig = queryFunctionSignatureWithSemanticFallback(
+          uri, doc->text, doc->epoch, word, localDeclLine, localDeclChar, ctx,
+          label, paramsOut);
+      if (fastSig && !label.empty()) {
         HoverFunctionMarkdownInput functionInput;
         functionInput.code = label;
         functionInput.kindLabel = "(HLSL function)";
@@ -2033,6 +2639,14 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
             extractLeadingDocumentationAtLine(doc->text, localDeclLine);
         functionInput.inlineDoc =
             extractTrailingInlineCommentAtLine(doc->text, localDeclLine, 0);
+        if (!includeContextNote.empty())
+          functionInput.selectionNote = includeContextNote;
+        if (!includeContextNote.empty()) {
+          appendIncludeContextDefinitionListItems(uri, word, ctx,
+                                                 functionInput.listItems);
+          if (!functionInput.listItems.empty())
+            functionInput.listTitle = "Candidate units";
+        }
         std::string md = renderHoverFunctionMarkdown(functionInput);
         Json hover = makeObject();
         hover.o["contents"] = makeMarkup(md);
@@ -2067,7 +2681,45 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
       labels.reserve(funcDefs.size());
       std::unordered_set<std::string> seen;
       seen.reserve(funcDefs.size());
+      std::unordered_set<std::string> seenUris;
       for (const auto &d : funcDefs) {
+        if (seenUris.insert(d.uri).second) {
+          std::string defText;
+          if (ctx.readDocumentText(d.uri, defText)) {
+            uint64_t dEpoch = 0;
+            if (const Document *dDoc = ctx.findDocument(d.uri))
+              dEpoch = dDoc->epoch;
+            std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
+            if (querySemanticSnapshotFunctionOverloads(
+                    d.uri, defText, dEpoch, ctx.workspaceFolders,
+                    ctx.includePaths, ctx.shaderExtensions,
+                    ctx.preprocessorDefines, word, overloads)) {
+              for (const auto &overload : overloads) {
+                IndexedDefinition overloadDef;
+                overloadDef.name = word;
+                overloadDef.type = overload.returnType;
+                overloadDef.uri = d.uri;
+                overloadDef.line = overload.line;
+                overloadDef.start = overload.character;
+                overloadDef.end =
+                    overload.character + static_cast<int>(word.size());
+                std::string key;
+                key.reserve(overload.label.size() + d.uri.size() + 64);
+                key.append(overload.label);
+                key.push_back('|');
+                key.append(d.uri);
+                key.push_back('|');
+                key.append(std::to_string(overload.line));
+                key.push_back('|');
+                key.append(std::to_string(overload.character));
+                if (!seen.insert(key).second)
+                  continue;
+                labels.push_back(HoverFunctionCandidate{
+                    overload.label, overload.parameters, overloadDef});
+              }
+            }
+          }
+        }
         std::string defText;
         if (!ctx.readDocumentText(d.uri, defText))
           continue;
@@ -2077,11 +2729,10 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
         const Document *dDoc = ctx.findDocument(d.uri);
         if (dDoc)
           dEpoch = dDoc->epoch;
-        const bool fastSig = queryFastAstFunctionSignature(
-            d.uri, defText, dEpoch, word, d.line, d.start, label, paramsOut);
-        if ((!fastSig && !extractFunctionSignatureAt(defText, d.line, d.start,
-                                                     word, label, paramsOut)) ||
-            label.empty()) {
+        const bool fastSig = queryFunctionSignatureWithSemanticFallback(
+            d.uri, defText, dEpoch, word, d.line, d.start, ctx, label,
+            paramsOut);
+        if (!fastSig || label.empty()) {
           label = word + "(...)";
           paramsOut.clear();
         } else if (!d.type.empty()) {
@@ -2127,6 +2778,9 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
         }
         std::vector<TypeDesc> argumentTypes;
         inferCallArgumentTypesAtCursor(uri, doc->text, cursorOffset,
+                                       doc->epoch, ctx.workspaceFolders,
+                                       ctx.includePaths, ctx.shaderExtensions,
+                                       ctx.preprocessorDefines,
                                        argumentTypes);
         ResolveCallContext resolveContext;
         resolveContext.defines = ctx.preprocessorDefines;
@@ -2177,7 +2831,19 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
         functionInput.selectionNote =
             "(Multiple candidates) Unable to select best overload reliably.";
       }
-      if (labels.size() > 1) {
+      if (!includeContextNote.empty()) {
+        if (!functionInput.selectionNote.empty())
+          functionInput.selectionNote += "\n\n";
+        functionInput.selectionNote += includeContextNote;
+        appendIncludeContextDefinitionListItems(uri, word, ctx,
+                                               functionInput.listItems);
+        if (!functionInput.listItems.empty())
+          functionInput.listTitle = "Candidate units";
+      }
+      const bool hasIncludeContextSummary =
+          functionInput.listTitle == "Candidate units" &&
+          !functionInput.listItems.empty();
+      if (labels.size() > 1 && !hasIncludeContextSummary) {
         functionInput.listTitle = "Overloads";
         size_t shown = 0;
         for (size_t i = 0; i < labels.size() && shown < 50; i++) {
@@ -2253,24 +2919,31 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
       md += formatCppCodeBlock("struct " + word);
       md += "\n\nDefined at: ";
       md += formatFileLineDisplay(d.uri, d.line, uri);
-      std::vector<std::string> fields;
-      if (workspaceIndexGetStructFields(word, fields) && !fields.empty()) {
-        md += "\n\nMembers:";
-        size_t shown = 0;
-        for (size_t i = 0; i < fields.size() && shown < 256; i++) {
-          md += "\n- `";
-          std::string t;
-          workspaceIndexGetStructMemberType(word, fields[i], t);
-          if (!t.empty()) {
-            md += t;
-            md += " ";
+      std::string structText;
+      std::vector<SemanticSnapshotStructFieldInfo> fields;
+      uint64_t dEpoch = 0;
+      if (const Document *dDoc = ctx.findDocument(d.uri))
+        dEpoch = dDoc->epoch;
+      if (ctx.readDocumentText(d.uri, structText) &&
+          querySemanticSnapshotStructFieldInfos(
+              d.uri, structText, dEpoch, ctx.workspaceFolders, ctx.includePaths,
+              ctx.shaderExtensions, ctx.preprocessorDefines, word, fields) &&
+          !fields.empty()) {
+        appendStructFieldMarkdown(md, fields);
+      } else {
+        std::vector<std::string> fieldNames;
+        if (workspaceIndexGetStructFields(word, fieldNames) &&
+            !fieldNames.empty()) {
+          std::vector<SemanticSnapshotStructFieldInfo> fallback;
+          fallback.reserve(fieldNames.size());
+          for (const auto &fieldName : fieldNames) {
+            SemanticSnapshotStructFieldInfo item;
+            item.name = fieldName;
+            workspaceIndexGetStructMemberType(word, fieldName, item.type);
+            fallback.push_back(std::move(item));
           }
-          md += fields[i];
-          md += "`";
-          shown++;
+          appendStructFieldMarkdown(md, fallback);
         }
-        if (fields.size() > shown)
-          md += "\n- `...`";
       }
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
@@ -2286,24 +2959,31 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
       md += formatCppCodeBlock("struct " + word);
       md += "\n\nDefined at: ";
       md += formatFileLineDisplay(structLoc.uri, structLoc.line, uri);
-      std::vector<std::string> fields;
-      if (workspaceIndexGetStructFields(word, fields) && !fields.empty()) {
-        md += "\n\nMembers:";
-        size_t shown = 0;
-        for (size_t i = 0; i < fields.size() && shown < 256; i++) {
-          md += "\n- `";
-          std::string t;
-          workspaceIndexGetStructMemberType(word, fields[i], t);
-          if (!t.empty()) {
-            md += t;
-            md += " ";
+      std::string structText;
+      std::vector<SemanticSnapshotStructFieldInfo> fields;
+      uint64_t structEpoch = 0;
+      if (const Document *structDoc = ctx.findDocument(structLoc.uri))
+        structEpoch = structDoc->epoch;
+      if (ctx.readDocumentText(structLoc.uri, structText) &&
+          queryStructFieldInfosWithInlineIncludeFallback(
+              structLoc.uri, structText, structEpoch, word,
+              /*allowInlineIncludeFallback=*/true, ctx, fields) &&
+          !fields.empty()) {
+        appendStructFieldMarkdown(md, fields);
+      } else {
+        std::vector<std::string> fieldNames;
+        if (workspaceIndexGetStructFields(word, fieldNames) &&
+            !fieldNames.empty()) {
+          std::vector<SemanticSnapshotStructFieldInfo> fallback;
+          fallback.reserve(fieldNames.size());
+          for (const auto &fieldName : fieldNames) {
+            SemanticSnapshotStructFieldInfo item;
+            item.name = fieldName;
+            workspaceIndexGetStructMemberType(word, fieldName, item.type);
+            fallback.push_back(std::move(item));
           }
-          md += fields[i];
-          md += "`";
-          shown++;
+          appendStructFieldMarkdown(md, fallback);
         }
-        if (fields.size() > shown)
-          md += "\n- `...`";
       }
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
@@ -2313,26 +2993,30 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
   }
 
   {
+    std::vector<SemanticSnapshotStructFieldInfo> fieldInfos;
+    DefinitionLocation indexedStructLoc;
+    const bool hasIndexedStructLoc =
+        workspaceIndexFindStructDefinition(word, indexedStructLoc);
+    const bool allowInlineIncludeFallback =
+        !hasIndexedStructLoc || indexedStructLoc.uri == uri;
+    queryStructFieldInfosWithInlineIncludeFallback(
+        uri, doc->text, doc->epoch, word, allowInlineIncludeFallback, ctx,
+        fieldInfos);
+
     std::vector<std::string> fields;
-    bool haveFields = workspaceIndexGetStructFields(word, fields);
-    if (!haveFields || fields.empty()) {
-      fields.clear();
-      haveFields = collectStructFieldsFromTextWithInlineIncludes(
-          uri, doc->text, word, ctx.documentSnapshot(), ctx.workspaceFolders,
-          ctx.includePaths, ctx.shaderExtensions, fields);
-    }
-    if (!haveFields || fields.empty()) {
-      fields.clear();
-      haveFields = collectStructFieldsFromText(doc->text, word, fields);
-    }
-    if (!haveFields || fields.empty()) {
+    bool haveFields = false;
+    if (fieldInfos.empty())
+      haveFields = workspaceIndexGetStructFields(word, fields);
+
+    if ((!haveFields || fields.empty()) && fieldInfos.empty()) {
       fields.clear();
       std::unordered_set<std::string> visitedStructs;
       haveFields = collectStructFieldsInIncludeGraph(
           uri, word, ctx.documentSnapshot(), ctx.workspaceFolders,
-          ctx.includePaths, ctx.shaderExtensions, visitedStructs, fields);
+          ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+          visitedStructs, fields);
     }
-    if (haveFields && !fields.empty()) {
+    if ((haveFields && !fields.empty()) || !fieldInfos.empty()) {
       DefinitionLocation loc;
       bool hasLoc = workspaceIndexFindDefinition(word, loc);
       std::string md;
@@ -2341,25 +3025,30 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
         md += "\n\nDefined at: ";
         md += formatFileLineDisplay(loc.uri, loc.line, uri);
       }
-      md += "\n\nMembers:";
-      std::unordered_set<std::string> seen;
-      size_t shown = 0;
-      for (size_t i = 0; i < fields.size() && shown < 256; i++) {
-        if (!seen.insert(fields[i]).second)
-          continue;
-        md += "\n- `";
-        std::string t;
-        workspaceIndexGetStructMemberType(word, fields[i], t);
-        if (!t.empty()) {
-          md += t;
-          md += " ";
+      if (!fieldInfos.empty()) {
+        std::unordered_set<std::string> seen;
+        std::vector<SemanticSnapshotStructFieldInfo> uniqueFields;
+        uniqueFields.reserve(fieldInfos.size());
+        for (const auto &field : fieldInfos) {
+          if (!seen.insert(field.name).second)
+            continue;
+          uniqueFields.push_back(field);
         }
-        md += fields[i];
-        md += "`";
-        shown++;
+        appendStructFieldMarkdown(md, uniqueFields);
+      } else {
+        std::unordered_set<std::string> seen;
+        std::vector<SemanticSnapshotStructFieldInfo> fallback;
+        fallback.reserve(fields.size());
+        for (const auto &fieldName : fields) {
+          if (!seen.insert(fieldName).second)
+            continue;
+          SemanticSnapshotStructFieldInfo item;
+          item.name = fieldName;
+          workspaceIndexGetStructMemberType(word, fieldName, item.type);
+          fallback.push_back(std::move(item));
+        }
+        appendStructFieldMarkdown(md, fallback);
       }
-      if (fields.size() > shown)
-        md += "\n- `...`";
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
       writeResponse(id, hover);
@@ -2379,13 +3068,10 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
         int nameChar = byteOffsetInLineToUtf16(decl.lineText, decl.nameBytePos);
         std::string functionLabel;
         std::vector<std::string> functionParams;
-        const bool fastSig = queryFastAstFunctionSignature(
-            uri, doc->text, doc->epoch, word, decl.line, nameChar,
+        const bool fastSig = queryFunctionSignatureWithSemanticFallback(
+            uri, doc->text, doc->epoch, word, decl.line, nameChar, ctx,
             functionLabel, functionParams);
-        if ((fastSig ||
-             extractFunctionSignatureAt(doc->text, decl.line, nameChar, word,
-                                        functionLabel, functionParams)) &&
-            !functionLabel.empty()) {
+        if (fastSig && !functionLabel.empty()) {
           HoverFunctionMarkdownInput functionInput;
           functionInput.code = functionLabel;
           functionInput.kindLabel = "(HLSL function)";
@@ -2400,6 +3086,8 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
               decl.lineText, static_cast<int>(decl.nameBytePos + word.size()));
           functionInput.inlineDoc =
               extractTrailingInlineCommentAtLine(doc->text, decl.line, endChar);
+          if (!includeContextNote.empty())
+            functionInput.selectionNote = includeContextNote;
           std::string md = renderHoverFunctionMarkdown(functionInput);
           Json hover = makeObject();
           hover.o["contents"] = makeMarkup(md);
@@ -2425,6 +3113,8 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
         symbolInput.inlineDoc =
             extractTrailingInlineCommentAtLine(doc->text, decl.line, endChar);
       }
+      if (!includeContextNote.empty())
+        symbolInput.notes.push_back(includeContextNote);
       std::string md = renderHoverSymbolMarkdown(symbolInput);
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
@@ -2457,6 +3147,14 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
           functionInput.inlineDoc = extractTrailingInlineCommentAtLine(
               defText, macroFn.definition.line, macroFn.definition.end);
         }
+        if (!includeContextNote.empty())
+          functionInput.selectionNote = includeContextNote;
+        if (!includeContextNote.empty()) {
+          appendIncludeContextDefinitionListItems(uri, word, ctx,
+                                                 functionInput.listItems);
+          if (!functionInput.listItems.empty())
+            functionInput.listTitle = "Candidate units";
+        }
         std::string md = renderHoverFunctionMarkdown(functionInput);
         Json hover = makeObject();
         hover.o["contents"] = makeMarkup(md);
@@ -2476,12 +3174,10 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
         if (locDoc) {
           locEpoch = locDoc->epoch;
         }
-        const bool fastSig = queryFastAstFunctionSignature(
-            loc.uri, defText, locEpoch, word, loc.line, loc.start, label,
+        const bool fastSig = queryFunctionSignatureWithSemanticFallback(
+            loc.uri, defText, locEpoch, word, loc.line, loc.start, ctx, label,
             paramsOut);
-        if ((fastSig || extractFunctionSignatureAt(defText, loc.line, loc.start,
-                                                   word, label, paramsOut)) &&
-            !label.empty()) {
+        if (fastSig && !label.empty()) {
           HoverFunctionMarkdownInput functionInput;
           functionInput.code = label;
           functionInput.kindLabel = "(HLSL function)";
@@ -2494,6 +3190,14 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
               extractLeadingDocumentationAtLine(defText, loc.line);
           functionInput.inlineDoc =
               extractTrailingInlineCommentAtLine(defText, loc.line, loc.end);
+          if (!includeContextNote.empty())
+            functionInput.selectionNote = includeContextNote;
+          if (!includeContextNote.empty()) {
+            appendIncludeContextDefinitionListItems(uri, word, ctx,
+                                                   functionInput.listItems);
+            if (!functionInput.listItems.empty())
+              functionInput.listTitle = "Candidate units";
+          }
           std::string md = renderHoverFunctionMarkdown(functionInput);
           Json hover = makeObject();
           hover.o["contents"] = makeMarkup(md);
@@ -2513,6 +3217,8 @@ static bool handleHoverRequest(const std::string &method, const Json &id,
         symbolInput.inlineDoc =
             extractTrailingInlineCommentAtLine(defText, loc.line, loc.end);
       }
+      if (!includeContextNote.empty())
+        symbolInput.notes.push_back(includeContextNote);
       std::string md = renderHoverSymbolMarkdown(symbolInput);
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
@@ -2682,9 +3388,12 @@ static bool handleReferencesRequest(const std::string &method, const Json &id,
     writeResponse(id, makeArray());
     return true;
   }
-  auto occurrences = collectOccurrencesForSymbol(
-      uri, word, ctx.documentSnapshot(), ctx.workspaceFolders, ctx.includePaths,
-      ctx.shaderExtensions);
+  std::vector<LocatedOccurrence> occurrences;
+  if (!collectIncludeContextOccurrences(uri, word, ctx, occurrences)) {
+    occurrences = collectOccurrencesForSymbol(
+        uri, word, ctx.documentSnapshot(), ctx.workspaceFolders,
+        ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines);
+  }
   Json locations = makeArray();
   for (const auto &occ : occurrences) {
     locations.a.push_back(
@@ -2728,6 +3437,19 @@ static bool handlePrepareRenameRequest(const std::string &method,
   if (word.empty()) {
     writeResponse(id, makeNull());
     return true;
+  }
+  if (!getActiveUnitPath().empty()) {
+    // fall through
+  } else {
+    const std::string path = uriToPath(uri);
+    if (!path.empty() && !pathHasNsfExtension(path)) {
+      std::vector<std::string> candidateUnitPaths =
+          collectIncludeContextUnitPaths(uri, ctx);
+      if (candidateUnitPaths.size() > 1) {
+        writeResponse(id, makeNull());
+        return true;
+      }
+    }
   }
   auto occs = findOccurrences(lineText, word);
   if (occs.empty()) {
@@ -2779,9 +3501,22 @@ static bool handleRenameRequest(const std::string &method, const Json &id,
     writeResponse(id, makeNull());
     return true;
   }
+  if (!getActiveUnitPath().empty()) {
+    // fall through
+  } else {
+    const std::string path = uriToPath(uri);
+    if (!path.empty() && !pathHasNsfExtension(path)) {
+      std::vector<std::string> candidateUnitPaths =
+          collectIncludeContextUnitPaths(uri, ctx);
+      if (candidateUnitPaths.size() > 1) {
+        writeResponse(id, makeNull());
+        return true;
+      }
+    }
+  }
   auto occurrences = collectOccurrencesForSymbol(
       uri, word, ctx.documentSnapshot(), ctx.workspaceFolders, ctx.includePaths,
-      ctx.shaderExtensions);
+      ctx.shaderExtensions, ctx.preprocessorDefines);
   Json changes = makeObject();
   for (const auto &occ : occurrences) {
     Json edit = makeObject();

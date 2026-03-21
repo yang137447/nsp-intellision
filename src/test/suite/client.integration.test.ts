@@ -281,6 +281,87 @@ repoDescribe('NSF client integration', () => {
 		assert.ok(intrinsicHoverText.includes('Clamps the specified value within the range of 0 to 1.'));
 	});
 
+	it('surfaces include-context ambiguity in hover when no active unit is selected', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedRoots = configuration.inspect<string[]>('intellisionPath');
+		const originalRoots = inspectedRoots?.workspaceValue ?? [];
+		await configuration.update(
+			'intellisionPath',
+			[path.join(getWorkspaceRoot(), 'test_files', 'include_context')],
+			vscode.ConfigurationTarget.Workspace
+		);
+		await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+		try {
+			const document = await openFixture('include_context/shared/multi_context_common.hlsl');
+			await waitFor(
+				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+				(value) => !value?.indexingState || value.indexingState.state === 'Idle',
+				'indexing status for include context hover'
+			);
+
+			const hoverPosition = positionOf(document, 'MultiContextColor', 1, 2);
+			const hovers = await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.Hover[]>(
+						'vscode.executeHoverProvider',
+						document.uri,
+						hoverPosition
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'hover results for include context ambiguity'
+			);
+			const hoverText = hoverToText(hovers);
+			assert.ok(hoverText.includes('Include context ambiguous'));
+			assert.ok(hoverText.includes('multi_context_a.nsf'));
+			assert.ok(hoverText.includes('multi_context_b.nsf'));
+			assert.ok(hoverText.includes('Candidate units ('));
+		} finally {
+			await configuration.update('intellisionPath', originalRoots, vscode.ConfigurationTarget.Workspace);
+			await openFixture('module_suite.nsf');
+		}
+	});
+
+	it('shows include-context candidate definition summaries in hover', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedRoots = configuration.inspect<string[]>('intellisionPath');
+		const originalRoots = inspectedRoots?.workspaceValue ?? [];
+		await configuration.update(
+			'intellisionPath',
+			[path.join(getWorkspaceRoot(), 'test_files', 'include_context')],
+			vscode.ConfigurationTarget.Workspace
+		);
+		await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+		try {
+			const document = await openFixture('include_context/shared/multi_context_symbol_common.hlsl');
+			await waitFor(
+				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+				(value) => !value?.indexingState || value.indexingState.state === 'Idle',
+				'indexing status for include-context hover summaries'
+			);
+
+			const hoverPosition = positionOf(document, 'UnitSpecificTone', 1, 2);
+			const hovers = await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.Hover[]>(
+						'vscode.executeHoverProvider',
+						document.uri,
+						hoverPosition
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'hover results for include-context summaries'
+			);
+			const hoverText = hoverToText(hovers);
+			assert.ok(hoverText.includes('Candidate units ('));
+			assert.ok(hoverText.includes('multi_context_symbol_a.nsf'));
+			assert.ok(hoverText.includes('multi_context_symbol_b.nsf'));
+			assert.ok(hoverText.includes('float4 UnitSpecificTone(float2 uv) @ multi_context_symbol_a.nsf:1'));
+			assert.ok(hoverText.includes('float4 UnitSpecificTone(float2 uv) @ multi_context_symbol_b.nsf:1'));
+		} finally {
+			await configuration.update('intellisionPath', originalRoots, vscode.ConfigurationTarget.Workspace);
+			await openFixture('module_suite.nsf');
+		}
+	});
+
 	it('shows hover documentation for discard keyword resources', async () => {
 		const document = await openFixture('module_keyword_discard.nsf');
 
@@ -356,6 +437,26 @@ repoDescribe('NSF client integration', () => {
 		assert.ok(!hoverText.includes('Type: main_color2'));
 	});
 
+	it('keeps local variable hover type on the active preprocessor branch', async () => {
+		const document = await openFixture('module_hover_local_preprocessor_branch.nsf');
+
+		const hoverPosition = positionOf(document, 'value.active_only', 2, 2);
+		const hovers = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Hover[]>(
+					'vscode.executeHoverProvider',
+					document.uri,
+					hoverPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'hover results for active preprocessor local variable'
+		);
+		const hoverText = hoverToText(hovers);
+		assert.ok(hoverText.includes('(Local variable)'));
+		assert.ok(hoverText.includes('Type: HoverPreprocActive'));
+		assert.ok(!hoverText.includes('Type: HoverPreprocInactive'));
+	});
+
 	it('shows full hover info for struct member access', async () => {
 		const document = await openFixture('module_hover_struct_member_field.nsf');
 
@@ -393,6 +494,52 @@ repoDescribe('NSF client integration', () => {
 		assert.ok(hoverText.includes('(Field) Owner: HoverMemberDocs'));
 		assert.ok(hoverText.includes('member doc from previous line'));
 		assert.ok(hoverText.includes('member inline comment'));
+	});
+
+	it('shows struct hover members from active inline include fragments', async () => {
+		const document = await openFixture('module_hover_struct_inline_include_fields.nsf');
+
+		const hoverPosition = positionOf(document, 'HoverInlineInclude', 1, 2);
+		const hovers = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Hover[]>(
+					'vscode.executeHoverProvider',
+					document.uri,
+					hoverPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'hover results for inline include struct members'
+		);
+		const hoverText = hoverToText(hovers);
+		assert.ok(hoverText.includes('struct HoverInlineInclude'));
+		assert.ok(hoverText.includes('inline_scalar'));
+		assert.ok(hoverText.includes('inline_color'));
+		assert.ok(hoverText.includes('float inline_scalar'));
+		assert.ok(hoverText.includes('float4 inline_color'));
+		assert.ok(!hoverText.includes('inactive_inline_field'));
+	});
+
+	it('shows struct hover members from active inline include fragments in included struct files', async () => {
+		const document = await openFixture('module_hover_struct_inline_include_external.ush');
+
+		const hoverPosition = positionOf(document, 'HoverInlineIncludeExternal', 1, 2);
+		const hovers = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Hover[]>(
+					'vscode.executeHoverProvider',
+					document.uri,
+					hoverPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'hover results for external inline include struct members'
+		);
+		const hoverText = hoverToText(hovers);
+		assert.ok(hoverText.includes('struct HoverInlineIncludeExternal'));
+		assert.ok(hoverText.includes('external_inline_scalar'));
+		assert.ok(hoverText.includes('external_inline_color'));
+		assert.ok(hoverText.includes('float external_inline_scalar'));
+		assert.ok(hoverText.includes('float3 external_inline_color'));
+		assert.ok(!hoverText.includes('external_inactive_field'));
 	});
 
 	it('shows hover info on member-access base symbol', async () => {
@@ -479,6 +626,38 @@ repoDescribe('NSF client integration', () => {
 		assert.ok(hoverText.includes(definitionFile));
 	});
 
+	it('prefers the active preprocessor branch for hover and definition', async () => {
+		const document = await openFixture('module_definition_preprocessor_else_branch.nsf');
+		const position = positionOf(document, 'SelectBranchColor', 3, 2);
+
+		const hovers = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Hover[]>(
+					'vscode.executeHoverProvider',
+					document.uri,
+					position
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'hover results for active preprocessor branch'
+		);
+		const definitions = await waitFor(
+			() =>
+				vscode.commands.executeCommand<ProviderLocation[]>(
+					'vscode.executeDefinitionProvider',
+					document.uri,
+					position
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'definition results for active preprocessor branch'
+		);
+
+		const hoverText = hoverToText(hovers);
+		assert.ok(hoverText.includes('active branch doc'));
+		assert.ok(!hoverText.includes('inactive branch doc'));
+		assert.strictEqual(toFsPath(definitions[0]), document.uri.fsPath);
+		assert.strictEqual(toRange(definitions[0]).start.line, 10);
+	});
+
 	it('shows full hover info for local multiline function call sites', async () => {
 		const document = await openFixture('module_hover_local_function_complete.nsf');
 
@@ -543,6 +722,7 @@ repoDescribe('NSF client integration', () => {
 		assert.ok(!messages.includes('Missing parentheses after if.'));
 		assert.ok(!messages.includes('Unmatched preprocessor directive'));
 		assert.ok(!messages.includes('Unterminated preprocessor conditional'));
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression'));
 	});
 
 	it('publishes diagnostics for unterminated preprocessor conditionals', async () => {
@@ -576,6 +756,34 @@ repoDescribe('NSF client integration', () => {
 		);
 		const onMessages = onDiagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(onMessages.includes('Assignment type mismatch: float2 = float4.'));
+	});
+
+	it('expands object-like macros and arithmetic comparisons in #if expressions', async () => {
+		const document = await openFixture('module_diagnostics_preprocessor_object_macro_expr.nsf');
+
+		const diagnostics = await waitFor(
+			() => vscode.languages.getDiagnostics(document.uri),
+			(value) => Array.isArray(value) && value.length > 0,
+			'diagnostics'
+		);
+
+		const messages = diagnostics.map((diag) => diag.message).join('\n');
+		assert.ok(messages.includes('Assignment type mismatch: float2 = float4.'));
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression'));
+	});
+
+	it('uses macros defined in active includes for #if diagnostics evaluation', async () => {
+		const document = await openFixture('module_diagnostics_preprocessor_include_macro_eval.nsf');
+
+		const diagnostics = await waitFor(
+			() => vscode.languages.getDiagnostics(document.uri),
+			(value) => Array.isArray(value),
+			'diagnostics'
+		);
+
+		const messages = diagnostics.map((diag) => diag.message).join('\n');
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression'));
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'));
 	});
 
 	it('does not report include diagnostics inside comments', async () => {
@@ -908,7 +1116,7 @@ repoDescribe('NSF client integration', () => {
 		assert.ok(messages.includes('Duplicate local declaration: b.'));
 	});
 
-	it('does not report duplicate locals across mutually exclusive preprocessor branches', async () => {
+	it('treats undefined #if macros as errors and keeps only the #else branch active', async () => {
 		const document = await openFixture('module_diagnostics_preprocessor_branch_scope.nsf');
 
 		const diagnostics = await waitFor(
@@ -918,8 +1126,14 @@ repoDescribe('NSF client integration', () => {
 		);
 
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(messages.includes('Duplicate local declaration: b.'));
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: SOME_UNDEFINED_MACRO.'));
+		assert.ok(!messages.includes('Duplicate local declaration: b.'));
 		assert.ok(!messages.includes('Duplicate local declaration: x.'));
+		const undefinedMacroDiag = diagnostics.find((diag) =>
+			diag.message.includes('Undefined macro in preprocessor expression: SOME_UNDEFINED_MACRO.')
+		);
+		assert.ok(undefinedMacroDiag, 'Expected undefined macro diagnostic.');
+		assert.strictEqual(undefinedMacroDiag!.severity, vscode.DiagnosticSeverity.Error);
 	});
 
 	it('publishes diagnostics for narrowing assignment into half', async () => {
@@ -1898,6 +2112,42 @@ repoDescribe('NSF client integration', () => {
 		}
 	});
 
+	it('clears disk index caches before rebuilding when requested', async function () {
+		this.timeout(180000);
+		const workspaceRoot = getWorkspaceRoot();
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedServerPath = configuration.inspect<string>('serverPath');
+		const originalServerPath = inspectedServerPath?.workspaceValue ?? '';
+		const rebuiltServerPath = path.join(workspaceRoot, 'server_cpp', 'build', 'nsf_lsp.exe');
+		assert.ok(fs.existsSync(rebuiltServerPath), 'Expected rebuilt C++ server at server_cpp/build/nsf_lsp.exe.');
+		const cacheRoot = path.join(workspaceRoot, '.vscode', 'nsp');
+		const fakeIndexDir = path.join(cacheRoot, 'index_v2_manual_clear_cache_test');
+		const fakeIndexFile = path.join(cacheRoot, 'index_v1_manual_clear_cache_test.json');
+		fs.mkdirSync(fakeIndexDir, { recursive: true });
+		fs.writeFileSync(path.join(fakeIndexDir, 'sentinel.txt'), 'stale-cache', 'utf8');
+		fs.mkdirSync(cacheRoot, { recursive: true });
+		fs.writeFileSync(fakeIndexFile, '{}', 'utf8');
+
+		try {
+			await configuration.update('serverPath', rebuiltServerPath, vscode.ConfigurationTarget.Workspace);
+			await vscode.commands.executeCommand('nsf.restartServer');
+			await vscode.commands.executeCommand('nsf.rebuildIndexClearCache');
+			const status = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
+			assert.strictEqual(status?.indexingState?.reason, 'manualClearCache');
+			assert.ok(!fs.existsSync(fakeIndexDir), 'Expected clear-cache rebuild to remove fake index_v2 cache.');
+			assert.ok(!fs.existsSync(fakeIndexFile), 'Expected clear-cache rebuild to remove fake index_v1 cache.');
+		} finally {
+			await configuration.update('serverPath', originalServerPath, vscode.ConfigurationTarget.Workspace);
+			await vscode.commands.executeCommand('nsf.restartServer');
+			if (fs.existsSync(fakeIndexDir)) {
+				fs.rmdirSync(fakeIndexDir, { recursive: true });
+			}
+			if (fs.existsSync(fakeIndexFile)) {
+				fs.unlinkSync(fakeIndexFile);
+			}
+		}
+	});
+
 	it('auto triggers initial inlay refresh after indexing becomes stable', async () => {
 		await vscode.commands.executeCommand('nsf.restartServer');
 		await openFixture('module_inlay_hints.nsf');
@@ -2108,11 +2358,51 @@ repoDescribe('NSF client integration', () => {
 		assert.ok(labels.has('bar'));
 	});
 
-	it('applies include root inference for external files and provides member completion', async () => {
+	it('provides struct member completion from the active preprocessor branch', async () => {
+		const document = await openFixture('module_struct_completion_preprocessor_branch.nsf');
+		const completionPosition = positionOf(document, 'instance.', 1, 'instance.'.length);
+		const completionResult = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
+					'vscode.executeCompletionItemProvider',
+					document.uri,
+					completionPosition
+				),
+			(value) => getCompletionItems(value).length > 0,
+			'struct member completion items'
+		);
+
+		const labels = new Set(getCompletionItems(completionResult).map((item) => item.label.toString()));
+		assert.ok(labels.has('active_member'));
+		assert.ok(labels.has('active_gain'));
+		assert.ok(!labels.has('inactive_member'));
+	});
+
+	it('provides struct member completion for active conditional struct members only', async () => {
+		const document = await openFixture('module_struct_completion_conditional_members.nsf');
+		const completionPosition = positionOf(document, 'instance.', 1, 'instance.'.length);
+		const completionResult = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
+					'vscode.executeCompletionItemProvider',
+					document.uri,
+					completionPosition
+				),
+			(value) => getCompletionItems(value).length > 0,
+			'conditional struct member completion items'
+		);
+
+		const labels = new Set(getCompletionItems(completionResult).map((item) => item.label.toString()));
+		assert.ok(labels.has('active_member'));
+		assert.ok(labels.has('active_gain'));
+		assert.ok(!labels.has('inactive_member'));
+	});
+
+	it('does not infer include roots for external files when intellisionPath is empty', async () => {
 		const configuration = vscode.workspace.getConfiguration('nsf');
-		const inspectedIncludePaths = configuration.inspect<string[]>('includePaths');
+		const inspectedIncludePaths = configuration.inspect<string[]>('intellisionPath');
 		const previousIncludePaths = inspectedIncludePaths?.workspaceValue;
-		await configuration.update('includePaths', [], vscode.ConfigurationTarget.Workspace);
+		await configuration.update('intellisionPath', [], vscode.ConfigurationTarget.Workspace);
 
 		try {
 			const tempRoot = path.join(os.tmpdir(), `nsf_external_${Date.now()}`);
@@ -2145,20 +2435,16 @@ repoDescribe('NSF client integration', () => {
 						document.uri,
 						completionPosition
 					),
-				(value) => {
-					const items = getCompletionItems(value);
-					const labels = new Set(items.map((item) => item.label.toString()));
-					return labels.has('foo') && labels.has('bar');
-				},
+				(value) => Boolean(value),
 				'external struct member completion items'
 			);
 
 			const items = getCompletionItems(completionResult);
-			const fooItem = items.find((item) => item.label.toString() === 'foo');
-			assert.ok(fooItem);
-			assert.strictEqual(fooItem.detail, 'ExtExternalStruct');
+			const labels = new Set(items.map((item) => item.label.toString()));
+			assert.ok(!labels.has('foo'));
+			assert.ok(!labels.has('bar'));
 		} finally {
-			await configuration.update('includePaths', previousIncludePaths, vscode.ConfigurationTarget.Workspace);
+			await configuration.update('intellisionPath', previousIncludePaths, vscode.ConfigurationTarget.Workspace);
 		}
 	});
 
@@ -2199,6 +2485,113 @@ repoDescribe('NSF client integration', () => {
 		const range = toRange(definitionLocations[0]);
 		assert.strictEqual(document.getText(range), symbol);
 		assert.strictEqual(range.start.line, positionOf(document, symbol, 1, 0).line);
+	});
+
+	it('returns multiple definition targets for include symbols when no active unit is selected', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedRoots = configuration.inspect<string[]>('intellisionPath');
+		const originalRoots = inspectedRoots?.workspaceValue ?? [];
+		await configuration.update(
+			'intellisionPath',
+			[path.join(getWorkspaceRoot(), 'test_files', 'include_context')],
+			vscode.ConfigurationTarget.Workspace
+		);
+		await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+		try {
+			const document = await openFixture('include_context/shared/multi_context_symbol_common.hlsl');
+			await waitFor(
+				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+				(value) => !value?.indexingState || value.indexingState.state === 'Idle',
+				'indexing status for include-context definition'
+			);
+
+			const position = positionOf(document, 'UnitSpecificTone', 1, 2);
+			const definitions = await waitFor(
+				() =>
+					vscode.commands.executeCommand<ProviderLocation[]>(
+						'vscode.executeDefinitionProvider',
+						document.uri,
+						position
+					),
+				(value) => Array.isArray(value) && value.length >= 2,
+				'include-context definition results'
+			);
+
+			const definitionFiles = Array.from(
+				new Set(definitions.map((location) => path.basename(toFsPath(location))))
+			).sort();
+			assert.deepStrictEqual(definitionFiles, ['multi_context_symbol_a.nsf', 'multi_context_symbol_b.nsf']);
+		} finally {
+			await configuration.update('intellisionPath', originalRoots, vscode.ConfigurationTarget.Workspace);
+			await openFixture('module_suite.nsf');
+		}
+	});
+
+	it('merges references across candidate units for include symbols when no active unit is selected', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedRoots = configuration.inspect<string[]>('intellisionPath');
+		const originalRoots = inspectedRoots?.workspaceValue ?? [];
+		await configuration.update(
+			'intellisionPath',
+			[path.join(getWorkspaceRoot(), 'test_files', 'include_context')],
+			vscode.ConfigurationTarget.Workspace
+		);
+		await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+		try {
+			const document = await openFixture('include_context/shared/multi_context_symbol_common.hlsl');
+			await waitFor(
+				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+				(value) => !value?.indexingState || value.indexingState.state === 'Idle',
+				'indexing status for include-context references'
+			);
+
+			const position = positionOf(document, 'UnitSpecificTone', 1, 2);
+			const references = await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.Location[]>(
+						'vscode.executeReferenceProvider',
+						document.uri,
+						position
+					),
+				(value) => Array.isArray(value) && value.length >= 3,
+				'include-context reference results'
+			);
+			assert.strictEqual(references.length, 3);
+		} finally {
+			await configuration.update('intellisionPath', originalRoots, vscode.ConfigurationTarget.Workspace);
+			await openFixture('module_suite.nsf');
+		}
+	});
+
+	it('rejects rename for include symbols when no active unit is selected', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedRoots = configuration.inspect<string[]>('intellisionPath');
+		const originalRoots = inspectedRoots?.workspaceValue ?? [];
+		await configuration.update(
+			'intellisionPath',
+			[path.join(getWorkspaceRoot(), 'test_files', 'include_context')],
+			vscode.ConfigurationTarget.Workspace
+		);
+		await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+		try {
+			const document = await openFixture('include_context/shared/multi_context_symbol_common.hlsl');
+			await waitFor(
+				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+				(value) => !value?.indexingState || value.indexingState.state === 'Idle',
+				'indexing status for include-context rename'
+			);
+
+			const position = positionOf(document, 'UnitSpecificTone', 1, 2);
+			const prepareResult = await vscode.commands.executeCommand<any>(
+				'vscode.prepareRename',
+				document.uri,
+				position
+			);
+			assert.ok(!prepareResult);
+		} finally {
+			await configuration.update('intellisionPath', originalRoots, vscode.ConfigurationTarget.Workspace);
+			await openFixture('module_suite.nsf');
+		}
 	});
 
 	it('resolves parameter declarations through the client', async () => {
@@ -2319,6 +2712,98 @@ repoDescribe('NSF client integration', () => {
 		);
 
 		assert.strictEqual(countWorkspaceEdits(renameEdit), 3, 'Expected rename edits in the include graph.');
+	});
+
+	it('groups include-file conditional branch variants in references and rename', async () => {
+		const document = await openFixture('module_references_rename_include_preprocessor_root.nsf');
+		const position = positionOf(document, 'IncludeBranchColor', 1, 2);
+
+		const references = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Location[]>(
+					'vscode.executeReferenceProvider',
+					document.uri,
+					position
+				),
+			(value) => Array.isArray(value) && value.length >= 5,
+			'include branch reference results'
+		);
+		assert.strictEqual(references.length, 5, 'Expected all-branch references for the include-file conditional family.');
+
+		const renameEdit = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.WorkspaceEdit>(
+					'vscode.executeDocumentRenameProvider',
+					document.uri,
+					position,
+					'RenamedIncludeBranchColor'
+				),
+			(value) => Boolean(value) && countWorkspaceEdits(value) >= 5,
+			'include branch rename workspace edit'
+		);
+		assert.strictEqual(countWorkspaceEdits(renameEdit), 5, 'Expected all-branch rename edits for the include-file conditional family.');
+	});
+
+	it('groups references and rename edits across conditional branch variants in one document', async () => {
+		const document = await openFixture('module_references_rename_preprocessor_branch.nsf');
+		const symbol = 'BranchFamilyWeight';
+		const position = positionOf(document, symbol, 2, 2);
+
+		const references = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Location[]>(
+					'vscode.executeReferenceProvider',
+					document.uri,
+					position
+				),
+			(value) => Array.isArray(value) && value.length >= 4,
+			'conditional branch reference results'
+		);
+		assert.strictEqual(references.length, 4, 'Expected all-branch references for conditional symbol family.');
+
+		const renameEdit = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.WorkspaceEdit>(
+					'vscode.executeDocumentRenameProvider',
+					document.uri,
+					position,
+					'RenamedBranchFamilyWeight'
+				),
+			(value) => Boolean(value) && countWorkspaceEdits(value) >= 4,
+			'conditional branch rename workspace edit'
+		);
+		assert.strictEqual(countWorkspaceEdits(renameEdit), 4, 'Expected all-branch rename edits for conditional symbol family.');
+	});
+
+	it('groups function references and rename edits across conditional branch variants in one document', async () => {
+		const document = await openFixture('module_references_rename_preprocessor_function_branch.nsf');
+		const symbol = 'BranchFamilyFunc';
+		const position = positionOf(document, symbol, 3, 2);
+
+		const references = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Location[]>(
+					'vscode.executeReferenceProvider',
+					document.uri,
+					position
+				),
+			(value) => Array.isArray(value) && value.length >= 5,
+			'conditional branch function reference results'
+		);
+		assert.strictEqual(references.length, 5, 'Expected all-branch function references for conditional symbol family.');
+
+		const renameEdit = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.WorkspaceEdit>(
+					'vscode.executeDocumentRenameProvider',
+					document.uri,
+					position,
+					'RenamedBranchFamilyFunc'
+				),
+			(value) => Boolean(value) && countWorkspaceEdits(value) >= 5,
+			'conditional branch function rename workspace edit'
+		);
+		assert.strictEqual(countWorkspaceEdits(renameEdit), 5, 'Expected all-branch function rename edits for conditional symbol family.');
 	});
 
 	it('smoke: handles UTF-16 positions when preparing rename', async () => {
@@ -2457,13 +2942,13 @@ repoDescribe('NSF client integration', () => {
 
 	it('applies include path configuration changes without restarting the client', async () => {
 		const configuration = vscode.workspace.getConfiguration('nsf');
-		const inspectedIncludePaths = configuration.inspect<string[]>('includePaths');
+		const inspectedIncludePaths = configuration.inspect<string[]>('intellisionPath');
 		const originalIncludePaths = inspectedIncludePaths?.workspaceValue ?? [];
 		const document = await openFixture('config_runtime_suite.nsf');
 		const symbolPosition = positionOf(document, 'RuntimeOnlySharedColor', 1, 3);
 
 		try {
-			await configuration.update('includePaths', [], vscode.ConfigurationTarget.Workspace);
+			await configuration.update('intellisionPath', [], vscode.ConfigurationTarget.Workspace);
 
 			const missingDefinitions = await waitFor(
 				() =>
@@ -2478,8 +2963,8 @@ repoDescribe('NSF client integration', () => {
 			assert.ok(isEmptyDefinitionResult(missingDefinitions));
 
 			await configuration.update(
-				'includePaths',
-				['test_files/runtime_include_root'],
+				'intellisionPath',
+				[path.join(getWorkspaceRoot(), 'test_files', 'runtime_include_root')],
 				vscode.ConfigurationTarget.Workspace
 			);
 
@@ -2496,7 +2981,7 @@ repoDescribe('NSF client integration', () => {
 			assert.strictEqual(path.basename(toFsPath(restoredDefinitions[0])), 'runtime_only_shared.ush');
 		} finally {
 			await configuration.update(
-				'includePaths',
+				'intellisionPath',
 				originalIncludePaths,
 				vscode.ConfigurationTarget.Workspace
 			);
@@ -2505,13 +2990,13 @@ repoDescribe('NSF client integration', () => {
 
 	it('restores hover and definition together after include path configuration changes', async () => {
 		const configuration = vscode.workspace.getConfiguration('nsf');
-		const inspectedIncludePaths = configuration.inspect<string[]>('includePaths');
+		const inspectedIncludePaths = configuration.inspect<string[]>('intellisionPath');
 		const originalIncludePaths = inspectedIncludePaths?.workspaceValue ?? [];
 		const document = await openFixture('config_runtime_suite.nsf');
 		const symbolPosition = positionOf(document, 'RuntimeOnlySharedColor', 1, 3);
 
 		try {
-			await configuration.update('includePaths', [], vscode.ConfigurationTarget.Workspace);
+			await configuration.update('intellisionPath', [], vscode.ConfigurationTarget.Workspace);
 
 			const missingDefinitions = await waitFor(
 				() =>
@@ -2526,8 +3011,8 @@ repoDescribe('NSF client integration', () => {
 			assert.ok(isEmptyDefinitionResult(missingDefinitions));
 
 			await configuration.update(
-				'includePaths',
-				['test_files/runtime_include_root'],
+				'intellisionPath',
+				[path.join(getWorkspaceRoot(), 'test_files', 'runtime_include_root')],
 				vscode.ConfigurationTarget.Workspace
 			);
 
@@ -2558,7 +3043,7 @@ repoDescribe('NSF client integration', () => {
 			assert.ok(hoverText.includes(definitionFile));
 		} finally {
 			await configuration.update(
-				'includePaths',
+				'intellisionPath',
 				originalIncludePaths,
 				vscode.ConfigurationTarget.Workspace
 			);

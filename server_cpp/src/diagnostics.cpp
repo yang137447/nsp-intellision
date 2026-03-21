@@ -13,9 +13,10 @@
 #include "macro_generated_functions.hpp"
 #include "nsf_lexer.hpp"
 #include "overload_resolver.hpp"
+#include "preprocessor_view.hpp"
 #include "semantic_cache.hpp"
+#include "semantic_snapshot.hpp"
 #include "server_parse.hpp"
-#include "signature_help.hpp"
 #include "text_utils.hpp"
 #include "type_desc.hpp"
 #include "type_eval.hpp"
@@ -304,332 +305,6 @@ static bool isPreprocessorDirectiveLine(const std::string &lineText,
   return false;
 }
 
-enum class PreprocTri { False, True, Unknown };
-
-static PreprocTri triFromInt(int value) {
-  return value == 0 ? PreprocTri::False : PreprocTri::True;
-}
-
-static PreprocTri triNot(PreprocTri value) {
-  if (value == PreprocTri::True)
-    return PreprocTri::False;
-  if (value == PreprocTri::False)
-    return PreprocTri::True;
-  return PreprocTri::Unknown;
-}
-
-static PreprocTri triAnd(PreprocTri left, PreprocTri right) {
-  if (left == PreprocTri::False || right == PreprocTri::False)
-    return PreprocTri::False;
-  if (left == PreprocTri::True && right == PreprocTri::True)
-    return PreprocTri::True;
-  return PreprocTri::Unknown;
-}
-
-static PreprocTri triOr(PreprocTri left, PreprocTri right) {
-  if (left == PreprocTri::True || right == PreprocTri::True)
-    return PreprocTri::True;
-  if (left == PreprocTri::False && right == PreprocTri::False)
-    return PreprocTri::False;
-  return PreprocTri::Unknown;
-}
-
-struct PreprocMacro {
-  bool knownValue = false;
-  int value = 0;
-};
-
-static bool parseIntToken(const std::string &text, int &out) {
-  if (text.empty())
-    return false;
-  try {
-    size_t idx = 0;
-    int value = std::stoi(text, &idx, 0);
-    if (idx == 0)
-      return false;
-    out = value;
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
-
-static PreprocTri evalPreprocessorExpr(
-    const std::vector<LexToken> &tokens, size_t start,
-    const std::unordered_map<std::string, PreprocMacro> &macros) {
-  size_t i = start;
-
-  auto peek = [&]() -> const LexToken * {
-    if (i >= tokens.size())
-      return nullptr;
-    return &tokens[i];
-  };
-
-  auto consume = [&]() -> const LexToken * {
-    if (i >= tokens.size())
-      return nullptr;
-    return &tokens[i++];
-  };
-
-  std::function<PreprocTri()> parsePrimary;
-  std::function<PreprocTri()> parseUnary;
-  std::function<PreprocTri()> parseAndExpr;
-  std::function<PreprocTri()> parseOrExpr;
-
-  parsePrimary = [&]() -> PreprocTri {
-    const LexToken *t = peek();
-    if (!t)
-      return PreprocTri::Unknown;
-    if (t->kind == LexToken::Kind::Punct && t->text == "(") {
-      consume();
-      PreprocTri inner = parseOrExpr();
-      const LexToken *close = peek();
-      if (close && close->kind == LexToken::Kind::Punct && close->text == ")")
-        consume();
-      return inner;
-    }
-    if (t->kind == LexToken::Kind::Identifier && t->text == "defined") {
-      consume();
-      const LexToken *next = peek();
-      std::string name;
-      if (next && next->kind == LexToken::Kind::Punct && next->text == "(") {
-        consume();
-        const LexToken *id = peek();
-        if (id && id->kind == LexToken::Kind::Identifier) {
-          name = id->text;
-          consume();
-        }
-        const LexToken *close = peek();
-        if (close && close->kind == LexToken::Kind::Punct && close->text == ")")
-          consume();
-      } else {
-        const LexToken *id = peek();
-        if (id && id->kind == LexToken::Kind::Identifier) {
-          name = id->text;
-          consume();
-        }
-      }
-      if (name.empty())
-        return PreprocTri::Unknown;
-      return macros.find(name) != macros.end() ? PreprocTri::True
-                                               : PreprocTri::False;
-    }
-    if (t->kind == LexToken::Kind::Identifier) {
-      std::string name = t->text;
-      consume();
-      int parsed = 0;
-      if (parseIntToken(name, parsed))
-        return triFromInt(parsed);
-      auto it = macros.find(name);
-      if (it == macros.end())
-        return PreprocTri::Unknown;
-      if (!it->second.knownValue)
-        return PreprocTri::Unknown;
-      return triFromInt(it->second.value);
-    }
-    return PreprocTri::Unknown;
-  };
-
-  parseUnary = [&]() -> PreprocTri {
-    const LexToken *t = peek();
-    if (t && t->kind == LexToken::Kind::Punct && t->text == "!") {
-      consume();
-      return triNot(parseUnary());
-    }
-    return parsePrimary();
-  };
-
-  parseAndExpr = [&]() -> PreprocTri {
-    PreprocTri left = parseUnary();
-    while (true) {
-      const LexToken *t = peek();
-      if (!t || t->kind != LexToken::Kind::Punct || t->text != "&&")
-        break;
-      consume();
-      PreprocTri right = parseUnary();
-      left = triAnd(left, right);
-    }
-    return left;
-  };
-
-  parseOrExpr = [&]() -> PreprocTri {
-    PreprocTri left = parseAndExpr();
-    while (true) {
-      const LexToken *t = peek();
-      if (!t || t->kind != LexToken::Kind::Punct || t->text != "||")
-        break;
-      consume();
-      PreprocTri right = parseAndExpr();
-      left = triOr(left, right);
-    }
-    return left;
-  };
-
-  PreprocTri result = parseOrExpr();
-  return result;
-}
-
-static std::vector<char>
-computeActiveLineMask(const std::string &text,
-                      const std::unordered_map<std::string, int> &defines) {
-  std::unordered_map<std::string, PreprocMacro> macros;
-  for (const auto &entry : defines) {
-    macros[entry.first] = PreprocMacro{true, entry.second};
-  }
-
-  struct Frame {
-    bool parentActive = true;
-    bool currentActive = true;
-    bool anyDefChosen = false;
-    bool allPrevDefFalse = true;
-  };
-
-  std::vector<Frame> stack;
-  bool active = true;
-
-  std::istringstream stream(text);
-  std::string lineText;
-  bool inBlockComment = false;
-  std::vector<char> lineActive;
-
-  while (std::getline(stream, lineText)) {
-    bool maskBlock = inBlockComment;
-    const auto mask = buildCodeMaskForLine(lineText, maskBlock);
-    inBlockComment = maskBlock;
-
-    const auto rawTokens = lexLineTokens(lineText);
-    std::vector<LexToken> tokens;
-    tokens.reserve(rawTokens.size());
-    for (const auto &token : rawTokens) {
-      if (token.start < mask.size() && mask[token.start])
-        tokens.push_back(token);
-    }
-
-    bool isDirective = isPreprocessorDirectiveLine(lineText, mask);
-    if (!isDirective) {
-      lineActive.push_back(active ? 1 : 0);
-      continue;
-    }
-
-    lineActive.push_back(active ? 1 : 0);
-    if (tokens.size() < 2)
-      continue;
-    if (tokens[0].kind != LexToken::Kind::Punct || tokens[0].text != "#")
-      continue;
-    if (tokens[1].kind != LexToken::Kind::Identifier)
-      continue;
-
-    const std::string directive = tokens[1].text;
-    if (directive == "if" || directive == "ifdef" || directive == "ifndef") {
-      PreprocTri cond = PreprocTri::Unknown;
-      if (directive == "ifdef" || directive == "ifndef") {
-        if (tokens.size() >= 3 &&
-            tokens[2].kind == LexToken::Kind::Identifier) {
-          bool defined = macros.find(tokens[2].text) != macros.end();
-          cond = defined ? PreprocTri::True : PreprocTri::False;
-          if (directive == "ifndef")
-            cond = triNot(cond);
-        }
-      } else {
-        cond = evalPreprocessorExpr(tokens, 2, macros);
-      }
-
-      Frame frame;
-      frame.parentActive = active;
-      frame.anyDefChosen = false;
-      frame.allPrevDefFalse = true;
-      frame.currentActive = frame.parentActive && cond != PreprocTri::False;
-      if (frame.parentActive && frame.allPrevDefFalse &&
-          cond == PreprocTri::True) {
-        frame.anyDefChosen = true;
-      }
-      frame.allPrevDefFalse =
-          frame.allPrevDefFalse && cond == PreprocTri::False;
-      stack.push_back(frame);
-      active = frame.currentActive;
-      continue;
-    }
-
-    if (directive == "elif") {
-      if (stack.empty())
-        continue;
-      Frame &frame = stack.back();
-      PreprocTri cond = evalPreprocessorExpr(tokens, 2, macros);
-      bool eligible = frame.parentActive && !frame.anyDefChosen;
-      bool branchActive = eligible && cond != PreprocTri::False;
-      if (eligible && frame.allPrevDefFalse && cond == PreprocTri::True) {
-        frame.anyDefChosen = true;
-      }
-      frame.allPrevDefFalse =
-          frame.allPrevDefFalse && cond == PreprocTri::False;
-      frame.currentActive = branchActive;
-      active = frame.currentActive;
-      continue;
-    }
-
-    if (directive == "else") {
-      if (stack.empty())
-        continue;
-      Frame &frame = stack.back();
-      bool eligible = frame.parentActive && !frame.anyDefChosen;
-      bool branchActive = eligible;
-      if (eligible && frame.allPrevDefFalse) {
-        frame.anyDefChosen = true;
-      }
-      frame.allPrevDefFalse = false;
-      frame.currentActive = branchActive;
-      active = frame.currentActive;
-      continue;
-    }
-
-    if (directive == "endif") {
-      if (stack.empty())
-        continue;
-      Frame frame = stack.back();
-      stack.pop_back();
-      active = frame.parentActive;
-      continue;
-    }
-
-    if (!active)
-      continue;
-
-    if (directive == "define") {
-      if (tokens.size() >= 3 && tokens[2].kind == LexToken::Kind::Identifier) {
-        std::string name = tokens[2].text;
-        PreprocMacro macro;
-        macro.knownValue = false;
-        macro.value = 0;
-        if (tokens.size() >= 4) {
-          int parsed = 0;
-          if (tokens[3].kind == LexToken::Kind::Identifier &&
-              parseIntToken(tokens[3].text, parsed)) {
-            macro.knownValue = true;
-            macro.value = parsed;
-          } else if (tokens[3].kind == LexToken::Kind::Punct &&
-                     parseIntToken(tokens[3].text, parsed)) {
-            macro.knownValue = true;
-            macro.value = parsed;
-          }
-        }
-        macros[name] = macro;
-      }
-      continue;
-    }
-
-    if (directive == "undef") {
-      if (tokens.size() >= 3 && tokens[2].kind == LexToken::Kind::Identifier) {
-        macros.erase(tokens[2].text);
-      }
-      continue;
-    }
-  }
-
-  return lineActive;
-}
-
-using PreprocBranchSig = std::vector<std::pair<int, int>>;
-
 static bool preprocBranchSigsOverlap(const PreprocBranchSig &a,
                                      const PreprocBranchSig &b) {
   size_t i = 0;
@@ -649,85 +324,6 @@ static bool preprocBranchSigsOverlap(const PreprocBranchSig &a,
     j++;
   }
   return true;
-}
-
-static std::vector<PreprocBranchSig>
-computePreprocessorBranchSigs(const std::string &text) {
-  struct Frame {
-    int id = 0;
-    int branchIndex = 0;
-    int nextBranchIndex = 1;
-  };
-
-  std::vector<Frame> stack;
-  int nextId = 1;
-
-  std::istringstream stream(text);
-  std::string lineText;
-  bool inBlockComment = false;
-  std::vector<PreprocBranchSig> sigs;
-
-  while (std::getline(stream, lineText)) {
-    PreprocBranchSig sig;
-    sig.reserve(stack.size());
-    for (const auto &frame : stack) {
-      sig.push_back({frame.id, frame.branchIndex});
-    }
-    sigs.push_back(sig);
-
-    bool maskBlock = inBlockComment;
-    const auto mask = buildCodeMaskForLine(lineText, maskBlock);
-    inBlockComment = maskBlock;
-    if (!isPreprocessorDirectiveLine(lineText, mask))
-      continue;
-
-    const auto rawTokens = lexLineTokens(lineText);
-    std::vector<LexToken> tokens;
-    tokens.reserve(rawTokens.size());
-    for (const auto &token : rawTokens) {
-      if (token.start < mask.size() && mask[token.start])
-        tokens.push_back(token);
-    }
-    if (tokens.size() < 2)
-      continue;
-    if (tokens[0].kind != LexToken::Kind::Punct || tokens[0].text != "#")
-      continue;
-    if (tokens[1].kind != LexToken::Kind::Identifier)
-      continue;
-    const std::string directive = tokens[1].text;
-
-    if (directive == "if" || directive == "ifdef" || directive == "ifndef") {
-      Frame frame;
-      frame.id = nextId++;
-      frame.branchIndex = 0;
-      frame.nextBranchIndex = 1;
-      stack.push_back(frame);
-      continue;
-    }
-    if (directive == "elif") {
-      if (stack.empty())
-        continue;
-      Frame &frame = stack.back();
-      frame.branchIndex = frame.nextBranchIndex;
-      frame.nextBranchIndex++;
-      continue;
-    }
-    if (directive == "else") {
-      if (stack.empty())
-        continue;
-      Frame &frame = stack.back();
-      frame.branchIndex = frame.nextBranchIndex;
-      frame.nextBranchIndex++;
-      continue;
-    }
-    if (directive == "endif") {
-      if (stack.empty())
-        continue;
-      stack.pop_back();
-      continue;
-    }
-  }
-  return sigs;
 }
 
 static std::string normalizeTypeToken(std::string value);
@@ -2138,8 +1734,13 @@ static std::string resolveSymbolTypeByWorkspaceScan(
 
 static std::string resolveStructMemberType(
     const std::string &structName, const std::string &memberName,
-    const std::string &currentText, const std::vector<std::string> &scanRoots,
-    const std::vector<std::string> &scanExtensions, StructTypeCache &cache) {
+    const std::string &currentUri, const std::string &currentText,
+    const std::vector<std::string> &scanRoots,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &scanExtensions,
+    const std::unordered_map<std::string, int> &defines,
+    StructTypeCache &cache) {
   std::string indexed;
   if (workspaceIndexGetStructMemberType(structName, memberName, indexed) &&
       !indexed.empty()) {
@@ -2162,7 +1763,17 @@ static std::string resolveStructMemberType(
   cache.attempted[structName] = true;
 
   std::unordered_map<std::string, std::string> members;
-  parseStructMembersFromText(currentText, structName, members);
+  std::vector<SemanticSnapshotStructFieldInfo> fieldInfos;
+  if (!currentUri.empty() &&
+      querySemanticSnapshotStructFieldInfos(currentUri, currentText, 0,
+                                           workspaceFolders, includePaths,
+                                           scanExtensions, defines, structName,
+                                           fieldInfos)) {
+    for (const auto &field : fieldInfos)
+      members.emplace(field.name, field.type);
+  }
+  if (members.empty())
+    parseStructMembersFromText(currentText, structName, members);
   if (members.empty()) {
     DefinitionLocation location;
     if (findStructDefinitionByWorkspaceScan(structName, scanRoots,
@@ -2172,7 +1783,15 @@ static std::string resolveStructMemberType(
         path = location.uri;
       std::string otherText;
       if (readFileToString(path, otherText)) {
-        parseStructMembersFromText(otherText, structName, members);
+        fieldInfos.clear();
+        if (querySemanticSnapshotStructFieldInfos(
+                location.uri, otherText, 0, workspaceFolders, includePaths,
+                scanExtensions, defines, structName, fieldInfos)) {
+          for (const auto &field : fieldInfos)
+            members.emplace(field.name, field.type);
+        }
+        if (members.empty())
+          parseStructMembersFromText(otherText, structName, members);
       }
     }
   }
@@ -2190,15 +1809,25 @@ static std::string resolveStructMemberType(
 static std::string inferExpressionTypeFromTokens(
     const std::vector<LexToken> &tokens, size_t startIndex,
     const std::unordered_map<std::string, std::string> &locals,
+    const std::string &currentUri,
     const std::string &currentText, const std::vector<std::string> &scanRoots,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
     const std::vector<std::string> &scanExtensions,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
     std::unordered_map<std::string, std::string> *fileTextCache);
 static std::string inferExpressionTypeFromTokensRange(
     const std::vector<LexToken> &tokens, size_t startIndex, size_t endIndex,
     const std::unordered_map<std::string, std::string> &locals,
+    const std::string &currentUri,
     const std::string &currentText, const std::vector<std::string> &scanRoots,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
     const std::vector<std::string> &scanExtensions,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
     std::unordered_map<std::string, std::string> *fileTextCache);
 
@@ -2207,9 +1836,14 @@ struct ExprParser {
   size_t endIndex;
   size_t i;
   const std::unordered_map<std::string, std::string> &locals;
+  const std::string &currentUri;
   const std::string &currentText;
   const std::vector<std::string> &scanRoots;
+  const std::vector<std::string> &workspaceFolders;
+  const std::vector<std::string> &includePaths;
   const std::vector<std::string> &scanExtensions;
+  const std::vector<std::string> &shaderExtensions;
+  const std::unordered_map<std::string, int> &defines;
   StructTypeCache &structCache;
   SymbolTypeCache &symbolCache;
   std::unordered_map<std::string, std::string> *fileTextCache;
@@ -2610,8 +2244,9 @@ struct ExprParser {
       }
       size_t argEnd = i;
       args.push_back(inferExpressionTypeFromTokensRange(
-          tokens, argStart, argEnd, locals, currentText, scanRoots,
-          scanExtensions, structCache, symbolCache, fileTextCache));
+          tokens, argStart, argEnd, locals, currentUri, currentText, scanRoots,
+          workspaceFolders, includePaths, scanExtensions, shaderExtensions,
+          defines, structCache, symbolCache, fileTextCache));
       if (i < endIndex && tokens[i].kind == LexToken::Kind::Punct &&
           tokens[i].text == ",") {
         i++;
@@ -2760,8 +2395,9 @@ struct ExprParser {
         }
         if (!baseType.empty()) {
           std::string memberType =
-              resolveStructMemberType(baseType, member, currentText, scanRoots,
-                                      scanExtensions, structCache);
+              resolveStructMemberType(baseType, member, currentUri, currentText,
+                                      scanRoots, workspaceFolders, includePaths,
+                                      scanExtensions, defines, structCache);
           if (!memberType.empty()) {
             baseType = memberType;
             continue;
@@ -2784,8 +2420,13 @@ struct ExprParser {
 static std::string inferExpressionTypeFromTokens(
     const std::vector<LexToken> &tokens, size_t startIndex,
     const std::unordered_map<std::string, std::string> &locals,
+    const std::string &currentUri,
     const std::string &currentText, const std::vector<std::string> &scanRoots,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
     const std::vector<std::string> &scanExtensions,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
     std::unordered_map<std::string, std::string> *fileTextCache) {
   size_t endIndex = tokens.size();
@@ -2819,21 +2460,28 @@ static std::string inferExpressionTypeFromTokens(
     }
   }
   return inferExpressionTypeFromTokensRange(
-      tokens, startIndex, endIndex, locals, currentText, scanRoots,
-      scanExtensions, structCache, symbolCache, fileTextCache);
+      tokens, startIndex, endIndex, locals, currentUri, currentText, scanRoots,
+      workspaceFolders, includePaths, scanExtensions, shaderExtensions, defines,
+      structCache, symbolCache, fileTextCache);
 }
 
 static std::string inferExpressionTypeFromTokensRange(
     const std::vector<LexToken> &tokens, size_t startIndex, size_t endIndex,
     const std::unordered_map<std::string, std::string> &locals,
+    const std::string &currentUri,
     const std::string &currentText, const std::vector<std::string> &scanRoots,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
     const std::vector<std::string> &scanExtensions,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
     std::unordered_map<std::string, std::string> *fileTextCache) {
   endIndex = std::min(endIndex, tokens.size());
   ExprParser parser{tokens,      endIndex,     startIndex,     locals,
-                    currentText, scanRoots,    scanExtensions, structCache,
-                    symbolCache, fileTextCache};
+                    currentUri,  currentText,  scanRoots,      workspaceFolders,
+                    includePaths, scanExtensions, shaderExtensions, defines,
+                    structCache, symbolCache, fileTextCache};
   return parser.parseExpression();
 }
 
@@ -2952,7 +2600,8 @@ static void collectReturnAndTypeDiagnostics(
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
-    const std::unordered_map<std::string, int> &defines, Json &diags,
+    const std::unordered_map<std::string, int> &defines,
+    const PreprocessorView &preprocessorView, Json &diags,
     int timeBudgetMs, size_t maxDiagnostics, bool &timedOut,
     bool indeterminateEnabled, int indeterminateSeverity,
     size_t indeterminateMaxItems, size_t &indeterminateCount) {
@@ -2964,8 +2613,6 @@ static void collectReturnAndTypeDiagnostics(
   int lineIndex = 0;
   bool inBlockComment = false;
   bool inString = false;
-  const auto lineActive = computeActiveLineMask(text, defines);
-  const auto branchSigs = computePreprocessorBranchSigs(text);
 
   bool inFunction = false;
   std::string pendingReturnType;
@@ -3187,8 +2834,10 @@ static void collectReturnAndTypeDiagnostics(
       return it->second;
 
     std::vector<UserFunctionCandidate> out;
+    std::unordered_set<std::string> seenCandidateKeys;
     std::vector<IndexedDefinition> defs;
     if (workspaceIndexFindDefinitions(name, defs, 64)) {
+      std::unordered_set<std::string> seenUris;
       for (const auto &d : defs) {
         if (d.kind != 12)
           continue;
@@ -3203,21 +2852,52 @@ static void collectReturnAndTypeDiagnostics(
           textIt = fileTextCache.emplace(path, std::move(loadedText)).first;
         }
         const std::string &defText = textIt->second;
+        if (seenUris.insert(d.uri).second) {
+          std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
+          if (querySemanticSnapshotFunctionOverloads(
+                  d.uri, defText, 0, workspaceFolders, includePaths,
+                  shaderExtensions, defines, name, overloads)) {
+            for (const auto &overload : overloads) {
+              const std::string candidateKey =
+                  d.uri + "|" + std::to_string(overload.line) + "|" +
+                  std::to_string(overload.character);
+              if (!seenCandidateKeys.insert(candidateKey).second)
+                continue;
+              std::vector<std::string> paramTypes;
+              paramTypes.reserve(overload.parameters.size());
+              for (const auto &p : overload.parameters)
+                paramTypes.push_back(parseParamTypeFromDecl(p));
+              out.push_back(UserFunctionCandidate{
+                  overload.label, paramTypes,
+                  DefinitionLocation{d.uri, overload.line, overload.character,
+                                     overload.character +
+                                         static_cast<int>(name.size())},
+                  FunctionCandidateConfidence::AstIndexed});
+              if (out.size() >= 16)
+                break;
+            }
+          }
+        }
+        if (out.size() >= 16)
+          break;
         std::string label;
         std::vector<std::string> params;
         const bool fullSig = queryFullAstFunctionSignature(
             d.uri, defText, 0, name, d.line, d.start, label, params);
-        bool fastSig = false;
+        bool semanticSig = false;
         if (!fullSig) {
-          fastSig = queryFastAstFunctionSignature(
-              d.uri, defText, 0, name, d.line, d.start, label, params);
+          semanticSig = querySemanticSnapshotFunctionSignature(
+              d.uri, defText, 0, workspaceFolders, includePaths,
+              shaderExtensions, defines, name, d.line, d.start, label, params);
         }
-        if ((!fullSig && !fastSig &&
-             !extractFunctionSignatureAt(defText, d.line, d.start, name, label,
-                                         params)) ||
-            label.empty()) {
+        if ((!fullSig && !semanticSig) || label.empty()) {
           continue;
         }
+        const std::string candidateKey =
+            d.uri + "|" + std::to_string(d.line) + "|" +
+            std::to_string(d.start);
+        if (!seenCandidateKeys.insert(candidateKey).second)
+          continue;
         std::vector<std::string> paramTypes;
         paramTypes.reserve(params.size());
         for (const auto &p : params)
@@ -3243,69 +2923,31 @@ static void collectReturnAndTypeDiagnostics(
       }
     }
     if (out.empty()) {
-      size_t lineStart = 0;
-      int lineNumber = 0;
-      const std::string needle = name + "(";
-      while (lineStart <= text.size()) {
-        size_t lineEnd = text.find('\n', lineStart);
-        if (lineEnd == std::string::npos)
-          lineEnd = text.size();
-        std::string line = text.substr(lineStart, lineEnd - lineStart);
-        size_t namePos = line.find(needle);
-        while (namePos != std::string::npos) {
-          const auto lineTokens = lexLineTokens(line);
-          bool definitionLike = false;
-          for (size_t ti = 0; ti < lineTokens.size(); ti++) {
-            if (lineTokens[ti].kind != LexToken::Kind::Identifier ||
-                lineTokens[ti].text != name ||
-                lineTokens[ti].start != namePos) {
-              continue;
-            }
-            if (ti == 0)
-              break;
-            if (lineTokens[ti - 1].kind != LexToken::Kind::Identifier)
-              break;
-            if (isQualifierToken(lineTokens[ti - 1].text))
-              break;
-            if (ti >= 2 && lineTokens[ti - 2].kind == LexToken::Kind::Punct &&
-                (lineTokens[ti - 2].text == "." ||
-                 lineTokens[ti - 2].text == "->" ||
-                 lineTokens[ti - 2].text == "::")) {
-              break;
-            }
-            definitionLike = true;
-            break;
-          }
-          if (!definitionLike) {
-            namePos = line.find(needle, namePos + 1);
+      std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
+      if (querySemanticSnapshotFunctionOverloads(
+              uri, text, 0, workspaceFolders, includePaths, shaderExtensions,
+              defines, name, overloads)) {
+        for (const auto &overload : overloads) {
+          const std::string candidateKey =
+              uri + "|" + std::to_string(overload.line) + "|" +
+              std::to_string(overload.character);
+          if (!seenCandidateKeys.insert(candidateKey).second)
             continue;
-          }
-          std::string label;
-          std::vector<std::string> params;
-          if (extractFunctionSignatureAt(text, lineNumber,
-                                         static_cast<int>(namePos), name, label,
-                                         params) &&
-              !label.empty()) {
-            std::vector<std::string> paramTypes;
-            paramTypes.reserve(params.size());
-            for (const auto &p : params)
-              paramTypes.push_back(parseParamTypeFromDecl(p));
-            out.push_back(UserFunctionCandidate{
-                label, paramTypes,
-                DefinitionLocation{uri, lineNumber, static_cast<int>(namePos),
-                                   static_cast<int>(namePos + name.size())},
-                FunctionCandidateConfidence::TextFallback});
+          std::vector<std::string> paramTypes;
+          paramTypes.reserve(overload.parameters.size());
+          for (const auto &p : overload.parameters)
+            paramTypes.push_back(parseParamTypeFromDecl(p));
+          out.push_back(UserFunctionCandidate{
+              overload.label, paramTypes,
+              DefinitionLocation{uri, overload.line, overload.character,
+                                 overload.character +
+                                     static_cast<int>(name.size())},
+              FunctionCandidateConfidence::TextFallback});
+          if (out.size() >= 16)
             break;
-          }
-          namePos = line.find(needle, namePos + 1);
         }
-        if (lineEnd == text.size())
-          break;
-        lineStart = lineEnd + 1;
-        lineNumber++;
       }
     }
-
     auto inserted = userFunctionCache.emplace(name, std::move(out));
     return inserted.first->second;
   };
@@ -3730,8 +3372,8 @@ static void collectReturnAndTypeDiagnostics(
         tokens.push_back(token);
     }
 
-    if (lineIndex < static_cast<int>(lineActive.size()) &&
-        !lineActive[lineIndex]) {
+    if (lineIndex < static_cast<int>(preprocessorView.lineActive.size()) &&
+        !preprocessorView.lineActive[lineIndex]) {
       lineIndex++;
       continue;
     }
@@ -3743,8 +3385,9 @@ static void collectReturnAndTypeDiagnostics(
     }
 
     const PreprocBranchSig &currentSig =
-        (lineIndex < static_cast<int>(branchSigs.size()) ? branchSigs[lineIndex]
-                                                         : emptySig);
+        (lineIndex < static_cast<int>(preprocessorView.branchSigs.size())
+             ? preprocessorView.branchSigs[lineIndex]
+             : emptySig);
 
     bool lineStartsTypeBlock = false;
     if (!inFunction && !tokens.empty() &&
@@ -4160,8 +3803,10 @@ static void collectReturnAndTypeDiagnostics(
                     normalizeTypeToken(tokens[typeIndex].text);
                 TypeEvalResult rhsEval;
                 rhsEval.type = normalizeTypeToken(inferExpressionTypeFromTokens(
-                    tokens, k + 1, localsVisibleTypes, text, scanRoots,
-                    scanExtensions, structCache, symbolCache, &fileTextCache));
+                    tokens, k + 1, localsVisibleTypes, uri, text, scanRoots,
+                    workspaceFolders, includePaths, scanExtensions,
+                    shaderExtensions, defines, structCache, symbolCache,
+                    &fileTextCache));
                 rhsEval.confidence = TypeEvalConfidence::L2;
                 if (rhsEval.type.empty() && isHalfFamilyType(lhsType)) {
                   rhsEval.type = inferNarrowingFallbackRhsTypeFromTokens(
@@ -4295,8 +3940,9 @@ static void collectReturnAndTypeDiagnostics(
         }
 
         std::string exprType = inferExpressionTypeFromTokens(
-            tokens, exprStart, localsVisibleTypes, text, scanRoots,
-            scanExtensions, structCache, symbolCache, &fileTextCache);
+            tokens, exprStart, localsVisibleTypes, uri, text, scanRoots,
+            workspaceFolders, includePaths, scanExtensions, shaderExtensions,
+            defines, structCache, symbolCache, &fileTextCache);
         exprType = normalizeTypeToken(exprType);
         if (!exprType.empty() && exprType != normalizedReturnType) {
           diags.a.push_back(makeDiagnostic(
@@ -4343,8 +3989,9 @@ static void collectReturnAndTypeDiagnostics(
         std::string lhsType = normalizeTypeToken(it->second);
         TypeEvalResult rhsEval;
         rhsEval.type = normalizeTypeToken(inferExpressionTypeFromTokens(
-            tokens, i + 2, localsVisibleTypes, text, scanRoots, scanExtensions,
-            structCache, symbolCache, &fileTextCache));
+            tokens, i + 2, localsVisibleTypes, uri, text, scanRoots,
+            workspaceFolders, includePaths, scanExtensions, shaderExtensions,
+            defines, structCache, symbolCache, &fileTextCache));
         rhsEval.confidence = TypeEvalConfidence::L2;
         if (rhsEval.type.empty() && isHalfFamilyType(lhsType)) {
           rhsEval.type = inferNarrowingFallbackRhsTypeFromTokens(tokens, i + 2,
@@ -4620,9 +4267,10 @@ static void collectReturnAndTypeDiagnostics(
         for (const auto &range : argRanges) {
           argTypes.push_back(
               normalizeTypeToken(inferExpressionTypeFromTokensRange(
-                  tokens, range.first, range.second, localsVisibleTypes, text,
-                  scanRoots, scanExtensions, structCache, symbolCache,
-                  &fileTextCache)));
+                  tokens, range.first, range.second, localsVisibleTypes, uri,
+                  text, scanRoots, workspaceFolders, includePaths,
+                  scanExtensions, shaderExtensions, defines, structCache,
+                  symbolCache, &fileTextCache)));
         }
         if (closeParenIndex == std::string::npos) {
           continue;
@@ -4710,9 +4358,10 @@ static void collectReturnAndTypeDiagnostics(
         for (const auto &range : argRanges) {
           argTypes.push_back(
               normalizeTypeToken(inferExpressionTypeFromTokensRange(
-                  tokens, range.first, range.second, localsVisibleTypes, text,
-                  scanRoots, scanExtensions, structCache, symbolCache,
-                  &fileTextCache)));
+                  tokens, range.first, range.second, localsVisibleTypes, uri,
+                  text, scanRoots, workspaceFolders, includePaths,
+                  scanExtensions, shaderExtensions, defines, structCache,
+                  symbolCache, &fileTextCache)));
         }
         if (closeParenIndex == std::string::npos)
           continue;
@@ -4897,9 +4546,10 @@ static void collectReturnAndTypeDiagnostics(
         for (const auto &range : argRanges) {
           argTypes.push_back(
               normalizeTypeToken(inferExpressionTypeFromTokensRange(
-                  tokens, range.first, range.second, localsVisibleTypes, text,
-                  scanRoots, scanExtensions, structCache, symbolCache,
-                  &fileTextCache)));
+                  tokens, range.first, range.second, localsVisibleTypes, uri,
+                  text, scanRoots, workspaceFolders, includePaths,
+                  scanExtensions, shaderExtensions, defines, structCache,
+                  symbolCache, &fileTextCache)));
         }
         if (closeParenIndex == std::string::npos)
           continue;
@@ -5372,16 +5022,35 @@ buildDiagnosticsWithOptions(const std::string &uri, const std::string &text,
   if (result.diagnostics.a.size() >= maxDiagnostics) {
     result.truncated = true;
   }
+  PreprocessorIncludeContext preprocessorIncludeContext;
+  preprocessorIncludeContext.currentUri = uri;
+  preprocessorIncludeContext.workspaceFolders = workspaceFolders;
+  preprocessorIncludeContext.includePaths = includePaths;
+  preprocessorIncludeContext.shaderExtensions = shaderExtensions;
+  const auto preprocessorView =
+      buildPreprocessorView(text, defines, preprocessorIncludeContext);
   if (!result.truncated) {
     collectPreprocessorDiagnostics(text, result.diagnostics);
     if (result.diagnostics.a.size() >= maxDiagnostics) {
       result.truncated = true;
     }
   }
+  if (!result.truncated) {
+    for (const auto &diag : preprocessorView.conditionDiagnostics) {
+      if (result.diagnostics.a.size() >= maxDiagnostics) {
+        result.truncated = true;
+        break;
+      }
+      result.diagnostics.a.push_back(
+          makeDiagnostic(text, diag.line, diag.start, diag.end, diag.severity,
+                         "nsf", diag.message));
+    }
+  }
   if (!result.truncated && options.enableExpensiveRules && !budgetExpired()) {
     collectReturnAndTypeDiagnostics(
         uri, text, workspaceFolders, includePaths, shaderExtensions, defines,
-        result.diagnostics, options.timeBudgetMs, maxDiagnostics,
+        preprocessorView, result.diagnostics, options.timeBudgetMs,
+        maxDiagnostics,
         result.timedOut, options.indeterminateEnabled,
         options.indeterminateSeverity, indeterminateMaxItems,
         indeterminateCount);
@@ -5400,7 +5069,6 @@ buildDiagnosticsWithOptions(const std::string &uri, const std::string &text,
   int lineIndex = 0;
   bool inBlockComment = false;
   std::unordered_map<std::string, bool> includeCandidateExistsCache;
-  const auto lineActive = computeActiveLineMask(text, defines);
   while (std::getline(stream, lineText)) {
     if (result.diagnostics.a.size() >= maxDiagnostics) {
       result.truncated = true;
@@ -5417,8 +5085,8 @@ buildDiagnosticsWithOptions(const std::string &uri, const std::string &text,
       lineIndex++;
       continue;
     }
-    if (lineIndex < static_cast<int>(lineActive.size()) &&
-        !lineActive[lineIndex]) {
+    if (lineIndex < static_cast<int>(preprocessorView.lineActive.size()) &&
+        !preprocessorView.lineActive[lineIndex]) {
       lineIndex++;
       continue;
     }
