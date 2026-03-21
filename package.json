@@ -60,26 +60,34 @@
 				"title": "NSF: Select Unit"
 			}
 		],
-		"languages": [
-			{
-				"id": "nsf",
-				"aliases": [
-					"NSF Shader"
+ 		"languages": [
+ 			{
+ 				"id": "nsf",
+ 				"aliases": [
+ 					"NSF Shader"
+ 				],
+ 				"extensions": [
+ 					".nsf",
+ 					".hlsl",
+					".hlsli",
+ 					".fx",
+ 					".usf",
+ 					".ush"
 				],
-				"extensions": [
-					".nsf",
-					".hlsl",
-					".fx",
-					".usf",
-					".ush"
-				]
-			}
-		],
-		"grammars": [
-			{
-				"language": "nsf",
+				"configuration": "./syntaxes/nsf.language-configuration.json"
+ 			}
+ 		],
+ 		"grammars": [
+ 			{
+ 				"language": "nsf",
 				"scopeName": "source.nsf",
 				"path": "./syntaxes/hlsl.tmGrammar.json"
+			}
+		],
+		"snippets": [
+			{
+				"language": "nsf",
+				"path": "./snippets/nsf.code-snippets"
 			}
 		],
 		"configuration": [
@@ -104,6 +112,7 @@
 						"default": [
 							".nsf",
 							".hlsl",
+							".hlsli",
 							".fx",
 							".usf",
 							".ush"

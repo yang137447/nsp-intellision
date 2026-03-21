@@ -1,0 +1,102 @@
+{
+  "NSF: VS_INPUT struct": {
+    "prefix": [
+      "nsf-vs-input",
+      "vsinput"
+    ],
+    "body": [
+      "struct VS_INPUT",
+      "{",
+      "\t${1:float4} ${2:position} : ${3:POSITION};",
+      "};"
+    ],
+    "description": "Insert a basic VS_INPUT struct."
+  },
+  "NSF: PS_INPUT struct": {
+    "prefix": [
+      "nsf-ps-input",
+      "psinput"
+    ],
+    "body": [
+      "struct PS_INPUT",
+      "{",
+      "\t${1:float4} ${2:position} : SV_Position;",
+      "};"
+    ],
+    "description": "Insert a basic PS_INPUT struct."
+  },
+  "NSF: cbuffer": {
+    "prefix": [
+      "nsf-cbuffer",
+      "cbuffer"
+    ],
+    "body": [
+      "cbuffer ${1:PerFrame} : register(${2:b0})",
+      "{",
+      "\t${3:float4x4} ${4:gWorldViewProj};",
+      "};"
+    ],
+    "description": "Insert a basic constant buffer."
+  },
+  "NSF: vs_main": {
+    "prefix": [
+      "nsf-vs-main",
+      "vsmain"
+    ],
+    "body": [
+      "PS_INPUT vs_main(VS_INPUT input)",
+      "{",
+      "\tPS_INPUT output;",
+      "\toutput.position = ${1:mul(input.position, gWorldViewProj)};",
+      "\t$0",
+      "\treturn output;",
+      "}"
+    ],
+    "description": "Insert a minimal vertex shader entry."
+  },
+  "NSF: ps_main": {
+    "prefix": [
+      "nsf-ps-main",
+      "psmain"
+    ],
+    "body": [
+      "float4 ps_main(PS_INPUT input) : SV_Target0",
+      "{",
+      "\t$0",
+      "\treturn ${1:float4(1.0, 1.0, 1.0, 1.0)};",
+      "}"
+    ],
+    "description": "Insert a minimal pixel shader entry."
+  },
+  "NSF: technique/pass": {
+    "prefix": [
+      "nsf-tech-pass",
+      "techpass"
+    ],
+    "body": [
+      "technique ${1:MainTech}",
+      "{",
+      "\tpass ${2:P0}",
+      "\t{",
+      "\t\tVertexShader = compile ${3:vs_5_0} vs_main();",
+      "\t\tPixelShader = compile ${4:ps_5_0} ps_main();",
+      "\t}",
+      "}"
+    ],
+    "description": "Insert a minimal technique/pass block."
+  },
+  "NSF: #if / #else / #endif": {
+    "prefix": [
+      "nsf-pp-if",
+      "ppif"
+    ],
+    "body": [
+      "#if ${1:CONDITION}",
+      "\t$0",
+      "#else",
+      "\t",
+      "#endif"
+    ],
+    "description": "Insert a basic preprocessor conditional block."
+  }
+}

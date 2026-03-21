@@ -17,6 +17,7 @@
 - 源码：`client/src/extension.ts`
 - 编译输出：`client/out/*.js`
 - 常用命令：`npm run compile`
+- 编辑器壳层事实文档：`docs/client-editor-features.md`
 
 ### 服务端
 

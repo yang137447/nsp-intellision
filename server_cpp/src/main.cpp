@@ -1419,7 +1419,8 @@ int main(int argc, char **argv) {
   getHlslBuiltinNames();
   ServerRequestContext core;
   std::mutex coreMutex;
-  core.shaderExtensions = {".nsf", ".hlsl", ".fx", ".usf", ".ush"};
+  core.shaderExtensions = {".nsf", ".hlsl", ".hlsli", ".fx", ".usf",
+                           ".ush"};
   core.semanticLegend = createDefaultSemanticTokenLegend();
   std::unordered_map<std::string, int> preprocessorDefines;
   auto applySettings = [&](const Json &settings) {

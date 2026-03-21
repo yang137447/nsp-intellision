@@ -14,6 +14,8 @@
 如果任务明确涉及某个专题，再补读相关执行方案或历史设计稿：
 
 - `docs/` 下与当前任务直接相关的专题文档
+- `docs/client-editor-features.md`
+  - 当任务涉及注释切换、自动配对、`wordPattern`、snippets、folding、语言扩展名归属等 client 编辑器壳层能力时优先阅读
 
 默认情况下，`README.md` 和 `docs/{architecture,resources,testing}.md` 才是当前事实文档。
 

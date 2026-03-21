@@ -31,6 +31,33 @@
 
 客户端不是语义真相来源。HLSL 关键字、builtin、对象类型、对象方法和诊断规则都应以 server 侧共享模块为准。
 
+## Client 编辑器壳层真相来源
+
+以下能力属于 VS Code client / manifest / 静态配置层，不属于 LSP server 语义真相：
+
+- 语言扩展名归属
+- `language-configuration.json`
+- snippets
+- 注释切换、自动配对、包裹、`wordPattern`、回车续写、folding markers
+
+当前推荐真相来源：
+
+- `package.json`
+  - `contributes.languages`
+  - `contributes.grammars`
+  - `contributes.snippets`
+  - `contributes.configuration`
+- `syntaxes/nsf.language-configuration.json`
+  - 编辑器壳层行为规则
+- `snippets/nsf.code-snippets`
+  - 片段内容
+- `client/src/extension.ts`
+  - client 运行时默认 shader 扩展名兜底
+- `server_cpp/src/main.cpp`
+  - server 启动默认 shader 扩展名兜底
+
+如果任务明确涉及这些 client 专有能力，当前事实文档以 `docs/client-editor-features.md` 为准。
+
 ## 服务端职责
 
 当前服务端事实位于 `server_cpp/`：

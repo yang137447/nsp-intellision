@@ -1,0 +1,112 @@
+{
+  "comments": {
+    "lineComment": "//",
+    "blockComment": [
+      "/*",
+      "*/"
+    ]
+  },
+  "brackets": [
+    [
+      "{",
+      "}"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "(",
+      ")"
+    ]
+  ],
+  "autoClosingPairs": [
+    {
+      "open": "{",
+      "close": "}"
+    },
+    {
+      "open": "[",
+      "close": "]"
+    },
+    {
+      "open": "(",
+      "close": ")"
+    },
+    {
+      "open": "\"",
+      "close": "\"",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    }
+  ],
+  "surroundingPairs": [
+    {
+      "open": "{",
+      "close": "}"
+    },
+    {
+      "open": "[",
+      "close": "]"
+    },
+    {
+      "open": "(",
+      "close": ")"
+    },
+    {
+      "open": "\"",
+      "close": "\""
+    }
+  ],
+  "wordPattern": "(-?\\b\\d*\\.?\\d+(?:[eE][+-]?\\d+)?[fFuUlL]*\\b)|([A-Z][A-Za-z0-9_]*<[^\\s<>]+>)|([A-Za-z_][A-Za-z0-9_]*)",
+  "indentationRules": {
+    "increaseIndentPattern": "^((?!\\/\\/).)*(\\{[^}\"'`]*)$",
+    "decreaseIndentPattern": "^\\s*\\}"
+  },
+  "onEnterRules": [
+    {
+      "beforeText": "^((?!\\/\\/).)*(\\{[^}\"'`]*)$",
+      "afterText": "^\\s*\\}",
+      "action": {
+        "indent": "indentOutdent"
+      }
+    },
+    {
+      "beforeText": "^\\s*///.*$",
+      "action": {
+        "indent": "none",
+        "appendText": "/// "
+      }
+    },
+    {
+      "beforeText": "^\\s*\\/\\*\\*(?!\\/)([^*]|\\*(?!\\/))*$",
+      "afterText": "^\\s*\\*\\/$",
+      "action": {
+        "indent": "indentOutdent",
+        "appendText": " * "
+      }
+    },
+    {
+      "beforeText": "^\\s*\\/\\*\\*(?!\\/)([^*]|\\*(?!\\/))*$",
+      "action": {
+        "indent": "none",
+        "appendText": " * "
+      }
+    },
+    {
+      "beforeText": "^\\s*\\*(?!\\/)([^*]|\\*(?!\\/))*$",
+      "action": {
+        "indent": "none",
+        "appendText": " * "
+      }
+    }
+  ],
+  "folding": {
+    "markers": {
+      "start": "^\\s*#\\s*region\\b",
+      "end": "^\\s*#\\s*endregion\\b"
+    }
+  }
+}

@@ -774,7 +774,7 @@ export function activate(context: ExtensionContext) {
 				includePathsOverride ?? normalizeIncludePaths(config.get<string[]>('intellisionPath', [])),
 			shaderFileExtensions: config.get<string[]>(
 				'shaderFileExtensions',
-				['.nsf', '.hlsl', '.fx', '.usf', '.ush']
+				['.nsf', '.hlsl', '.hlsli', '.fx', '.usf', '.ush']
 			),
 			defines: config.get<string[]>('defines', []),
 			debugDefinitionTrace: false,
@@ -1089,7 +1089,7 @@ export function activate(context: ExtensionContext) {
 	const getConfiguredShaderExtensions = (): string[] => {
 		const configured = workspace.getConfiguration('nsf').get<string[]>(
 			'shaderFileExtensions',
-			['.nsf', '.hlsl', '.fx', '.usf', '.ush']
+			['.nsf', '.hlsl', '.hlsli', '.fx', '.usf', '.ush']
 		);
 		const normalized: string[] = [];
 		const seen = new Set<string>();

@@ -157,6 +157,29 @@
 
 - `npm run test:client:repo`
 
+### 改编辑器壳层配置
+
+适用场景：
+
+- 修改 `package.json` 里的语言注册、语言配置或 snippets 挂接
+- 修改 `language-configuration.json`
+- 修改 `*.code-snippets`
+
+至少做：
+
+- 手工 smoke 检查 `.nsf`、`.hlsl`、`.hlsli` 的语言模式归属
+- 手工检查 `Ctrl+/` 行注释、`Shift+Alt+A` 块注释、基础自动配对和基础缩进行为
+- 手工检查双击选词对 `SV_Position`、宏名和常见标识符不退化
+- 手工检查 `///`、`/** */` 的注释续写和 `#region/#endregion` 折叠
+
+如果改了 snippets，再补做：
+
+- 手工检查 `nsf` 语言下最小片段是否出现且占位符顺序合理
+
+如果同时改了 `client/` 代码，再额外跑：
+
+- `npm run compile`
+
 ### 改 C++ server
 
 至少跑：
