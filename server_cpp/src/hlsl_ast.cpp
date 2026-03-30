@@ -333,13 +333,22 @@ HlslAstDocument buildHlslAstDocument(const ExpandedSource &expandedSource) {
               document.typedefs.push_back(typedefDecl);
               appendTopLevelDecl(document, HlslTopLevelDeclKind::Typedef,
                                  typedefDecl.alias, typedefDecl.line);
-            } else if (extractUiMetadataDeclarationHeaderShared(
+            } else if (extractFxBlockDeclarationHeaderShared(
+                           lineText, pendingUiMetadataType,
+                           pendingUiMetadataName)) {
+              HlslAstGlobalVariableDecl globalDecl;
+              globalDecl.name = pendingUiMetadataName;
+              globalDecl.type = pendingUiMetadataType;
+              globalDecl.line = sourceLine;
+              document.globalVariables.push_back(globalDecl);
+              appendTopLevelDecl(document, HlslTopLevelDeclKind::GlobalVariable,
+                                 globalDecl.name, globalDecl.line);
+            } else if (extractMetadataDeclarationHeaderShared(
                            lineText, pendingUiMetadataType,
                            pendingUiMetadataName)) {
               pendingUiMetadataDecl = true;
               pendingUiMetadataLine = sourceLine;
-            } else if (lineText.find(';') != std::string::npos &&
-                       lineText.find('(') == std::string::npos) {
+            } else if (lineText.find(';') != std::string::npos) {
               const auto declarations = extractDeclarationsInLineShared(lineText);
               for (const auto &decl : declarations) {
                 HlslAstGlobalVariableDecl globalDecl;

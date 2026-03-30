@@ -27,6 +27,12 @@ def iter_lsp_frames(raw):
         pos = header_end + length
 
 
+def member_bullet_index(markdown, member_name):
+    pattern = re.compile(r"- `[^`\n]*\b" + re.escape(member_name) + r"`")
+    match = pattern.search(markdown or "")
+    return -1 if match is None else match.start()
+
+
 def main():
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     exe = os.path.join(repo, "server_cpp", "build", "nsf_lsp.exe")
@@ -363,8 +369,8 @@ def main():
                     md = obj.get("result", {}).get("contents", {}).get("value", "")
                 except Exception:
                     md = ""
-                i = md.find("- `color`")
-                j = md.find("- `value`")
+                i = member_bullet_index(md, "color")
+                j = member_bullet_index(md, "value")
                 if i >= 0 and j >= 0 and i < j:
                     struct_ok = True
             if b"\"id\":5" in body:
@@ -374,8 +380,8 @@ def main():
                     md = obj.get("result", {}).get("contents", {}).get("value", "")
                 except Exception:
                     md = ""
-                i = md.find("- `position`")
-                j = md.find("- `instance_id`")
+                i = member_bullet_index(md, "position")
+                j = member_bullet_index(md, "instance_id")
                 if i >= 0 and j >= 0 and i < j:
                     external_ok = True
             if b"\"id\":6" in body:
@@ -385,8 +391,8 @@ def main():
                     md = obj.get("result", {}).get("contents", {}).get("value", "")
                 except Exception:
                     md = ""
-                i = md.find("- `final_position`")
-                j = md.find("- `instance_id`")
+                i = member_bullet_index(md, "final_position")
+                j = member_bullet_index(md, "instance_id")
                 if i >= 0 and j >= 0 and i < j:
                     external_ps_ok = True
             if b"\"id\":7" in body:

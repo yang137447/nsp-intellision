@@ -3,7 +3,172 @@
 #include "nsf_lexer.hpp"
 #include "text_utils.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <sstream>
+
+namespace {
+
+std::string sanitizeCodeLine(const std::string &line, bool &inBlockComment) {
+  std::string out;
+  out.reserve(line.size());
+  bool inString = false;
+  bool inLineComment = false;
+  for (size_t i = 0; i < line.size(); i++) {
+    const char ch = line[i];
+    const char next = i + 1 < line.size() ? line[i + 1] : '\0';
+    if (inLineComment) {
+      out.push_back(' ');
+      continue;
+    }
+    if (inBlockComment) {
+      out.push_back(' ');
+      if (ch == '*' && next == '/') {
+        out.push_back(' ');
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (inString) {
+      out.push_back(' ');
+      if (ch == '"' && (i == 0 || line[i - 1] != '\\'))
+        inString = false;
+      continue;
+    }
+    if (ch == '/' && next == '/') {
+      out.push_back(' ');
+      out.push_back(' ');
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch == '/' && next == '*') {
+      out.push_back(' ');
+      out.push_back(' ');
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    if (ch == '"') {
+      out.push_back(' ');
+      inString = true;
+      continue;
+    }
+    out.push_back(ch);
+  }
+  return out;
+}
+
+std::string trimCodeLine(const std::string &line, bool &inBlockComment) {
+  return trimRightCopy(trimLeftCopy(sanitizeCodeLine(line, inBlockComment)));
+}
+
+bool shouldAdvanceGroupingState(const std::string &trimmed, size_t lineIndex,
+                                const std::vector<char> *lineActive) {
+  if (lineActive && lineIndex < lineActive->size() && !(*lineActive)[lineIndex])
+    return false;
+  return !trimmed.empty() && trimmed[0] != '#';
+}
+
+bool isContinuationLine(const std::string &trimmed) {
+  if (trimmed.empty())
+    return false;
+  const std::string ops = "+-*/%&|^!=<>?:,.";
+  const char tail = trimmed.back();
+  return ops.find(tail) != std::string::npos || tail == '\\';
+}
+
+bool startsWithKeywordToken(const std::vector<LexToken> &tokens,
+                            const std::string &keyword) {
+  for (const auto &token : tokens) {
+    if (token.kind == LexToken::Kind::Identifier)
+      return token.text == keyword;
+  }
+  return false;
+}
+
+bool isStandaloneAttributeSpecifier(const std::vector<LexToken> &tokens) {
+  if (tokens.size() < 2 || tokens.front().kind != LexToken::Kind::Punct ||
+      tokens.front().text != "[" || tokens.back().kind != LexToken::Kind::Punct ||
+      tokens.back().text != "]") {
+    return false;
+  }
+  int bracketDepth = 0;
+  bool sawOpenBracket = false;
+  for (size_t i = 0; i < tokens.size(); i++) {
+    if (tokens[i].kind != LexToken::Kind::Punct)
+      continue;
+    if (tokens[i].text == "[") {
+      bracketDepth++;
+      sawOpenBracket = true;
+      continue;
+    }
+    if (tokens[i].text == "]") {
+      if (bracketDepth == 0)
+        return false;
+      bracketDepth--;
+      if (bracketDepth == 0 && i + 1 != tokens.size())
+        return false;
+    }
+  }
+  return sawOpenBracket && bracketDepth == 0;
+}
+
+bool endsWithPostfixUpdateExpression(const std::vector<LexToken> &tokens) {
+  if (tokens.size() < 3)
+    return false;
+  const auto &last = tokens[tokens.size() - 1];
+  const auto &penultimate = tokens[tokens.size() - 2];
+  if (last.kind != LexToken::Kind::Punct ||
+      penultimate.kind != LexToken::Kind::Punct) {
+    return false;
+  }
+  const bool isIncrement = last.text == "+" && penultimate.text == "+";
+  const bool isDecrement = last.text == "-" && penultimate.text == "-";
+  if (!isIncrement && !isDecrement)
+    return false;
+  const auto &base = tokens[tokens.size() - 3];
+  return base.kind == LexToken::Kind::Identifier ||
+         (base.kind == LexToken::Kind::Punct &&
+          (base.text == "]" || base.text == ")"));
+}
+
+bool isFunctionLikeHeader(const std::vector<LexToken> &tokens,
+                          const std::string &nextTrimmed) {
+  size_t openParen = std::string::npos;
+  for (size_t i = 0; i < tokens.size(); i++) {
+    if (tokens[i].kind == LexToken::Kind::Punct && tokens[i].text == "(") {
+      openParen = i;
+      break;
+    }
+  }
+  if (openParen == std::string::npos)
+    return false;
+  int identifierCountBeforeParen = 0;
+  for (size_t i = 0; i < openParen; i++) {
+    if (tokens[i].kind == LexToken::Kind::Identifier &&
+        !isQualifierToken(tokens[i].text)) {
+      identifierCountBeforeParen++;
+    }
+  }
+  if (identifierCountBeforeParen < 2)
+    return false;
+  if (!nextTrimmed.empty() &&
+      (nextTrimmed[0] == '{' || nextTrimmed[0] == ':')) {
+    return true;
+  }
+  if (!tokens.empty()) {
+    const auto &last = tokens.back();
+    if (last.kind == LexToken::Kind::Punct &&
+        (last.text == "{" || last.text == ":")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+} // namespace
 
 bool extractIncludePath(const std::string &lineText, std::string &includePath) {
   includePath.clear();
@@ -515,6 +680,222 @@ bool extractUiMetadataDeclarationHeaderShared(const std::string &line,
   return identifierCount >= 2 && !typeOut.empty() && !nameOut.empty();
 }
 
+bool extractMetadataDeclarationHeaderShared(const std::string &line,
+                                            std::string &typeOut,
+                                            std::string &nameOut) {
+  typeOut.clear();
+  nameOut.clear();
+
+  std::string code = line;
+  const size_t lineComment = code.find("//");
+  if (lineComment != std::string::npos)
+    code = code.substr(0, lineComment);
+
+  const auto tokens = lexLineTokens(code);
+  if (tokens.empty() || tokens[0].text == "#")
+    return false;
+
+  bool sawColon = false;
+  for (const auto &token : tokens) {
+    if (token.kind != LexToken::Kind::Punct)
+      continue;
+    const std::string &text = token.text;
+    if (text == ":") {
+      sawColon = true;
+      continue;
+    }
+    if (text == "(" || text == ")" || text == ";" || text == "," ||
+        text == "=" || text == "<" || text == ">" || text == "[" ||
+        text == "]" || text == "{" || text == "}") {
+      return false;
+    }
+  }
+
+  int identifierCountBeforeColon = 0;
+  for (const auto &token : tokens) {
+    if (token.kind == LexToken::Kind::Punct && token.text == ":")
+      break;
+    if (token.kind != LexToken::Kind::Identifier)
+      continue;
+    if (isQualifierToken(token.text))
+      continue;
+    if (typeOut.empty()) {
+      typeOut = token.text;
+    } else if (nameOut.empty()) {
+      nameOut = token.text;
+    } else {
+      return false;
+    }
+    identifierCountBeforeColon++;
+  }
+  if (identifierCountBeforeColon < 2)
+    return false;
+  if (sawColon && (typeOut.empty() || nameOut.empty()))
+    return false;
+  return !typeOut.empty() && !nameOut.empty();
+}
+
+bool findMetadataDeclarationHeaderPosShared(const std::string &line,
+                                            std::string &typeOut,
+                                            std::string &nameOut,
+                                            size_t &nameStartOut,
+                                            size_t &nameEndOut) {
+  nameStartOut = 0;
+  nameEndOut = 0;
+  if (!extractMetadataDeclarationHeaderShared(line, typeOut, nameOut) ||
+      nameOut.empty()) {
+    return false;
+  }
+
+  std::string code = line;
+  const size_t lineComment = code.find("//");
+  if (lineComment != std::string::npos)
+    code = code.substr(0, lineComment);
+
+  const auto tokens = lexLineTokens(code);
+  const LexToken *nameToken = nullptr;
+  for (const auto &token : tokens) {
+    if (token.kind == LexToken::Kind::Punct && token.text == ":")
+      break;
+    if (token.kind != LexToken::Kind::Identifier)
+      continue;
+    if (isQualifierToken(token.text))
+      continue;
+    nameToken = &token;
+  }
+  if (!nameToken || nameToken->text != nameOut)
+    return false;
+
+  nameStartOut = nameToken->start;
+  nameEndOut = nameToken->end;
+  return true;
+}
+
+bool extractFxBlockDeclarationHeaderShared(const std::string &line,
+                                           std::string &typeOut,
+                                           std::string &nameOut) {
+  typeOut.clear();
+  nameOut.clear();
+
+  std::string code = line;
+  const size_t lineComment = code.find("//");
+  if (lineComment != std::string::npos)
+    code = code.substr(0, lineComment);
+
+  const auto tokens = lexLineTokens(code);
+  if (tokens.size() < 2 || tokens[0].text == "#")
+    return false;
+
+  auto isBlockType = [](const std::string &t) {
+    return t == "texture" || t == "Texture" || t == "Texture2D" ||
+           t == "Texture3D" || t == "TextureCube" || t == "SamplerState" ||
+           t == "SamplerComparisonState" || t == "BlendState" ||
+           t == "DepthStencilState" || t == "RasterizerState";
+  };
+
+  bool hasAssignBefore = false;
+  for (const auto &token : tokens) {
+    if (token.kind == LexToken::Kind::Punct && token.text == "=")
+      return false;
+    if (token.kind != LexToken::Kind::Identifier)
+      continue;
+    if (isQualifierToken(token.text))
+      continue;
+    if (typeOut.empty()) {
+      typeOut = token.text;
+      continue;
+    }
+    nameOut = token.text;
+    break;
+  }
+
+  if (!isBlockType(typeOut) || nameOut.empty())
+    return false;
+  return true;
+}
+
+bool extractMacroDefinitionInLineShared(const std::string &line,
+                                        ParsedMacroDefinitionInfo &resultOut) {
+  resultOut = ParsedMacroDefinitionInfo{};
+
+  std::string code = line;
+  const size_t lineComment = code.find("//");
+  if (lineComment != std::string::npos)
+    code = code.substr(0, lineComment);
+
+  const auto tokens = lexLineTokens(code);
+  if (tokens.size() < 3)
+    return false;
+  if (tokens[0].kind != LexToken::Kind::Punct || tokens[0].text != "#")
+    return false;
+  if (tokens[1].kind != LexToken::Kind::Identifier ||
+      tokens[1].text != "define") {
+    return false;
+  }
+  if (tokens[2].kind != LexToken::Kind::Identifier)
+    return false;
+
+  resultOut.name = tokens[2].text;
+  resultOut.nameStart = tokens[2].start;
+  resultOut.nameEnd = tokens[2].end;
+
+  size_t replacementStart = tokens[2].end;
+  size_t tokenIndex = 3;
+  if (tokenIndex < tokens.size() &&
+      tokens[tokenIndex].kind == LexToken::Kind::Punct &&
+      tokens[tokenIndex].text == "(" &&
+      tokens[tokenIndex].start == tokens[2].end) {
+    resultOut.isFunctionLike = true;
+    int depth = 0;
+    bool started = false;
+    std::string currentParam;
+    for (; tokenIndex < tokens.size(); tokenIndex++) {
+      const auto &tok = tokens[tokenIndex];
+      if (tok.kind == LexToken::Kind::Punct && tok.text == "(") {
+        depth++;
+        if (depth == 1) {
+          started = true;
+          continue;
+        }
+      } else if (tok.kind == LexToken::Kind::Punct && tok.text == ")") {
+        if (depth == 1) {
+          const std::string param =
+              trimRightCopy(trimLeftCopy(currentParam));
+          if (!param.empty())
+            resultOut.parameters.push_back(param);
+          currentParam.clear();
+          replacementStart = tok.end;
+          tokenIndex++;
+          break;
+        }
+        if (depth > 0)
+          depth--;
+      }
+      if (!started)
+        continue;
+      if (tok.kind == LexToken::Kind::Punct && tok.text == "," && depth == 1) {
+        const std::string param =
+            trimRightCopy(trimLeftCopy(currentParam));
+        if (!param.empty())
+          resultOut.parameters.push_back(param);
+        currentParam.clear();
+        continue;
+      }
+      if (!currentParam.empty())
+        currentParam.push_back(' ');
+      currentParam += tok.text;
+    }
+    if (replacementStart <= tokens[2].end)
+      replacementStart = tokens[2].end;
+  }
+
+  if (replacementStart < code.size()) {
+    resultOut.replacementText =
+        trimRightCopy(trimLeftCopy(code.substr(replacementStart)));
+  }
+  return !resultOut.name.empty();
+}
+
 bool extractFunctionSignatureFromTextShared(
     const std::string &text, int lineIndex, int nameCharacter,
     const std::string &name, ParsedFunctionSignatureTextInfo &resultOut) {
@@ -622,6 +1003,125 @@ std::vector<std::string> extractDeclaredNamesFromLine(const std::string &line) {
 std::vector<ParsedDeclarationInfo>
 extractDeclarationsInLineShared(const std::string &line) {
   return parseDeclarationsInLine(line);
+}
+
+std::vector<std::string> splitLinesShared(const std::string &text) {
+  std::vector<std::string> lines;
+  std::istringstream stream(text);
+  std::string line;
+  while (std::getline(stream, line))
+    lines.push_back(line);
+  if (!text.empty() && text.back() == '\n')
+    lines.emplace_back();
+  return lines;
+}
+
+std::vector<std::string> buildTrimmedCodeLinesShared(const std::string &text) {
+  return buildTrimmedCodeLineScanShared(text).trimmedLines;
+}
+
+TrimmedCodeLineScanSharedResult buildTrimmedCodeLineScanShared(
+    const std::string &text, const std::vector<char> *lineActive) {
+  const std::vector<std::string> lines = splitLinesShared(text);
+  TrimmedCodeLineScanSharedResult result;
+  result.trimmedLines.reserve(lines.size());
+  result.parenDepthAfterLine.reserve(lines.size());
+  result.bracketDepthAfterLine.reserve(lines.size());
+
+  bool inBlockComment = false;
+  int parenDepth = 0;
+  int bracketDepth = 0;
+  for (size_t lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+    const std::string sanitized = sanitizeCodeLine(lines[lineIndex], inBlockComment);
+    const std::string trimmed =
+        trimRightCopy(trimLeftCopy(sanitized));
+    result.trimmedLines.push_back(trimmed);
+
+    if (shouldAdvanceGroupingState(trimmed, lineIndex, lineActive)) {
+      for (char ch : sanitized) {
+        if (ch == '(') {
+          parenDepth++;
+        } else if (ch == ')') {
+          parenDepth = std::max(0, parenDepth - 1);
+        } else if (ch == '[') {
+          bracketDepth++;
+        } else if (ch == ']') {
+          bracketDepth = std::max(0, bracketDepth - 1);
+        }
+      }
+    }
+
+    result.parenDepthAfterLine.push_back(parenDepth);
+    result.bracketDepthAfterLine.push_back(bracketDepth);
+  }
+
+  return result;
+}
+
+bool shouldReportMissingSemicolonShared(const std::string &trimmed,
+                                        const std::string &nextTrimmed,
+                                        bool insideOpenGroupingAfterLine) {
+  if (trimmed.empty() || trimmed[0] == '#')
+    return false;
+  const char tail = trimmed.back();
+  if (tail == ';' || tail == '{' || tail == '}' || tail == ':' || tail == ',')
+    return false;
+  if (insideOpenGroupingAfterLine)
+    return false;
+
+  const auto tokens = lexLineTokens(trimmed);
+  if (tokens.empty())
+    return false;
+  if (isStandaloneAttributeSpecifier(tokens))
+    return false;
+
+  if (startsWithKeywordToken(tokens, "if") ||
+      startsWithKeywordToken(tokens, "for") ||
+      startsWithKeywordToken(tokens, "while") ||
+      startsWithKeywordToken(tokens, "switch") ||
+      startsWithKeywordToken(tokens, "else") ||
+      startsWithKeywordToken(tokens, "do") ||
+      startsWithKeywordToken(tokens, "case") ||
+      startsWithKeywordToken(tokens, "default")) {
+    return false;
+  }
+  std::string ignoredName;
+  if (extractStructNameInLine(trimmed, ignoredName) ||
+      extractCBufferNameInLineShared(trimmed, ignoredName)) {
+    return false;
+  }
+  if (isFunctionLikeHeader(tokens, nextTrimmed))
+    return false;
+  if (endsWithPostfixUpdateExpression(tokens))
+    return true;
+  if (isContinuationLine(trimmed))
+    return false;
+
+  for (size_t i = 0; i + 1 < tokens.size(); i++) {
+    if (tokens[i].kind == LexToken::Kind::Identifier &&
+        tokens[i + 1].kind == LexToken::Kind::Punct &&
+        tokens[i + 1].text == "=") {
+      return true;
+    }
+  }
+
+  if (!extractDeclarationsInLineShared(trimmed).empty())
+    return true;
+
+  if (startsWithKeywordToken(tokens, "return") ||
+      startsWithKeywordToken(tokens, "break") ||
+      startsWithKeywordToken(tokens, "continue") ||
+      startsWithKeywordToken(tokens, "discard")) {
+    return true;
+  }
+
+  const auto &last = tokens.back();
+  if (last.kind == LexToken::Kind::Identifier ||
+      (last.kind == LexToken::Kind::Punct &&
+       (last.text == ")" || last.text == "]"))) {
+    return true;
+  }
+  return false;
 }
 
 bool findTypeOfIdentifierInDeclarationLineShared(const std::string &line,

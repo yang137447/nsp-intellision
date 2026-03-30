@@ -19,8 +19,9 @@
     "source.fixAll.eslint": "explicit"
   },
   "eslint.trace.server": "verbose",
-  "nsf.serverPath": "D:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\build\\nsf_lsp.exe",
+  "nsf.serverPath": "d:\\YYBWorkSpace\\GitHub\\nsp-intellision\\server_cpp\\build\\nsf_lsp.exe",
   "nsf.intellisionPath": [
-    "test_files/include_context"
-  ]
+    "d:\\YYBWorkSpace\\GitHub\\nsp-intellision\\test_files"
+  ],
+  "nsf.diagnostics.mode": "balanced"
 }

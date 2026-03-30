@@ -1,0 +1,10 @@
+#if USE_ANALYSIS_CONTEXT_ALT_INCLUDE
+#include "module_analysis_context_include_b.ush"
+#else
+#include "module_analysis_context_include_a.ush"
+#endif
+
+float4 AnalysisContextIncludeEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return AnalysisContextIncludeColor(uv);
+}

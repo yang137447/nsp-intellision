@@ -11,7 +11,22 @@
 #include <unordered_set>
 #include <vector>
 
+// Request-layer boundary for the core LSP handlers.
+//
+// Responsibilities:
+// - expose the immutable request-scoped snapshot consumed by handlers
+// - keep the current scheduling contract readable at the API boundary
+// - dispatch core request methods onto current-doc / deferred / workspace
+//   runtimes without making handlers own long-lived document state
+//
+// Non-goals:
+// - this header is not the owner of per-document caches or snapshot lifetime
+// - it does not define resource facts; handlers must still defer to shared
+//   registries and query modules for language knowledge
+
 struct ServerRequestContext {
+  // Request-scoped document/config snapshot. Handlers should treat this as
+  // read-only input and must not mutate document runtime state through it.
   std::unordered_map<std::string, Document> documents;
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;
@@ -42,12 +57,6 @@ struct ServerRequestContext {
   int indexingWorkerCount = 16;
   int indexingQueueCapacity = 4096;
   std::unordered_map<std::string, int> preprocessorDefines;
-  std::string scanCacheKey;
-  std::unordered_map<std::string, DefinitionLocation> scanDefinitionCache;
-  std::unordered_set<std::string> scanDefinitionMisses;
-  std::unordered_map<std::string, std::vector<std::string>>
-      scanStructFieldsCache;
-  std::unordered_set<std::string> scanStructFieldsMisses;
   std::function<bool()> isCancellationRequested;
 
   const std::unordered_map<std::string, Document> &documentSnapshot() const {
@@ -81,6 +90,17 @@ struct SignatureHelpMetricsSnapshot {
 
 SignatureHelpMetricsSnapshot takeSignatureHelpMetricsSnapshot();
 
+// Dispatches the core LSP request methods owned by server_request_handlers.cpp.
+//
+// Current M1 scheduling contract:
+// - interactive high-priority path: completion, hover, signature help, and
+//   current-document short-path definition
+// - background latest-only + cancellable path: semantic tokens, inlay hints,
+//   document symbols, references, prepareRename, rename, workspace symbol
+//
+// Handler implementations may consult workspace summary on current-doc miss, but
+// interactive requests must not reintroduce include-graph scans or full
+// workspace rescans as hidden hot-path fallback.
 bool handleCoreRequestMethods(const std::string &method, const Json &id,
                               const Json *params, ServerRequestContext &ctx,
                               const std::vector<std::string> &keywords,

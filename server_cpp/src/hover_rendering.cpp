@@ -110,6 +110,10 @@ std::string renderHoverSymbolMarkdown(const HoverSymbolMarkdownInput &input) {
 std::string renderHoverMacroMarkdown(const HoverMacroMarkdownInput &input) {
   std::string markdown;
   markdown += formatCppCodeBlock(input.code);
+  if (!input.kindLabel.empty()) {
+    markdown += "\n\n";
+    markdown += input.kindLabel;
+  }
   if (!input.definedAt.empty()) {
     markdown += "\n\nDefined at: ";
     markdown += input.definedAt;

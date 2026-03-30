@@ -1,0 +1,13 @@
+/// local ShadowedCall doc line 1
+/// local ShadowedCall doc line 2
+float3 ShadowedCall(float3 value, float gain)
+{
+    return value * gain;
+}
+
+float4 CurrentDocPrecedenceEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float3 localValue = float3(uv, 1.0);
+    float3 localResult = ShadowedCall(localValue, 2.0);
+    return Shado
+}

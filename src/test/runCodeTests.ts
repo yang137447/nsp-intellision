@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 interface RunnerOptions {
 	mode: string;
 	workspaceTarget?: string;
+	fileFilter?: string;
 }
 
 function isIgnorableNoiseStart(line: string): boolean {
@@ -84,6 +85,11 @@ function parseArgs(argv: string[]): RunnerOptions {
 		}
 		if (arg === '--workspace') {
 			options.workspaceTarget = argv[index + 1];
+			index++;
+			continue;
+		}
+		if (arg === '--file-filter') {
+			options.fileFilter = argv[index + 1];
 			index++;
 		}
 	}
@@ -173,7 +179,8 @@ async function run(): Promise<void> {
 				env: {
 					...process.env,
 					NSF_TEST_MODE: options.mode,
-					NSF_TEST_WORKSPACE_PATH: workspaceTarget
+					NSF_TEST_WORKSPACE_PATH: workspaceTarget,
+					NSF_TEST_FILE_FILTER: options.fileFilter ?? process.env.NSF_TEST_FILE_FILTER
 				}
 			});
 

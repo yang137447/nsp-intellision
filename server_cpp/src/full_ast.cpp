@@ -143,24 +143,6 @@ bool queryFullAstIncludes(const std::string &uri, const std::string &text,
   return true;
 }
 
-bool queryFullAstFunctionSignature(const std::string &uri,
-                                   const std::string &text, uint64_t epoch,
-                                   const std::string &name, int lineIndex,
-                                   int nameCharacter, std::string &labelOut,
-                                   std::vector<std::string> &parametersOut) {
-  labelOut.clear();
-  parametersOut.clear();
-  if (uri.empty() || name.empty())
-    return false;
-  ensureFullAstCached(uri, text, epoch);
-  std::lock_guard<std::mutex> lock(gFullAstMutex);
-  auto it = gFullAstByUri.find(uri);
-  if (it == gFullAstByUri.end())
-    return false;
-  return findFullAstSignature(it->second, name, lineIndex, nameCharacter,
-                              labelOut, parametersOut);
-}
-
 void invalidateFullAstByUri(const std::string &uri) {
   if (uri.empty())
     return;

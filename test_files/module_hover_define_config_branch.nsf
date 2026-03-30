@@ -1,0 +1,26 @@
+struct ConfigDefineInactive
+{
+    float shared;
+    float inactive_only;
+};
+
+struct ConfigDefineActive
+{
+    float shared;
+    float active_only;
+};
+
+float4 ConfigDefineBranchEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#ifdef USE_CONFIG_BRANCH
+    ConfigDefineActive value = (ConfigDefineActive)0;
+    value.shared = uv.x;
+    value.active_only = uv.y;
+#else
+    ConfigDefineInactive value = (ConfigDefineInactive)0;
+    value.shared = uv.y;
+    value.inactive_only = uv.x;
+#endif
+    float keepAlive = value.shared;
+    return value.
+}

@@ -4,7 +4,23 @@
     {
       "type": "extensionHost",
       "request": "launch",
-      "name": "Launch Client",
+      "name": "Launch Client (G66 Workspace)",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extensions",
+        "C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/client/out/**/*.js"
+      ],
+      "smartStep": true,
+      "preLaunchTask": "npm: watch"
+    },
+    {
+      "type": "extensionHost",
+      "request": "launch",
+      "name": "Launch Client (Repo Workspace)",
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",

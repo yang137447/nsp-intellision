@@ -1,0 +1,7 @@
+interface:
+  display_name: "NSF Repo Execution"
+  short_description: "Minimal-change workflow for NSF repo"
+  default_prompt: "Use $nsf-repo-execution to diagnose or implement a minimal, evidence-backed change in this repository."
+
+policy:
+  allow_implicit_invocation: true

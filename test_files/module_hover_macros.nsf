@@ -1,0 +1,10 @@
+#define ENABLE_FEATURE 1
+#define FEATURE_LEVEL (ENABLE_FEATURE + 1)
+#define WRAP_COLOR(value) ((value) * 0.5)
+
+float HoverMacroKinds(float value) : SV_Target0
+{
+    float objectValue = FEATURE_LEVEL;
+    float wrappedValue = WRAP_COLOR(value);
+    return objectValue + wrappedValue;
+}

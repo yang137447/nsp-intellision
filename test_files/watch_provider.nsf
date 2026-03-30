@@ -1,4 +1,4 @@
 cbuffer Globals
 {
-  float4 u_value2;
+  float4 u_value;
 }

@@ -1,0 +1,22 @@
+struct AnalysisDefineInactive
+{
+    float shared;
+    float inactive_only;
+};
+
+struct AnalysisDefineActive
+{
+    float shared;
+    float active_only;
+};
+
+float4 AnalysisContextDefinesEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if USE_ANALYSIS_CONTEXT_ACTIVE
+    AnalysisDefineActive value = (AnalysisDefineActive)0;
+#else
+    AnalysisDefineInactive value = (AnalysisDefineInactive)0;
+#endif
+    value.shared = uv.x;
+    return float4(value.shared, 0.0, 0.0, 1.0);
+}

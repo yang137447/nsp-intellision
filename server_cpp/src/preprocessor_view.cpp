@@ -361,6 +361,13 @@ struct PreprocessorInterpreterState {
   int includeDepth = 0;
   std::unordered_map<std::string, ConditionalAst> *includeAstCache = nullptr;
   std::unordered_set<std::string> *includeExpansionStack = nullptr;
+  struct IncludedDocumentCapture *includedCapture = nullptr;
+};
+
+struct IncludedDocumentCapture {
+  std::string targetUri;
+  bool found = false;
+  PreprocessorView view;
 };
 
 static void initializeLineStateStorage(PreprocessorInterpreterState &state) {
@@ -408,6 +415,24 @@ static bool loadIncludeDocumentText(PreprocessorInterpreterState &state,
   if (path.empty())
     return false;
   return readTextFromDiskPath(path, text);
+}
+
+static std::string normalizeUriComparisonKey(const std::string &uriOrPath) {
+  std::string path = uriToPath(uriOrPath);
+  if (path.empty())
+    path = uriOrPath;
+  std::replace(path.begin(), path.end(), '/', '\\');
+  std::transform(path.begin(), path.end(), path.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  return path;
+}
+
+static bool uriEquivalent(const std::string &lhs, const std::string &rhs) {
+  if (lhs == rhs)
+    return true;
+  if (lhs.empty() || rhs.empty())
+    return false;
+  return normalizeUriComparisonKey(lhs) == normalizeUriComparisonKey(rhs);
 }
 
 static bool loadIncludeConditionalAst(PreprocessorInterpreterState &state,
@@ -526,8 +551,11 @@ static void interpretIncludeDirective(PreprocessorInterpreterState &state,
     if (candidateUri.empty())
       continue;
     if (state.includeExpansionStack &&
-        state.includeExpansionStack->find(candidateUri) !=
-            state.includeExpansionStack->end()) {
+        std::find_if(state.includeExpansionStack->begin(),
+                     state.includeExpansionStack->end(),
+                     [&](const std::string &seenUri) {
+                       return uriEquivalent(seenUri, candidateUri);
+                     }) != state.includeExpansionStack->end()) {
       continue;
     }
 
@@ -535,6 +563,11 @@ static void interpretIncludeDirective(PreprocessorInterpreterState &state,
     if (!loadIncludeConditionalAst(state, candidateUri, includeAst) ||
         !includeAst) {
       continue;
+    }
+    if (std::find(state.result.activeIncludeUris.begin(),
+                  state.result.activeIncludeUris.end(),
+                  candidateUri) == state.result.activeIncludeUris.end()) {
+      state.result.activeIncludeUris.push_back(candidateUri);
     }
 
     PreprocessorInterpreterState includeState{*includeAst};
@@ -545,6 +578,7 @@ static void interpretIncludeDirective(PreprocessorInterpreterState &state,
     includeState.nextBranchId = state.nextBranchId;
     includeState.includeAstCache = state.includeAstCache;
     includeState.includeExpansionStack = state.includeExpansionStack;
+    includeState.includedCapture = state.includedCapture;
     initializeLineStateStorage(includeState);
 
     if (includeState.includeExpansionStack)
@@ -553,6 +587,12 @@ static void interpretIncludeDirective(PreprocessorInterpreterState &state,
     if (includeState.includeExpansionStack)
       includeState.includeExpansionStack->erase(candidateUri);
 
+    if (state.includedCapture && !state.includedCapture->found &&
+        uriEquivalent(candidateUri, state.includedCapture->targetUri)) {
+      state.includedCapture->view = includeState.result;
+      state.includedCapture->found = true;
+    }
+
     state.macros = std::move(includeState.macros);
     if (state.includeContext->collectIncludeConditionDiagnostics &&
         !includeState.result.conditionDiagnostics.empty()) {
@@ -560,6 +600,13 @@ static void interpretIncludeDirective(PreprocessorInterpreterState &state,
           state.result.conditionDiagnostics.end(),
           includeState.result.conditionDiagnostics.begin(),
           includeState.result.conditionDiagnostics.end());
+    }
+    for (const auto &includeUri : includeState.result.activeIncludeUris) {
+      if (std::find(state.result.activeIncludeUris.begin(),
+                    state.result.activeIncludeUris.end(),
+                    includeUri) == state.result.activeIncludeUris.end()) {
+        state.result.activeIncludeUris.push_back(includeUri);
+      }
     }
     return;
   }
@@ -761,4 +808,43 @@ buildPreprocessorView(const std::string &text,
     state.includeExpansionStack->erase(state.currentUri);
   }
   return state.result;
+}
+
+bool buildIncludedDocumentPreprocessorView(
+    const std::string &rootText,
+    const std::unordered_map<std::string, int> &defines,
+    const PreprocessorIncludeContext &includeContext,
+    const std::string &targetUri, PreprocessorView &resultOut) {
+  resultOut = PreprocessorView{};
+  if (rootText.empty() || includeContext.currentUri.empty() || targetUri.empty())
+    return false;
+
+  const ConditionalAst ast = buildConditionalAst(rootText);
+  PreprocessorInterpreterState state{ast};
+  initializeLineStateStorage(state);
+  for (const auto &entry : defines) {
+    state.macros[entry.first] = makeNumericPreprocMacro(entry.second);
+  }
+
+  std::unordered_map<std::string, ConditionalAst> includeAstCache;
+  std::unordered_set<std::string> includeExpansionStack;
+  IncludedDocumentCapture capture;
+  capture.targetUri = targetUri;
+  state.includeContext = &includeContext;
+  state.currentUri = includeContext.currentUri;
+  state.includeDepth = 0;
+  state.includeAstCache = &includeAstCache;
+  state.includeExpansionStack = &includeExpansionStack;
+  state.includedCapture = &capture;
+  if (!state.currentUri.empty() && state.includeExpansionStack) {
+    state.includeExpansionStack->insert(state.currentUri);
+  }
+  interpretNodeList(state, ast.rootNodeIndices);
+  if (!state.currentUri.empty() && state.includeExpansionStack) {
+    state.includeExpansionStack->erase(state.currentUri);
+  }
+  if (!capture.found)
+    return false;
+  resultOut = std::move(capture.view);
+  return true;
 }

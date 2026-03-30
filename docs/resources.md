@@ -52,6 +52,8 @@ server_cpp/resources/
 - `types/type_overrides`
   - 类型和对象族的覆盖层
 
+对象类型字段语义、对象方法占位符语义，以及这些 bundle 到 hover / completion / signature help / diagnostics 的共享契约，以 `docs/type-method-interface-contract.md` 为准。
+
 ## 运行时加载规则
 
 当前加载入口是 `server_cpp/src/resource_registry.*`：
@@ -113,7 +115,7 @@ server_cpp/resources/
 3. 运行 `npm run json:validate`
 4. 如果改动影响 server 行为，运行 `cmake --build .\\server_cpp\\build`
 5. 如影响 completion/hover/diagnostics/semantic tokens，运行 `npm run test:client:repo`
-6. 如命名、路径、规则有变化，同步更新 `README.md` 和本文件
+6. 如命名、路径、规则，或 `types/*` / `methods/object_methods` 的字段语义与共享契约有变化，同步更新 `README.md`、本文件和 `docs/type-method-interface-contract.md`
 
 ## 生成脚本
 

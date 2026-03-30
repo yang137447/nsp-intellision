@@ -14,34 +14,6 @@ bool findDeclaredIdentifierInDeclarationLine(const std::string &line,
                                              size_t &posOut);
 
 namespace {
-
-bool findUiMetadataDeclarationHeaderPos(const std::string &line,
-                                        const std::string &word,
-                                        size_t &posOut) {
-  std::string typeName;
-  std::string name;
-  if (!extractUiMetadataDeclarationHeaderShared(line, typeName, name) ||
-      name != word) {
-    return false;
-  }
-
-  std::string code = line;
-  size_t lineComment = code.find("//");
-  if (lineComment != std::string::npos)
-    code = code.substr(0, lineComment);
-  const auto tokens = lexLineTokens(code);
-  const LexToken *lastId = nullptr;
-  for (const auto &tok : tokens) {
-    if (tok.kind == LexToken::Kind::Identifier && !isQualifierToken(tok.text))
-      lastId = &tok;
-  }
-  if (!lastId || lastId->text != word) {
-    return false;
-  }
-  posOut = lastId->start;
-  return true;
-}
-
 } // namespace
 
 bool findBestDeclarationUpTo(const std::string &text, const std::string &word,
@@ -113,8 +85,13 @@ bool findBestDeclarationUpTo(const std::string &text, const std::string &word,
       }
     }
     if (!pendingUi) {
+      std::string uiType;
+      std::string uiName;
       size_t uiPos = 0;
-      if (findUiMetadataDeclarationHeaderPos(line, word, uiPos)) {
+      size_t uiEnd = 0;
+      if (findMetadataDeclarationHeaderPosShared(line, uiType, uiName, uiPos,
+                                                 uiEnd) &&
+          uiName == word) {
         pendingUi = true;
         pendingUiLine = lineIndex;
         pendingUiDepth = lineDepth;

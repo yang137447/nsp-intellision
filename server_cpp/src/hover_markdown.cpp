@@ -135,12 +135,13 @@ static bool parseMethodEntry(const Json &value, MethodEntry &out) {
 
 static std::string applyTemplate(std::string input,
                                  const std::string &baseType,
-                                 int textureCoordDim) {
+                                 int sampleCoordDim,
+                                 int loadCoordDim) {
   const std::unordered_map<std::string, std::string> replacements = {
       {"{baseType}", normalizeBaseType(baseType)},
-      {"{floatCoord}", coordType(textureCoordDim, false)},
-      {"{intCoord}", coordType(textureCoordDim, true)},
-      {"{intCoordPlus1}", coordType(textureCoordDim + 1, true)},
+      {"{floatCoord}", coordType(sampleCoordDim, false)},
+      {"{intCoord}", coordType(sampleCoordDim, true)},
+      {"{intCoordPlus1}", coordType(loadCoordDim, true)},
   };
   for (const auto &entry : replacements) {
     size_t pos = 0;
@@ -318,14 +319,19 @@ bool lookupHlslBuiltinMethodSignatures(const std::string &method,
   MethodEntry entry;
   if (!lookupMethodEntry(method, baseType, entry))
     return false;
-  int dim = getTypeModelCoordDim(baseType);
-  if (dim < 1)
-    dim = 2;
+  int sampleDim = getTypeModelSampleCoordDim(baseType);
+  if (sampleDim < 1)
+    sampleDim = 2;
+  int loadDim = getTypeModelLoadCoordDim(baseType);
+  if (loadDim < 1)
+    loadDim = sampleDim + 1;
   for (const auto &templateSig : entry.signatures) {
     HlslBuiltinSignature sig;
-    sig.label = applyTemplate(templateSig.labelTemplate, baseType, dim);
+    sig.label =
+        applyTemplate(templateSig.labelTemplate, baseType, sampleDim, loadDim);
     for (const auto &paramTemplate : templateSig.parameterTemplates) {
-      sig.parameters.push_back(applyTemplate(paramTemplate, baseType, dim));
+      sig.parameters.push_back(
+          applyTemplate(paramTemplate, baseType, sampleDim, loadDim));
     }
     std::string md;
     std::string hoverSignature = templateSig.hoverSignatureTemplate;
@@ -333,7 +339,8 @@ bool lookupHlslBuiltinMethodSignatures(const std::string &method,
       hoverSignature = entry.returnType + " " + normalizeBaseType(baseType) +
                        "<float4>::" + sig.label;
     } else {
-      hoverSignature = applyTemplate(hoverSignature, baseType, dim);
+      hoverSignature =
+          applyTemplate(hoverSignature, baseType, sampleDim, loadDim);
     }
     md += formatCppCodeBlock(hoverSignature);
     md += "\n\n(HLSL built-in method)\n\n";

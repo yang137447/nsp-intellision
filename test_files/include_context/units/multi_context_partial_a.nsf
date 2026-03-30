@@ -1,0 +1,7 @@
+#include "../shared/multi_context_partial_def.hlsl"
+#include "../shared/multi_context_partial_common.hlsl"
+
+half3 MultiContextPartialAEntry(half3 color : COLOR0) : SV_Target0
+{
+    return MultiContextPartialEntry(color, half4(1.0, 0.0, 0.0, 1.0));
+}

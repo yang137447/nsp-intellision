@@ -1,0 +1,12 @@
+float3 CompletionDocGlobal = float3(0, 0, 0);
+
+float4 CompletionDocHelper(float2 uv) : SV_Target0
+{
+    return float4(uv, 0, 1);
+}
+
+float4 CompletionDocEntry(float2 uv) : SV_Target0
+{
+    float3 completionLocalColor = float3(uv, 1.0);
+    return Comp
+}

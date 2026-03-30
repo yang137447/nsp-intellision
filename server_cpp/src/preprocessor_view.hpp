@@ -22,6 +22,7 @@ struct PreprocessorView {
   std::vector<char> lineActive;
   std::vector<PreprocBranchSig> branchSigs;
   std::vector<PreprocessorConditionDiagnostic> conditionDiagnostics;
+  std::vector<std::string> activeIncludeUris;
 };
 
 struct PreprocessorIncludeContext {
@@ -46,3 +47,12 @@ PreprocessorView
 buildPreprocessorView(const std::string &text,
                       const std::unordered_map<std::string, int> &defines,
                       const PreprocessorIncludeContext &includeContext);
+
+// Interprets one active unit and captures the active preprocessor view that the
+// unit supplies to one included target document. Returns false when the target
+// document is not reached through the active include chain.
+bool buildIncludedDocumentPreprocessorView(
+    const std::string &rootText,
+    const std::unordered_map<std::string, int> &defines,
+    const PreprocessorIncludeContext &includeContext,
+    const std::string &targetUri, PreprocessorView &resultOut);

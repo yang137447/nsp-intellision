@@ -658,3 +658,13 @@ bool querySemanticSnapshotSymbolType(
 
   return false;
 }
+
+std::shared_ptr<const SemanticSnapshot> getSemanticSnapshotView(
+    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines) {
+  return getOrBuildSemanticSnapshot(uri, text, epoch, workspaceFolders,
+                                    includePaths, shaderExtensions, defines);
+}

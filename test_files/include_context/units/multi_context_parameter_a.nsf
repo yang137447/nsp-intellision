@@ -1,0 +1,6 @@
+#include "../shared/multi_context_parameter_common.hlsl"
+
+half3 MultiContextParameterAEntry(half3 color : COLOR0) : SV_Target0
+{
+    return MultiContextParameterEntry(color, half4(1.0, 0.0, 0.0, 1.0));
+}

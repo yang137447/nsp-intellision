@@ -5,7 +5,7 @@
 #include "include_resolver.hpp"
 #include "nsf_lexer.hpp"
 #include "uri_utils.hpp"
-#include "workspace_index.hpp"
+#include "workspace_summary_runtime.hpp"
 
 #include <cctype>
 #include <fstream>
@@ -156,8 +156,8 @@ bool collectMacroGeneratedFunctions(
 
   {
     std::vector<IndexedDefinition> macroDefs;
-    if (workspaceIndexFindDefinitions("GET_LIGHTING_MULTIPLIER_DEF", macroDefs,
-                                      64)) {
+    if (workspaceSummaryRuntimeFindDefinitions("GET_LIGHTING_MULTIPLIER_DEF",
+                                               macroDefs, 64)) {
       for (const auto &macroDef : macroDefs) {
         if (macroDef.uri.empty() || !knownUris.insert(macroDef.uri).second)
           continue;

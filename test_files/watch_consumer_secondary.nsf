@@ -1,0 +1,7 @@
+#include "watch_provider.nsf"
+
+float4 ps_main_secondary() : SV_Target0
+{
+  float4 v = u_value;
+  return v;
+}

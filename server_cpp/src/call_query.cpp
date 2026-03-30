@@ -1,49 +1,21 @@
 #include "call_query.hpp"
 
+#include "interactive_semantic_runtime.hpp"
 #include "callsite_parser.hpp"
-#include "full_ast.hpp"
 #include "indeterminate_reasons.hpp"
 #include "macro_generated_functions.hpp"
 #include "nsf_lexer.hpp"
 #include "semantic_snapshot.hpp"
 #include "server_request_handlers.hpp"
 #include "text_utils.hpp"
-#include "workspace_index.hpp"
+#include "workspace_summary_runtime.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <unordered_set>
 #include <utility>
 
-bool findDefinitionInIncludeGraph(
-    const std::string &uri, const std::string &word,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions,
-    const std::unordered_map<std::string, int> &defines,
-    std::unordered_set<std::string> &visited, DefinitionLocation &outLocation);
-bool findDefinitionInIncludeGraphLegacy(
-    const std::string &uri, const std::string &word,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions,
-    std::unordered_set<std::string> &visited, DefinitionLocation &outLocation);
-std::vector<std::string> getIncludeGraphUrisCached(
-    const std::string &rootUri,
-    const std::unordered_map<std::string, Document> &documents,
-    const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths,
-    const std::vector<std::string> &shaderExtensions);
-
 namespace {
-
-bool definitionLocationEqualsLocal(const DefinitionLocation &a,
-                                   const DefinitionLocation &b) {
-  return a.uri == b.uri && a.line == b.line && a.start == b.start &&
-         a.end == b.end;
-}
 
 std::string trimCopyCallQuery(const std::string &value) {
   return trimRightCopy(trimLeftCopy(value));
@@ -127,34 +99,27 @@ bool queryFunctionSignatureWithFallback(
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     const std::string &functionName, int lineIndex, int nameCharacter,
-    std::string &labelOut, std::vector<std::string> &paramsOut) {
+    const ServerRequestContext *ctx, std::string &labelOut,
+    std::vector<std::string> &paramsOut) {
+  if (ctx) {
+    if (const Document *doc = ctx->findDocument(uri)) {
+      if (interactiveResolveFunctionSignature(uri, *doc, functionName,
+                                              lineIndex, nameCharacter, *ctx,
+                                              labelOut, paramsOut)) {
+        return true;
+      }
+    }
+  }
   return querySemanticSnapshotFunctionSignature(
-             uri, text, epoch, workspaceFolders, includePaths,
-             shaderExtensions, defines, functionName, lineIndex, nameCharacter,
-             labelOut, paramsOut) ||
-         queryFullAstFunctionSignature(uri, text, epoch, functionName, lineIndex,
-                                       nameCharacter, labelOut, paramsOut);
+      uri, text, epoch, workspaceFolders, includePaths, shaderExtensions,
+      defines, functionName, lineIndex, nameCharacter, labelOut, paramsOut);
 }
 
-static void appendSemanticSnapshotCandidatesForUri(
+static void appendOverloadCandidates(
     const std::string &candidateUri, const std::string &functionName,
-    const ServerRequestContext &ctx, std::unordered_set<std::string> &seen,
+    const std::vector<SemanticSnapshotFunctionOverloadInfo> &overloads,
+    std::unordered_set<std::string> &seen,
     std::vector<CandidateSignature> &outCandidates) {
-  std::string defText;
-  if (!ctx.readDocumentText(candidateUri, defText))
-    return;
-  uint64_t definitionEpoch = 0;
-  if (const Document *definitionDoc = ctx.findDocument(candidateUri))
-    definitionEpoch = definitionDoc->epoch;
-
-  std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
-  if (!querySemanticSnapshotFunctionOverloads(
-          candidateUri, defText, definitionEpoch, ctx.workspaceFolders,
-          ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
-          functionName, overloads)) {
-    return;
-  }
-
   for (const auto &overload : overloads) {
     std::string dedupKey = candidateUri + "|" + std::to_string(overload.line) +
                            "|" + std::to_string(overload.character);
@@ -179,6 +144,35 @@ static void appendSemanticSnapshotCandidatesForUri(
   }
 }
 
+static void appendSemanticSnapshotCandidatesForUri(
+    const std::string &candidateUri, const std::string &functionName,
+    const ServerRequestContext &ctx, std::unordered_set<std::string> &seen,
+    std::vector<CandidateSignature> &outCandidates) {
+  std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
+  if (const Document *definitionDoc = ctx.findDocument(candidateUri)) {
+    interactiveResolveFunctionOverloads(candidateUri, *definitionDoc,
+                                        functionName, ctx, overloads);
+  }
+  if (overloads.empty()) {
+    std::string defText;
+    if (!ctx.readDocumentText(candidateUri, defText))
+      return;
+    uint64_t definitionEpoch = 0;
+    if (const Document *definitionDoc = ctx.findDocument(candidateUri))
+      definitionEpoch = definitionDoc->epoch;
+
+    if (!querySemanticSnapshotFunctionOverloads(
+            candidateUri, defText, definitionEpoch, ctx.workspaceFolders,
+            ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+            functionName, overloads)) {
+      return;
+    }
+  }
+
+  appendOverloadCandidates(candidateUri, functionName, overloads, seen,
+                           outCandidates);
+}
+
 bool resolveMacroGeneratedFunctionAtUri(
     const std::string &uri, const std::string &functionName,
     const ServerRequestContext &ctx, MacroGeneratedFunctionInfo &out) {
@@ -195,35 +189,6 @@ bool resolveMacroGeneratedFunctionAtUri(
   }
   out = std::move(candidates.front());
   return true;
-}
-
-bool querySymbolTypeFromSemanticSnapshotInIncludeGraph(
-    const std::string &rootUri, const std::string &symbol,
-    const ServerRequestContext &ctx, std::string &typeOut) {
-  typeOut.clear();
-  if (rootUri.empty() || symbol.empty())
-    return false;
-
-  const auto orderedUris = getIncludeGraphUrisCached(
-      rootUri, ctx.documentSnapshot(), ctx.workspaceFolders, ctx.includePaths,
-      ctx.shaderExtensions);
-  prefetchDocumentTexts(orderedUris, ctx.documentSnapshot());
-  for (const auto &candidateUri : orderedUris) {
-    std::string candidateText;
-    if (!ctx.readDocumentText(candidateUri, candidateText))
-      continue;
-    uint64_t candidateEpoch = 0;
-    if (const Document *candidateDoc = ctx.findDocument(candidateUri))
-      candidateEpoch = candidateDoc->epoch;
-    if (querySemanticSnapshotSymbolType(
-            candidateUri, candidateText, candidateEpoch, ctx.workspaceFolders,
-            ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
-            symbol, typeOut) &&
-        !typeOut.empty()) {
-      return true;
-    }
-  }
-  return false;
 }
 
 bool locateCallOpenParenAtCursor(const std::string &text, size_t cursorOffset,
@@ -312,7 +277,7 @@ TypeDesc inferArgumentTypeDescAtCursor(const std::string &uri,
                                         symbol, typeName)) {
       return parseTypeDesc(typeName);
     }
-    workspaceIndexGetSymbolType(symbol, typeName);
+    workspaceSummaryRuntimeGetSymbolType(symbol, typeName);
     if (!typeName.empty()) {
       return parseTypeDesc(typeName);
     }
@@ -388,74 +353,8 @@ TypeDesc parseParamTypeDescFromDecl(const std::string &parameterDecl) {
 TypeEvalResult resolveHoverTypeAtDeclaration(
     const std::string &uri, const Document &doc, const std::string &symbol,
     size_t cursorOffset, const ServerRequestContext &ctx, bool &isParamOut) {
-  TypeEvalResult result;
-  isParamOut = false;
-  std::string typeName;
-  if (querySemanticSnapshotLocalTypeAtOffset(
-          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
-          ctx.shaderExtensions, ctx.preprocessorDefines, symbol, cursorOffset,
-          typeName)) {
-    result.type = typeName;
-    result.confidence = TypeEvalConfidence::L2;
-    return result;
-  }
-  if (querySemanticSnapshotParameterTypeAtOffset(
-          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
-          ctx.shaderExtensions, ctx.preprocessorDefines, symbol, cursorOffset,
-          typeName)) {
-    result.type = typeName;
-    result.confidence = TypeEvalConfidence::L2;
-    isParamOut = true;
-    return result;
-  }
-  if (querySemanticSnapshotGlobalType(
-          uri, doc.text, doc.epoch, ctx.workspaceFolders, ctx.includePaths,
-          ctx.shaderExtensions, ctx.preprocessorDefines, symbol, typeName)) {
-    result.type = typeName;
-    result.confidence = TypeEvalConfidence::L2;
-    return result;
-  }
-  workspaceIndexGetSymbolType(symbol, typeName);
-  if (!typeName.empty()) {
-    result.type = typeName;
-    result.confidence = TypeEvalConfidence::L1;
-    return result;
-  }
-  if (querySymbolTypeFromSemanticSnapshotInIncludeGraph(uri, symbol, ctx,
-                                                        typeName) &&
-      !typeName.empty()) {
-    result.type = typeName;
-    result.confidence = TypeEvalConfidence::L1;
-    return result;
-  }
-  result.confidence = TypeEvalConfidence::L3;
-  result.reasonCode = "unknown_symbol";
-  return result;
-}
-
-bool signatureHelpTargetEquals(const SignatureHelpTargetResult &a,
-                               const SignatureHelpTargetResult &b) {
-  if ((a.builtinSigs != nullptr) != (b.builtinSigs != nullptr)) {
-    return false;
-  }
-  if (a.builtinSigs != nullptr && b.builtinSigs != nullptr) {
-    const std::string aLabel =
-        a.builtinSigs->empty() ? std::string() : a.builtinSigs->front().label;
-    const std::string bLabel =
-        b.builtinSigs->empty() ? std::string() : b.builtinSigs->front().label;
-    if (aLabel != bLabel) {
-      return false;
-    }
-  }
-  if (a.hasDefinition != b.hasDefinition) {
-    return false;
-  }
-  if (a.hasDefinition &&
-      !definitionLocationEqualsLocal(a.definition, b.definition)) {
-    return false;
-  }
-  return a.typeEval.type == b.typeEval.type &&
-         a.typeEval.reasonCode == b.typeEval.reasonCode;
+  return interactiveResolveHoverTypeAtDeclaration(uri, doc, symbol, cursorOffset,
+                                                  ctx, isParamOut);
 }
 
 SignatureHelpTargetResult
@@ -483,11 +382,7 @@ resolveSignatureHelpTarget(const std::string &uri,
     return result;
   }
 
-  std::unordered_set<std::string> visited;
-  if (findDefinitionInIncludeGraph(
-          uri, functionName, ctx.documentSnapshot(), ctx.workspaceFolders,
-          ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
-          visited, result.definition)) {
+  if (workspaceSummaryRuntimeFindDefinition(functionName, result.definition)) {
     result.hasDefinition = true;
     result.typeEval.type = "user_function";
     result.typeEval.confidence = TypeEvalConfidence::L1;
@@ -504,56 +399,6 @@ resolveSignatureHelpTarget(const std::string &uri,
     return result;
   }
 
-  result.typeEval.confidence = TypeEvalConfidence::L3;
-  result.typeEval.reasonCode =
-      isHlslBuiltinRegistryAvailable()
-          ? IndeterminateReason::SignatureHelpCallTargetUnknown
-          : IndeterminateReason::SignatureHelpBuiltinRegistryUnavailable;
-  return result;
-}
-
-SignatureHelpTargetResult
-resolveSignatureHelpTargetLegacy(const std::string &uri,
-                                 const std::string &functionName,
-                                 const ServerRequestContext &ctx) {
-  SignatureHelpTargetResult result;
-  HlslBuiltinRuleView builtinRule;
-  const bool isBuiltin = queryHlslBuiltinRuleView(functionName, builtinRule);
-  const std::vector<HlslBuiltinSignature> *builtinSigs =
-      lookupHlslBuiltinSignatures(functionName);
-  if (builtinSigs && !builtinSigs->empty()) {
-    result.builtinSigs = builtinSigs;
-    result.typeEval.type = "builtin_function";
-    result.typeEval.confidence = TypeEvalConfidence::L1;
-    return result;
-  }
-  if (isBuiltin) {
-    result.typeEval.type = "builtin_function";
-    result.typeEval.confidence = TypeEvalConfidence::L3;
-    result.typeEval.reasonCode =
-        isHlslBuiltinRegistryAvailable()
-            ? IndeterminateReason::SignatureHelpBuiltinUnmodeled
-            : IndeterminateReason::SignatureHelpBuiltinRegistryUnavailable;
-    return result;
-  }
-  std::unordered_set<std::string> visited;
-  if (findDefinitionInIncludeGraphLegacy(
-          uri, functionName, ctx.documentSnapshot(), ctx.workspaceFolders,
-          ctx.includePaths, ctx.shaderExtensions, visited, result.definition)) {
-    result.hasDefinition = true;
-    result.typeEval.type = "user_function";
-    result.typeEval.confidence = TypeEvalConfidence::L1;
-    return result;
-  }
-  MacroGeneratedFunctionInfo macroCandidate;
-  if (resolveMacroGeneratedFunctionAtUri(uri, functionName, ctx,
-                                         macroCandidate)) {
-    result.definition = macroCandidate.definition;
-    result.hasDefinition = true;
-    result.typeEval.type = "user_function";
-    result.typeEval.confidence = TypeEvalConfidence::L1;
-    return result;
-  }
   result.typeEval.confidence = TypeEvalConfidence::L3;
   result.typeEval.reasonCode =
       isHlslBuiltinRegistryAvailable()
@@ -567,6 +412,15 @@ bool resolveFunctionParameters(const std::string &uri,
                                const ServerRequestContext &ctx,
                                std::vector<std::string> &outParams) {
   outParams.clear();
+  if (const Document *doc = ctx.findDocument(uri)) {
+    std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
+    if (interactiveResolveFunctionOverloads(uri, *doc, functionName, ctx,
+                                            overloads) &&
+        !overloads.empty()) {
+      outParams = overloads.front().parameters;
+      return true;
+    }
+  }
   SignatureHelpTargetResult target =
       resolveSignatureHelpTarget(uri, functionName, ctx);
   if (target.builtinSigs && !target.builtinSigs->empty()) {
@@ -591,8 +445,8 @@ bool resolveFunctionParameters(const std::string &uri,
   if (queryFunctionSignatureWithFallback(
           target.definition.uri, defText, epoch, ctx.workspaceFolders,
           ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
-          functionName, target.definition.line, target.definition.start, label,
-          outParams)) {
+          functionName, target.definition.line, target.definition.start, &ctx,
+          label, outParams)) {
     return true;
   }
   MacroGeneratedFunctionInfo macroCandidate;
@@ -630,8 +484,8 @@ bool resolveFunctionParametersFromTarget(
   const bool fastSig = queryFunctionSignatureWithFallback(
       target.definition.uri, defText, definitionEpoch, ctx.workspaceFolders,
       ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
-      functionName, target.definition.line, target.definition.start, labelOut,
-      paramsOut);
+      functionName, target.definition.line, target.definition.start, &ctx,
+      labelOut, paramsOut);
   if (!fastSig || labelOut.empty()) {
     MacroGeneratedFunctionInfo macroCandidate;
     if (resolveMacroGeneratedFunctionAtUri(target.definition.uri, functionName,
@@ -704,7 +558,7 @@ bool collectFunctionOverloadCandidates(
     std::vector<CandidateSignature> &outCandidates) {
   outCandidates.clear();
   std::vector<IndexedDefinition> defs;
-  workspaceIndexFindDefinitions(functionName, defs, 128);
+  workspaceSummaryRuntimeFindDefinitions(functionName, defs, 128);
   if (target.hasDefinition) {
     IndexedDefinition preferred;
     preferred.uri = target.definition.uri;
@@ -748,7 +602,7 @@ bool collectFunctionOverloadCandidates(
     const bool fastSig = queryFunctionSignatureWithFallback(
         d.uri, defText, definitionEpoch, ctx.workspaceFolders,
         ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
-        functionName, d.line, d.start, label, params);
+        functionName, d.line, d.start, &ctx, label, params);
     if (!fastSig || label.empty()) {
       continue;
     }

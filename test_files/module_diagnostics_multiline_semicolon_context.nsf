@@ -1,0 +1,16 @@
+float4 TestMultilineSemicolon(float3 input)
+{
+    float3 ok = float3(
+        input.x,
+        input.y,
+        input.z
+    );
+
+    float3 broken = float3(
+        input.x,
+        input.y,
+        input.z
+    )
+
+    return float4(ok + broken, 1.0);
+}

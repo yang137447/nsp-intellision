@@ -13,6 +13,8 @@ struct DiagnosticsBuildOptions {
   int maxItems = 1200;
   bool semanticCacheEnabled = true;
   uint64_t documentEpoch = 0;
+  std::string activeUnitUri;
+  std::string activeUnitText;
   bool indeterminateEnabled = true;
   int indeterminateSeverity = 4;
   int indeterminateMaxItems = 200;

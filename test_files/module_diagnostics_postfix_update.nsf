@@ -1,0 +1,6 @@
+float4 PostfixUpdateSemicolon(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float counter = 0.0;
+    counter++;
+    return float4(uv.x, uv.y, counter, 1.0);
+}

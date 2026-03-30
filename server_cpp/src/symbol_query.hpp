@@ -10,23 +10,17 @@ struct ServerRequestContext;
 enum class SymbolDefinitionTargetSource {
   None,
   WorkspaceIndex,
-  WorkspaceScan,
-  IncludeGraph,
   MacroGenerated
 };
 
 enum class SymbolDefinitionSearchOrder {
-  WorkspaceThenGraphThenMacro,
-  MacroThenWorkspaceThenScan
+  WorkspaceThenMacro,
+  MacroThenWorkspace
 };
 
 struct SymbolDefinitionResolveOptions {
   SymbolDefinitionSearchOrder order =
-      SymbolDefinitionSearchOrder::WorkspaceThenGraphThenMacro;
-  bool allowWorkspaceScan = false;
-  bool useWorkspaceScanCache = false;
-  bool includeDocumentDirectoryInScan = true;
-  bool excludeUsfUshInScan = false;
+      SymbolDefinitionSearchOrder::WorkspaceThenMacro;
 };
 
 struct ResolvedSymbolDefinitionTarget {

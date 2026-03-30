@@ -1,0 +1,11 @@
+half4 HoverParamHelper(half3 helper_color, half4 helper_fog)
+{
+    return helper_fog + half4(helper_color, 0.0);
+}
+
+half3 HoverParamEntry(half3 entry_color, half4 entry_fog)
+{
+    half3 final_color = entry_color;
+    half4 final_fog = HoverParamHelper(final_color, entry_fog);
+    return final_fog.rgb;
+}

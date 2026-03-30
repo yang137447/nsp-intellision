@@ -272,6 +272,17 @@ static void ensureTypeModelLoaded() {
   });
 }
 
+static const ObjectTypeEntry *findObjectTypeEntry(const std::string &typeName) {
+  ensureTypeModelLoaded();
+  if (gTypeModelState != TypeModelState::Loaded)
+    return nullptr;
+  const std::string key = toLookupKey(typeName);
+  auto it = gTypesByLower.find(key);
+  if (it == gTypesByLower.end())
+    return nullptr;
+  return &it->second;
+}
+
 } // namespace
 
 bool isTypeModelAvailable() {
@@ -324,14 +335,24 @@ bool isTypeModelSamplerLike(const std::string &typeName) {
 }
 
 int getTypeModelCoordDim(const std::string &typeName) {
-  ensureTypeModelLoaded();
-  if (gTypeModelState != TypeModelState::Loaded)
+  const ObjectTypeEntry *entry = findObjectTypeEntry(typeName);
+  if (!entry)
     return -1;
-  const std::string key = toLookupKey(typeName);
-  auto it = gTypesByLower.find(key);
-  if (it == gTypesByLower.end())
+  return entry->coordDim;
+}
+
+int getTypeModelSampleCoordDim(const std::string &typeName) {
+  const ObjectTypeEntry *entry = findObjectTypeEntry(typeName);
+  if (!entry || entry->coordDim < 0)
     return -1;
-  return it->second.coordDim;
+  return entry->coordDim + (entry->isArray ? 1 : 0);
+}
+
+int getTypeModelLoadCoordDim(const std::string &typeName) {
+  const int sampleCoordDim = getTypeModelSampleCoordDim(typeName);
+  if (sampleCoordDim < 0)
+    return -1;
+  return sampleCoordDim + 1;
 }
 
 bool typeModelSameObjectFamily(const std::string &leftType,

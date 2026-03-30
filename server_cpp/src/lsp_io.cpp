@@ -1,7 +1,6 @@
 #include "lsp_io.hpp"
 #include <iostream>
 #include <mutex>
-#include <sstream>
 
 static std::mutex gWriteMutex;
 
@@ -33,9 +32,10 @@ bool readMessage(std::string &payload) {
 
 void writeMessage(const std::string &json) {
   std::lock_guard<std::mutex> lock(gWriteMutex);
-  std::ostringstream out;
-  out << "Content-Length: " << json.size() << "\r\n\r\n" << json;
-  std::cout << out.str();
+  const std::string header =
+      "Content-Length: " + std::to_string(json.size()) + "\r\n\r\n";
+  std::cout.write(header.data(), static_cast<std::streamsize>(header.size()));
+  std::cout.write(json.data(), static_cast<std::streamsize>(json.size()));
   std::cout.flush();
 }
 

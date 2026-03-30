@@ -102,3 +102,10 @@ bool querySemanticSnapshotSymbolType(
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     const std::string &name, std::string &typeOut);
+
+std::shared_ptr<const SemanticSnapshot> getSemanticSnapshotView(
+    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines);

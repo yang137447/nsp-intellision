@@ -18,6 +18,17 @@ struct RawSemanticToken {
   int tokenModifiers = 0;
 };
 
+struct SemanticTokenTypeIndices {
+  int keywordType = 0;
+  int numberType = 0;
+  int macroType = 0;
+  int functionType = 0;
+  int variableType = 0;
+  int typeType = 0;
+  int propertyType = 0;
+  int operatorType = 0;
+};
+
 static std::vector<std::string> splitLines(const std::string &text) {
   std::vector<std::string> lines;
   std::istringstream stream(text);
@@ -39,11 +50,24 @@ static int findTokenTypeIndex(const SemanticTokenLegend &legend,
 
 SemanticTokenLegend createDefaultSemanticTokenLegend() {
   SemanticTokenLegend legend;
-  legend.tokenTypes = {"comment",  "string", "keyword", "number",
-                       "macro",    "function", "variable", "type",
-                       "property", "operator"};
+  legend.tokenTypes = {"keyword",  "number",  "macro",    "function",
+                       "variable", "type",    "property", "operator"};
   legend.tokenModifiers = {};
   return legend;
+}
+
+static SemanticTokenTypeIndices
+resolveTokenTypeIndices(const SemanticTokenLegend &legend) {
+  SemanticTokenTypeIndices indices;
+  indices.keywordType = findTokenTypeIndex(legend, "keyword");
+  indices.numberType = findTokenTypeIndex(legend, "number");
+  indices.macroType = findTokenTypeIndex(legend, "macro");
+  indices.functionType = findTokenTypeIndex(legend, "function");
+  indices.variableType = findTokenTypeIndex(legend, "variable");
+  indices.typeType = findTokenTypeIndex(legend, "type");
+  indices.propertyType = findTokenTypeIndex(legend, "property");
+  indices.operatorType = findTokenTypeIndex(legend, "operator");
+  return indices;
 }
 
 static bool isNumberStart(const std::string &line, size_t i) {
@@ -112,27 +136,21 @@ static size_t scanToNonSpace(const std::string &line, size_t start) {
 static std::string trimLeft(const std::string &line) { return trimLeftCopy(line); }
 
 static void tokenizeLine(const std::string &line, int lineIndex,
-                         const SemanticTokenLegend &legend,
+                         const SemanticTokenTypeIndices &tokenTypes,
                          bool &inBlockComment, std::vector<RawSemanticToken> &out) {
-  const int commentType = findTokenTypeIndex(legend, "comment");
-  const int stringType = findTokenTypeIndex(legend, "string");
-  const int keywordType = findTokenTypeIndex(legend, "keyword");
-  const int numberType = findTokenTypeIndex(legend, "number");
-  const int macroType = findTokenTypeIndex(legend, "macro");
-  const int functionType = findTokenTypeIndex(legend, "function");
-  const int variableType = findTokenTypeIndex(legend, "variable");
-  const int typeType = findTokenTypeIndex(legend, "type");
-  const int propertyType = findTokenTypeIndex(legend, "property");
-  const int operatorType = findTokenTypeIndex(legend, "operator");
-
   static const std::unordered_set<std::string> typeKeywords = {
       "void",    "bool",    "int",     "uint",   "float",   "float2",
       "float3",  "float4",  "float2x2","float3x3","float4x4",
       "half",    "half2",   "half3",   "half4",  "Texture2D",
       "Texture3D","SamplerState", "SamplerComparisonState"};
+  static const std::string kOperatorChars = "+-*/%=&|^!~?:<>";
 
   bool expectTypeIdentifier = false;
   int attributeDepth = 0;
+  const std::string trimmedLine = trimLeft(line);
+  const bool isDirectiveLine = !trimmedLine.empty() && trimmedLine[0] == '#';
+  const size_t directiveHashPos =
+      isDirectiveLine ? line.find('#') : std::string::npos;
 
   auto pushToken = [&](size_t startByte, size_t endByte, int tokType,
                        int tokModifiers) {
@@ -168,13 +186,11 @@ static void tokenizeLine(const std::string &line, int lineIndex,
   while (i < line.size()) {
     if (inBlockComment) {
       size_t end = line.find("*/", i);
-      size_t tokenEnd = end == std::string::npos ? line.size() : end + 2;
-      pushToken(i, tokenEnd, commentType, 0);
       if (end == std::string::npos) {
         return;
       }
       inBlockComment = false;
-      i = tokenEnd;
+      i = end + 2;
       continue;
     }
 
@@ -185,50 +201,31 @@ static void tokenizeLine(const std::string &line, int lineIndex,
       continue;
     }
 
-    std::string trimmed = trimLeft(line);
-    if (i == 0 && !trimmed.empty() && trimmed[0] == '#') {
-      size_t hashPos = line.find('#');
-      if (hashPos != std::string::npos) {
-        pushToken(hashPos, hashPos + 1, macroType, 0);
-        size_t wordStart = scanToNonSpace(line, hashPos + 1);
+    if (i == 0 && isDirectiveLine) {
+      if (directiveHashPos != std::string::npos) {
+        pushToken(directiveHashPos, directiveHashPos + 1,
+                  tokenTypes.macroType, 0);
+        size_t wordStart = scanToNonSpace(line, directiveHashPos + 1);
         size_t wordEnd = wordStart;
         while (wordEnd < line.size() && isIdentifierChar(line[wordEnd]))
           wordEnd++;
         if (wordEnd > wordStart) {
-          pushToken(wordStart, wordEnd, macroType, 0);
-        }
-        size_t quote = line.find('"', wordEnd);
-        if (quote != std::string::npos) {
-          size_t quoteEnd = line.find('"', quote + 1);
-          if (quoteEnd != std::string::npos && quoteEnd > quote + 1) {
-            pushToken(quote + 1, quoteEnd, stringType, 0);
-          }
-        } else {
-          size_t lt = line.find('<', wordEnd);
-          if (lt != std::string::npos) {
-            size_t gt = line.find('>', lt + 1);
-            if (gt != std::string::npos && gt > lt + 1) {
-              pushToken(lt + 1, gt, stringType, 0);
-            }
-          }
+          pushToken(wordStart, wordEnd, tokenTypes.macroType, 0);
         }
       }
       return;
     }
 
     if (ch == '/' && next == '/') {
-      pushToken(i, line.size(), commentType, 0);
       return;
     }
     if (ch == '/' && next == '*') {
       size_t end = line.find("*/", i + 2);
-      size_t tokenEnd = end == std::string::npos ? line.size() : end + 2;
-      pushToken(i, tokenEnd, commentType, 0);
       if (end == std::string::npos) {
         inBlockComment = true;
         return;
       }
-      i = tokenEnd;
+      i = end + 2;
       continue;
     }
     if (ch == '[' && isAttributeBracketStart(i)) {
@@ -243,36 +240,35 @@ static void tokenizeLine(const std::string &line, int lineIndex,
     }
     if (ch == '"') {
       size_t end = scanStringToken(line, i);
-      pushToken(i, end, stringType, 0);
       i = end;
       continue;
     }
     if (isNumberStart(line, i)) {
       size_t end = scanNumberToken(line, i);
-      pushToken(i, end, numberType, 0);
+      pushToken(i, end, tokenTypes.numberType, 0);
       i = end;
       continue;
     }
     if (isIdentifierChar(ch)) {
       size_t end = scanIdentifierToken(line, i);
       std::string word = line.substr(i, end - i);
-      int tokType = variableType;
+      int tokType = tokenTypes.variableType;
       if (attributeDepth > 0) {
-        tokType = keywordType;
+        tokType = tokenTypes.keywordType;
       } else if (isHlslKeyword(word) || isHlslSystemSemantic(word)) {
-        tokType = keywordType;
+        tokType = tokenTypes.keywordType;
         if (word == "struct" || word == "cbuffer")
           expectTypeIdentifier = true;
       } else if (typeKeywords.find(word) != typeKeywords.end() ||
                  expectTypeIdentifier) {
-        tokType = typeType;
+        tokType = tokenTypes.typeType;
         expectTypeIdentifier = false;
       } else {
         size_t after = scanToNonSpace(line, end);
         if (after < line.size() && line[after] == '(') {
-          tokType = functionType;
+          tokType = tokenTypes.functionType;
         } else if (i > 0 && line[i - 1] == '.') {
-          tokType = propertyType;
+          tokType = tokenTypes.propertyType;
         }
       }
       pushToken(i, end, tokType, 0);
@@ -280,8 +276,8 @@ static void tokenizeLine(const std::string &line, int lineIndex,
       continue;
     }
 
-    if (std::string("+-*/%=&|^!~?:<>").find(ch) != std::string::npos) {
-      pushToken(i, i + 1, operatorType, 0);
+    if (kOperatorChars.find(ch) != std::string::npos) {
+      pushToken(i, i + 1, tokenTypes.operatorType, 0);
       i++;
       continue;
     }
@@ -323,12 +319,14 @@ collectTokensForLineRange(const std::vector<std::string> &lines,
                           const SemanticTokenLegend &legend) {
   std::vector<RawSemanticToken> tokens;
   bool inBlockComment = false;
+  const SemanticTokenTypeIndices tokenTypes = resolveTokenTypeIndices(legend);
   for (int lineIndex = 0; lineIndex < static_cast<int>(lines.size()); lineIndex++) {
     if (lineIndex < startLine)
       continue;
     if (lineIndex > endLine)
       break;
-    tokenizeLine(lines[lineIndex], lineIndex, legend, inBlockComment, tokens);
+    tokenizeLine(lines[lineIndex], lineIndex, tokenTypes, inBlockComment,
+                 tokens);
   }
   std::sort(tokens.begin(), tokens.end(),
             [](const RawSemanticToken &a, const RawSemanticToken &b) {

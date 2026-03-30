@@ -1,0 +1,7 @@
+#include "../shared/multi_context_cross_doc_unique_def.hlsl"
+#include "../shared/multi_context_cross_doc_unique_common.hlsl"
+
+half3 MultiContextCrossDocUniqueAEntry(half3 color : COLOR0) : SV_Target0
+{
+    return MultiContextSharedFogEntry(color, half4(1.0, 0.0, 0.0, 1.0));
+}

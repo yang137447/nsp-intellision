@@ -1,6 +1,8 @@
 #include "json.hpp"
 #include <cctype>
 #include <cstdlib>
+#include <iomanip>
+#include <limits>
 #include <sstream>
 
 static void skipWs(const std::string &text, size_t &i) {
@@ -294,6 +296,7 @@ std::string serializeJson(const Json &value) {
     return value.b ? "true" : "false";
   case Json::Type::Number: {
     std::ostringstream out;
+    out << std::setprecision(std::numeric_limits<double>::max_digits10);
     out << value.n;
     return out.str();
   }

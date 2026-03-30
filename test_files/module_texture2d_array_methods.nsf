@@ -1,0 +1,9 @@
+Texture2DArray gTexArray;
+SamplerState gSampler;
+
+float4 Texture2DArrayMethods(float3 uvw : TEXCOORD0) : SV_Target0
+{
+    float4 sampled = gTexArray.Sample(gSampler, uvw);
+    float4 loaded = gTexArray.Load(int4(0, 0, 0, 0));
+    return sampled + loaded;
+}

@@ -28,18 +28,10 @@ TypeEvalResult resolveHoverTypeAtDeclaration(
     const std::string &uri, const Document &doc, const std::string &symbol,
     size_t cursorOffset, const ServerRequestContext &ctx, bool &isParamOut);
 
-bool signatureHelpTargetEquals(const SignatureHelpTargetResult &a,
-                               const SignatureHelpTargetResult &b);
-
 SignatureHelpTargetResult
 resolveSignatureHelpTarget(const std::string &uri,
                            const std::string &functionName,
                            const ServerRequestContext &ctx);
-
-SignatureHelpTargetResult
-resolveSignatureHelpTargetLegacy(const std::string &uri,
-                                 const std::string &functionName,
-                                 const ServerRequestContext &ctx);
 
 bool resolveFunctionParameters(const std::string &uri,
                                const std::string &functionName,
