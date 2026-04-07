@@ -80,7 +80,7 @@ export function registerInteractiveVisibilityTests(): void {
 			});
 		});
 
-		it('orders completion results as current, last-good, shared-visible, then workspace fallback', async function () {
+		it('keeps current-doc local completion ahead of shared-visible include helper', async function () {
 			this.timeout(120000);
 
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {

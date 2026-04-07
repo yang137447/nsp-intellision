@@ -781,7 +781,7 @@ int completionKindForWorkspaceDefinition(const IndexedDefinition &def) {
   return 6;
 }
 
-bool appendCompletionItemsFromVisibleShard(
+bool appendCompletionItemsFromSharedVisibleShard(
     const std::vector<IndexedDefinition> &defs, const std::string &prefix,
     std::vector<InteractiveCompletionItem> &outItems,
     std::unordered_set<std::string> &seen) {
@@ -1014,7 +1014,7 @@ void interactiveCollectCompletionItems(
     std::vector<IndexedDefinition> visibleFunctions;
     if (interactiveVisibilityRuntimeCollectFunctions(runtime.interactiveVisibilityKey,
                                                      visibleFunctions)) {
-      const bool addedSharedVisible = appendCompletionItemsFromVisibleShard(
+      const bool addedSharedVisible = appendCompletionItemsFromSharedVisibleShard(
           visibleFunctions, prefix, outItems, seen);
       if (addedSharedVisible) {
         if (!recordedResolvedLayer) {

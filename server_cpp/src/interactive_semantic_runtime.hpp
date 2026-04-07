@@ -22,6 +22,11 @@ struct ServerRequestContext;
 // Current query order contract:
 // current interactive snapshot -> last-good interactive snapshot ->
 // shared-visible shard -> deferred document snapshot -> workspace summary
+// Completion merge contract:
+// - layers are appended in the priority order above
+// - candidates are deduped by label across layers
+// - when labels collide, earlier layers intentionally keep detail/kind
+// This is merge-by-priority, not "stop after first layer hit".
 //
 // Non-goals:
 // - does not own cross-file workspace search plans
@@ -101,8 +106,10 @@ void recordInteractiveRequestContextBuild(double buildMs);
 void recordInteractiveOwnerDidChange(double durationMs);
 void recordInteractivePrewarm(double durationMs);
 
-// Collects completion candidates in current-doc-first order. Workspace summary
-// may add miss-only candidates but must not replace current-doc hits.
+// Collects completion candidates by appending each layer in merge priority
+// order. Deduping is label-based, so earlier layers keep detail/kind precedence.
+// Workspace summary may add miss-only candidates but must not replace
+// current-doc hits.
 void interactiveCollectCompletionItems(
     const std::string &uri, const Document &doc, size_t cursorOffset,
     const std::string &prefix, const ServerRequestContext &ctx,
