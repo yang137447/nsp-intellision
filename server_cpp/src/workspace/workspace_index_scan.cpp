@@ -250,7 +250,7 @@ std::string computeIndexKey(const std::vector<std::string> &folders,
   key.append("models:");
   key.append(modelsHash);
   key.push_back(';');
-  key.append("includeParser:5;");
+  key.append("includeParser:6;");
   return key;
 }
 

@@ -11,6 +11,10 @@ std::mutex gInteractiveVisibilityMutex;
 std::unordered_map<std::string, InteractiveVisibleSymbolShard>
     gInteractiveVisibilityShards;
 
+bool isSharedVisibleGlobalDefinition(const IndexedDefinition &def) {
+  return def.kind == 13 || def.kind == 8;
+}
+
 } // namespace
 
 bool interactiveVisibilityRuntimeGet(const InteractiveVisibilityKey &key,
@@ -52,7 +56,7 @@ void interactiveVisibilityRuntimePrewarm(const DocumentRuntime &runtime) {
     for (const auto &def : defs) {
       if (def.kind == 12) {
         shard.functions.push_back(def);
-      } else if (def.kind == 13) {
+      } else if (isSharedVisibleGlobalDefinition(def)) {
         shard.globals.push_back(def);
       } else if (def.kind == 23) {
         shard.types.push_back(def);

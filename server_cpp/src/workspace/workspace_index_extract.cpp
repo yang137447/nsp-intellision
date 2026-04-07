@@ -648,20 +648,14 @@ void extractDefinitions(const std::string &uri, const std::string &text,
               }
             } else {
               bool hasSemi = false;
-              bool hasAssignBefore = false;
               for (size_t j = 0; j < tokens.size(); j++) {
                 if (tokens[j].kind == LexToken::Kind::Punct &&
                     tokens[j].text == ";") {
                   hasSemi = true;
                   break;
                 }
-                if (tokens[j].kind == LexToken::Kind::Punct &&
-                    tokens[j].text == "=") {
-                  hasAssignBefore = true;
-                  break;
-                }
               }
-              if (hasSemi && !hasAssignBefore) {
+              if (hasSemi) {
                 record(name, type, 8, static_cast<int>(tokens[nameIndex].start),
                        static_cast<int>(tokens[nameIndex].end), lineIndex);
               }
