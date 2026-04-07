@@ -44,6 +44,21 @@ export type InteractiveRuntimeDebugResponse = {
 	lastSymbol?: string;
 };
 
+export type LastCompletionDebugResponse = {
+	memberAccessDetected?: boolean;
+	line?: number;
+	character?: number;
+	lineText?: string;
+	base?: string;
+	member?: string;
+	memberTypeResolved?: boolean;
+	resolvedType?: string;
+	memberItemsReturned?: boolean;
+	fieldCount?: number;
+	methodCount?: number;
+	path?: string;
+};
+
 export type InternalCommandDeps = {
 	getInternalStatus: () => InternalStatusSnapshot;
 	resetInternalStatus: () => void;
@@ -71,6 +86,7 @@ export type InternalCommandDeps = {
 	getInteractiveRuntimeDebug: (payload: {
 		uri?: string;
 	}) => Promise<InteractiveRuntimeDebugResponse>;
+	getLastCompletionDebug: () => Promise<LastCompletionDebugResponse>;
 };
 
 export function registerInternalCommands(
@@ -141,6 +157,11 @@ export function registerInternalCommands(
 	context.subscriptions.push(
 		commands.registerCommand('nsf._getInteractiveRuntimeDebug', async (args?: { uri?: string }) =>
 			deps.getInteractiveRuntimeDebug(args ?? {})
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand('nsf._getLastCompletionDebug', async () =>
+			deps.getLastCompletionDebug()
 		)
 	);
 }

@@ -30,6 +30,7 @@ import { computeSingleFileIncludePaths } from './single_file_config';
 import {
 	createClearActiveUnitHandler,
 	type InteractiveRuntimeDebugResponse,
+	type LastCompletionDebugResponse,
 	createRuntimeDebugHandler,
 	createSetActiveUnitHandler,
 	createSpamRequestHandlers,
@@ -515,6 +516,13 @@ export function activate(context: ExtensionContext) {
 				'nsf/_getInteractiveRuntimeDebug',
 				payload ?? {}
 			);
+		},
+		getLastCompletionDebug: async () => {
+			await ensureClientStarted(false);
+			if (!client) {
+				throw new Error('Language client is not ready yet');
+			}
+			return client.sendRequest<LastCompletionDebugResponse>('nsf/_getLastCompletionDebug', {});
 		}
 	});
 
