@@ -65,6 +65,20 @@ struct InteractiveCompletionItem {
   int kind = 0;
 };
 
+struct InteractiveRuntimeDebugSnapshot {
+  std::string uri;
+  std::string lastQueryKind;
+  std::string lastResolvedLayer;
+  std::string lastSymbol;
+};
+
+void recordInteractiveRuntimeDebug(const std::string &uri,
+                                   const std::string &queryKind,
+                                   const std::string &layer,
+                                   const std::string &symbol);
+InteractiveRuntimeDebugSnapshot
+getInteractiveRuntimeDebugSnapshot(const std::string &uri);
+
 // Returns the latest current-doc snapshot if it matches the full analysis key,
 // otherwise falls back to last-good only when the stable-context fingerprint
 // still matches. This API must not trigger hidden workspace scans.

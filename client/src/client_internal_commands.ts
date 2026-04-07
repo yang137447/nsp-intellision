@@ -61,6 +61,7 @@ export type InternalCommandDeps = {
 	getLatestMetrics: () => LatestMetricsSnapshot;
 	getMetricsHistory: (sinceRevision?: number) => MetricsHistoryEntry[];
 	getDocumentRuntimeDebug: (payload?: { uris?: string[] }) => Promise<RuntimeDebugResponse>;
+	sendServerRequest: (method: string, params?: unknown) => Promise<any>;
 };
 
 export function registerInternalCommands(
@@ -126,6 +127,11 @@ export function registerInternalCommands(
 		commands.registerCommand(
 			'nsf._getDocumentRuntimeDebug',
 			async (payload?: { uris?: string[] }) => deps.getDocumentRuntimeDebug(payload)
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand('nsf._getInteractiveRuntimeDebug', async (args?: { uri?: string }) =>
+			deps.sendServerRequest('nsf/_getInteractiveRuntimeDebug', args ?? {})
 		)
 	);
 }

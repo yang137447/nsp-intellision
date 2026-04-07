@@ -41,3 +41,5 @@ export { registerReferencesRenameTests } from './integration/references-rename';
 
 export { registerInteractiveUiMetadataTests } from './integration/ui-metadata';
 
+export { registerInteractiveVisibilityTests } from './integration/interactive-visibility';
+

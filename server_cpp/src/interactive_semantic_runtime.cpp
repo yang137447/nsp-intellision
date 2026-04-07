@@ -160,6 +160,9 @@ struct InteractiveRuntimeMetricState {
 
 std::mutex gInteractiveMetricsMutex;
 InteractiveRuntimeMetricState gInteractiveMetrics;
+std::mutex gInteractiveRuntimeDebugMutex;
+std::unordered_map<std::string, InteractiveRuntimeDebugSnapshot>
+    gInteractiveRuntimeDebugByUri;
 
 void recordDurationSample(uint64_t &samples, double &totalMs, double &maxMs,
                           double sampleMs) {
@@ -957,12 +960,17 @@ void interactiveCollectCompletionItems(
   }
 
   std::unordered_set<std::string> seen;
+  bool recordedResolvedLayer = false;
   if (current && current->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*current->semanticSnapshot, doc.text,
                                         cursorOffset, prefix, outItems, seen)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
+    if (!recordedResolvedLayer) {
+      recordInteractiveRuntimeDebug(uri, "completion", "current", prefix);
+      recordedResolvedLayer = true;
+    }
   }
   if (lastGood && lastGood->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*lastGood->semanticSnapshot, doc.text,
@@ -970,6 +978,10 @@ void interactiveCollectCompletionItems(
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeLastGoodHits++;
     });
+    if (!recordedResolvedLayer) {
+      recordInteractiveRuntimeDebug(uri, "completion", "last-good", prefix);
+      recordedResolvedLayer = true;
+    }
   }
   if (deferred && deferred->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*deferred->semanticSnapshot, doc.text,
@@ -977,6 +989,10 @@ void interactiveCollectCompletionItems(
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeDeferredDocHits++;
     });
+    if (!recordedResolvedLayer) {
+      recordInteractiveRuntimeDebug(uri, "completion", "deferred", prefix);
+      recordedResolvedLayer = true;
+    }
   }
 
   if (!prefix.empty()) {
@@ -1001,6 +1017,10 @@ void interactiveCollectCompletionItems(
         recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
           state.mergeWorkspaceSummaryHits++;
         });
+        if (!recordedResolvedLayer) {
+          recordInteractiveRuntimeDebug(uri, "completion", "workspace", prefix);
+          recordedResolvedLayer = true;
+        }
       }
     }
   }
@@ -1614,4 +1634,22 @@ InteractiveRuntimeMetricsSnapshot takeInteractiveRuntimeMetricsSnapshot() {
   snapshot.prewarmMaxMs = gInteractiveMetrics.prewarmMaxMs;
   gInteractiveMetrics = InteractiveRuntimeMetricState{};
   return snapshot;
+}
+
+void recordInteractiveRuntimeDebug(const std::string &uri,
+                                   const std::string &queryKind,
+                                   const std::string &layer,
+                                   const std::string &symbol) {
+  std::lock_guard<std::mutex> lock(gInteractiveRuntimeDebugMutex);
+  gInteractiveRuntimeDebugByUri[uri] =
+      InteractiveRuntimeDebugSnapshot{uri, queryKind, layer, symbol};
+}
+
+InteractiveRuntimeDebugSnapshot
+getInteractiveRuntimeDebugSnapshot(const std::string &uri) {
+  std::lock_guard<std::mutex> lock(gInteractiveRuntimeDebugMutex);
+  auto it = gInteractiveRuntimeDebugByUri.find(uri);
+  if (it == gInteractiveRuntimeDebugByUri.end())
+    return InteractiveRuntimeDebugSnapshot{};
+  return it->second;
 }

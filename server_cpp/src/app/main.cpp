@@ -1935,6 +1935,24 @@ int main(int argc, char **argv) {
       continue;
     }
 
+    if (method == "nsf/_getInteractiveRuntimeDebug") {
+      Json result = makeObject();
+      if (params) {
+        const Json *uriValue = getObjectValue(*params, "uri");
+        if (uriValue && uriValue->type == Json::Type::String) {
+          const InteractiveRuntimeDebugSnapshot snapshot =
+              getInteractiveRuntimeDebugSnapshot(uriValue->s);
+          result.o["uri"] = makeString(snapshot.uri);
+          result.o["lastQueryKind"] = makeString(snapshot.lastQueryKind);
+          result.o["lastResolvedLayer"] = makeString(snapshot.lastResolvedLayer);
+          result.o["lastSymbol"] = makeString(snapshot.lastSymbol);
+        }
+      }
+      if (id.type != Json::Type::Null)
+        writeResponse(id, result);
+      continue;
+    }
+
     if (method == "nsf/_debugMemberCompletion") {
       Json result = makeObject();
       if (params) {

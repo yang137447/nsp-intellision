@@ -358,6 +358,15 @@ export async function waitForHoverText(
 	);
 }
 
+export async function getInteractiveRuntimeDebug(uri: string): Promise<any> {
+	const expectedUri = uri.toLowerCase();
+	return waitFor(
+		() => vscode.commands.executeCommand<any>('nsf._getInteractiveRuntimeDebug', { uri }),
+		(value) => typeof value?.uri === 'string' && value.uri.toLowerCase() === expectedUri,
+		'interactive runtime debug'
+	);
+}
+
 export async function waitForDiagnostics(
 	document: vscode.TextDocument,
 	isReady: (diagnostics: readonly vscode.Diagnostic[]) => boolean,
