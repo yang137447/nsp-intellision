@@ -39,6 +39,11 @@ void interactiveVisibilityRuntimePrewarm(const DocumentRuntime &runtime) {
     }
   }
 
+  // Avoid pinning an empty shard before the workspace summary can answer
+  // cross-file queries; a later prewarm should populate the same key.
+  if (!workspaceSummaryRuntimeIsReady())
+    return;
+
   InteractiveVisibleSymbolShard shard;
   shard.key = runtime.interactiveVisibilityKey;
   for (const auto &uri : runtime.activeUnitSnapshot.includeClosureUris) {

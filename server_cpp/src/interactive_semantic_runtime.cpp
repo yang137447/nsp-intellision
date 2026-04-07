@@ -1207,11 +1207,16 @@ void interactiveCollectCompletionItems(
   }
 
   if (!prefix.empty() && hasRuntime) {
-    std::vector<IndexedDefinition> visibleFunctions;
-    if (interactiveVisibilityRuntimeCollectFunctions(runtime.interactiveVisibilityKey,
-                                                     visibleFunctions)) {
-      const bool addedSharedVisible = appendCompletionItemsFromSharedVisibleShard(
-          visibleFunctions, prefix, outItems, seen);
+    InteractiveVisibleSymbolShard shard;
+    if (interactiveVisibilityRuntimeGet(runtime.interactiveVisibilityKey,
+                                        shard)) {
+      bool addedSharedVisible = false;
+      addedSharedVisible = appendCompletionItemsFromSharedVisibleShard(
+                               shard.functions, prefix, outItems, seen) ||
+                           addedSharedVisible;
+      addedSharedVisible = appendCompletionItemsFromSharedVisibleShard(
+                               shard.globals, prefix, outItems, seen) ||
+                           addedSharedVisible;
       if (addedSharedVisible) {
         if (!recordedResolvedLayer) {
           recordInteractiveRuntimeDebug(uri, "completion", "shared-visible",

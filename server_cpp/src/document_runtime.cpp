@@ -684,6 +684,20 @@ bool documentRuntimeGet(const std::string &uri, DocumentRuntime &runtimeOut) {
   return true;
 }
 
+bool documentRuntimeAnyUsesInteractiveVisibilityFingerprint(
+    const std::string &fullFingerprint) {
+  if (fullFingerprint.empty())
+    return false;
+  std::lock_guard<std::mutex> lock(gDocumentRuntimeMutex);
+  for (const auto &entry : gDocumentRuntimes) {
+    if (entry.second.interactiveVisibilityKey.fullFingerprint ==
+        fullFingerprint) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void documentRuntimeErase(const std::string &uri) {
   if (uri.empty())
     return;

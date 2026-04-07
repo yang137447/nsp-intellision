@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -96,9 +97,15 @@ void documentOwnerDidClose(const std::string &uri) {
       visibilityKey = runtime.interactiveVisibilityKey;
     documentRuntimeErase(uri);
   }
-  std::lock_guard<std::mutex> lock(gDocumentOwnerMapMutex);
-  gDocumentOwners.erase(uri);
-  interactiveVisibilityRuntimeInvalidateKey(visibilityKey);
+  {
+    std::lock_guard<std::mutex> lock(gDocumentOwnerMapMutex);
+    gDocumentOwners.erase(uri);
+  }
+  if (!visibilityKey.fullFingerprint.empty() &&
+      !documentRuntimeAnyUsesInteractiveVisibilityFingerprint(
+          visibilityKey.fullFingerprint)) {
+    interactiveVisibilityRuntimeInvalidateKey(visibilityKey);
+  }
 }
 
 void documentOwnerRefreshAnalysisContext(
@@ -120,8 +127,25 @@ void documentOwnerRefreshAnalysisContextForUris(
     const std::vector<std::string> &uris,
     const DocumentRuntimeUpdateOptions &options,
     const ServerRequestContext &ctx) {
-  interactiveVisibilityRuntimeInvalidateAll();
+  std::vector<InteractiveVisibilityKey> staleVisibilityKeys;
+  staleVisibilityKeys.reserve(uris.size());
+  std::unordered_set<std::string> staleFingerprints;
+  staleFingerprints.reserve(uris.size());
+  for (const auto &uri : uris) {
+    DocumentRuntime runtime;
+    if (!documentRuntimeGet(uri, runtime))
+      continue;
+    const std::string &fingerprint =
+        runtime.interactiveVisibilityKey.fullFingerprint;
+    if (fingerprint.empty() || !staleFingerprints.insert(fingerprint).second)
+      continue;
+    staleVisibilityKeys.push_back(runtime.interactiveVisibilityKey);
+  }
+
   documentRuntimeRefreshAnalysisKeysForUris(uris, options);
+  for (const auto &key : staleVisibilityKeys)
+    interactiveVisibilityRuntimeInvalidateKey(key);
+
   for (const auto &uri : uris) {
     auto it = ctx.documents.find(uri);
     if (it == ctx.documents.end())

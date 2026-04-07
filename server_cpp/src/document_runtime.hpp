@@ -219,6 +219,11 @@ void documentRuntimeUpsert(const Document &document,
 // Returns a copy of the stored runtime for one uri.
 bool documentRuntimeGet(const std::string &uri, DocumentRuntime &runtimeOut);
 
+// Returns whether any currently open runtime still uses this interactive
+// visibility key fingerprint.
+bool documentRuntimeAnyUsesInteractiveVisibilityFingerprint(
+    const std::string &fullFingerprint);
+
 // Removes one document runtime entry.
 void documentRuntimeErase(const std::string &uri);
 

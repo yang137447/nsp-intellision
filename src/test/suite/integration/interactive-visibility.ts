@@ -82,6 +82,31 @@ export function registerInteractiveVisibilityTests(): void {
 			});
 		});
 
+		it('prewarms current-context-visible cross-file global symbols from the active unit include closure', async function () {
+			this.timeout(120000);
+
+			await waitForClientReady();
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+				const root = await openFixture('visibility_globals_root.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+
+				const position = positionOf(root, 'VisibleSharedGlo', 1, 'VisibleSharedGlo'.length);
+				await waitForCompletionLabels(
+					root,
+					position,
+					['VisibleSharedGlobalColor'],
+					'cross-file visible global completion'
+				);
+
+				const debug = await waitFor(
+					() => getInteractiveRuntimeDebug(root.uri.toString()),
+					(value) => value.lastQueryKind === 'completion',
+					'shared-visible global completion debug'
+				);
+				assert.strictEqual(debug.lastResolvedLayer, 'shared-visible');
+			});
+		});
+
 		it('keeps current-doc local completion ahead of shared-visible include helper', async function () {
 			this.timeout(120000);
 

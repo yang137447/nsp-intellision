@@ -1,0 +1,6 @@
+#include "visibility_shared.hlsli"
+
+float4 main_ps(float3 normal : NORMAL) : SV_Target
+{
+    return VisibleSharedGlo
+}
