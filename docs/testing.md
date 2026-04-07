@@ -266,12 +266,13 @@
 - `src/test/suite/*.test.ts`
   - repo / real 模式测试入口文件
   - loader 会按 `*.test.ts` 作为当前事实入口过滤对应的编译产物，避免陈旧 `.js` 输出被重复执行
-  - repo 模式当前按架构拆成 `client.runtime-config.test.ts`、`client.interactive-runtime.test.ts`、`client.diagnostics.test.ts`、`client.deferred-doc-runtime.test.ts`、`client.analysis-context-shared-key.test.ts`、`client.analysis-context-active-unit.test.ts`、`client.analysis-context-defines.test.ts`、`client.analysis-context-include.test.ts`、`client.analysis-context-workspace.test.ts`、`client.workspace-summary.test.ts`、`client.references-rename.test.ts`
+  - repo 模式当前按架构拆成 `client.runtime-config.test.ts`、`client.interactive-runtime.test.ts`、`client.interactive-visibility.test.ts`、`client.diagnostics.test.ts`、`client.deferred-doc-runtime.test.ts`、`client.analysis-context-shared-key.test.ts`、`client.analysis-context-active-unit.test.ts`、`client.analysis-context-defines.test.ts`、`client.analysis-context-include.test.ts`、`client.analysis-context-workspace.test.ts`、`client.workspace-summary.test.ts`、`client.references-rename.test.ts`
   - 其中 `client.analysis-context-shared-key.test.ts` 当前承接 `M4` 的 interactive / deferred 共用 analysis key 验收
   - `client.analysis-context-active-unit.test.ts` 当前承接 active unit 驱动的 shared analysis context 验收
   - `client.analysis-context-defines.test.ts` 当前单独承接 `M4` 的 defines 驱动共享 analysis context 验收
   - `client.analysis-context-include.test.ts` 当前单独承接 `M4` 的 include closure 驱动共享 analysis context 验收
   - `client.analysis-context-workspace.test.ts` 当前单独承接 workspace-summary 驱动的 shared analysis context 验收，避免和其他 `M4` 场景互相放大时序噪音
+  - `client.interactive-visibility.test.ts` 当前承接 `P1` shared-visible 交互验收，至少覆盖函数/变量 completion、`.` member completion、hover、signature help
   - perf 模式当前通过 `client.perf.test.ts` 采集主线 wall-clock 与最新 `nsf/metrics` 快照，并输出到 `out/test/perf-reports/`
 - `src/test/suite/client.integration.groups.ts`
   - repo 模式共享的 architecture registrar，按层聚合测试定义，供各 `*.test.ts` 入口复用
@@ -332,6 +333,10 @@
 - interactive completion / hover 用例如果目标是验证 server 返回的特定标签或文案，不要只等“结果非空”。
   - 词法补全、snippets 或较早返回的局部 hover 可能先满足“非空”，但还没到真正想验证的 server 结果
   - 当前 shared helper 已补充 `waitForCompletionLabels(...)`、`waitForHoverText(...)`，优先等目标标签或目标文案出现
+
+- `interactive-visibility` 类用例不要只根据结果文本判断是否命中 shared-visible。
+  - 优先结合内部命令 `nsf._getInteractiveRuntimeDebug`（helper: `getInteractiveRuntimeDebug(...)`）断言 `lastResolvedLayer`
+  - 特别是 hover / signature help / `.` member 相关场景，要避免把 workspace fallback 的“碰巧命中”误当成 shared-visible 命中
 
 - 跨文件或 deferred semantic diagnostics 用例不要只等“已经有 diagnostics”。
   - immediate syntax 和较早的半成品 semantic diagnostics 可能先到，此时仍可能带着旧的 `Undefined identifier`

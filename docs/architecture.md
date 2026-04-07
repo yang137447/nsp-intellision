@@ -251,13 +251,14 @@
 - immediate syntax / full diagnostics 当前用于分支 gating 的 `preprocessor_view.*` 也会加载当前文档可解析 include 链中的宏状态，避免 active include-controlled branch 上的缺分号等语法问题被误判成 inactive branch 而跳过
 - immediate syntax / full diagnostics 当前对 missing semicolon 的共享判断还会消费 `server_parse.*` 的 branch-aware 多行 `(`/`[` nesting 结果；active 多行构造/调用表达式内部的续行不应因为 closing `);` 落在后续行而被误报
 - interactive runtime 当前会消费 `changedRanges`：对注释/空白类 changed window 优先做 last-good incremental promote，避免无语义编辑触发整份 snapshot 重建
-- 成员 completion 当前会优先消费 interactive / last-good / deferred snapshot 中的 typed struct fields；workspace summary 只作为缺失时的补充回退，并会过滤预处理指令行，避免把宏名误收成 struct 成员
+- 成员 completion 当前会优先消费 interactive / last-good / shared-visible / deferred snapshot 中的 typed struct fields；workspace summary 只作为缺失时的补充回退，并会过滤预处理指令行，避免把宏名误收成 struct 成员
 - workspace file watch 回流当前只会对直接变更或 reverse-include 命中的打开文档刷新 analysis key，避免无关 open docs 被整批脏化
 - fast diagnostics 当前优先发布 immediate syntax 结果，full diagnostics 再异步补齐
 - interactive 请求当前优先级高于 background 请求：
   - interactive: completion、hover、signature help、definition
   - background: semantic tokens、inlay hints、references、rename、document symbols
-- definition / hover / signature help 的编辑热路径当前已不再依赖 workspace scan / include graph 直扫兜底，而是优先 current-doc runtime、deferred doc snapshot 与 workspace summary
+- `.` member base-type、hover 符号类型与 signature help overload 当前都遵循 `current -> last-good -> shared-visible -> deferred -> workspace` 顺序；shared-visible 层由 `interactive_visibility_runtime.*` 提供 active unit include closure 约束下的 cross-file visible symbols
+- definition / hover / signature help 的编辑热路径当前已不再依赖 workspace scan / include graph 直扫兜底，而是优先 current-doc runtime、shared-visible shard、deferred doc snapshot 与 workspace summary
 - function / symbol hover 的 `Defined at` 与 overload location 当前由 request/rendering 层统一输出可点击文件链接，并按签名 + 位置去重 overload 列表项
 - request 层当前会先结合 current-doc 定义位置与 workspace `kind=14` 宏定义结果，把普通 `#define` 渲染为 macro hover；只有 macro-generated function 这类展开后产出真实函数声明的模式仍走 function hover
 - function hover 的 overload 列表当前只消费 current-doc / shared semantic snapshot / workspace summary 已产出的函数语义；request 层不再额外补一份 per-definition fallback 签名，缺失项应回到共享语义链路修正
@@ -291,7 +292,7 @@
   - snapshot publish 也应通过 owner API 进入，避免请求线程直接并发写 runtime 状态
 
 - `server_cpp/src/interactive_semantic_runtime.hpp`
-  - current-doc interactive 查询顺序契约：`current -> last-good -> deferred -> workspace summary`
+  - current-doc interactive 查询顺序契约：`current -> last-good -> shared-visible -> deferred -> workspace summary`
   - `last-good` 只允许在 stable context 指纹不变时复用
   - `workspace summary` 只能补 miss，不应覆盖已命中的 current-doc 主结果
 

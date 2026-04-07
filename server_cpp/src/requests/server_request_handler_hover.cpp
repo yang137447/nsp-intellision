@@ -720,8 +720,22 @@ static bool queryFunctionSignatureWithSemanticFallback(
     ServerRequestContext &ctx, std::string &labelOut,
     std::vector<std::string> &parametersOut) {
   const Document *doc = ctx.findDocument(uri);
+  std::string interactiveUri = uri;
+  if (!doc) {
+    const std::string activeUnitPath = getActiveUnitPath();
+    if (!activeUnitPath.empty()) {
+      const std::string activeUnitUri = pathToUri(activeUnitPath);
+      if (!activeUnitUri.empty()) {
+        const Document *activeDoc = ctx.findDocument(activeUnitUri);
+        if (activeDoc) {
+          doc = activeDoc;
+          interactiveUri = activeUnitUri;
+        }
+      }
+    }
+  }
   if (doc &&
-      interactiveResolveFunctionSignature(uri, *doc, name, lineIndex,
+      interactiveResolveFunctionSignature(interactiveUri, *doc, name, lineIndex,
                                           nameCharacter, ctx, labelOut,
                                           parametersOut)) {
     return true;

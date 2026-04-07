@@ -112,51 +112,6 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
     }
   }
 
-  std::vector<CurrentUnitFunctionTarget> currentUnitTargets;
-  if (collectCurrentUnitFunctionTargets(uri, functionName, ctx,
-                                        currentUnitTargets) &&
-      !currentUnitTargets.empty()) {
-    Json signatures = makeArray();
-    for (const auto &target : currentUnitTargets) {
-      Json signature = makeObject();
-      signature.o["label"] = makeString(
-          target.label.empty() ? (functionName + "(...)") : target.label);
-      Json parameters = makeArray();
-      for (const auto &param : target.parameters) {
-        Json parameter = makeObject();
-        parameter.o["label"] = makeString(param);
-        parameters.a.push_back(std::move(parameter));
-      }
-      signature.o["parameters"] = parameters;
-      if (currentUnitTargets.size() > 1) {
-        const std::string fileLabel =
-            std::filesystem::path(uriToPath(target.definition.uri))
-                .filename()
-                .string();
-        signature.o["documentation"] = makeMarkup(
-            "Current-unit include closure ambiguous.\n\nCandidate: " +
-            (fileLabel.empty() ? target.definition.uri : fileLabel));
-      }
-      signatures.a.push_back(std::move(signature));
-    }
-
-    int clampedActive = 0;
-    if (!currentUnitTargets.front().parameters.empty()) {
-      clampedActive = std::max(
-          0, std::min(activeParameter,
-                      static_cast<int>(
-                          currentUnitTargets.front().parameters.size()) -
-                          1));
-    }
-
-    Json result = makeObject();
-    result.o["signatures"] = signatures;
-    result.o["activeSignature"] = makeNumber(0);
-    result.o["activeParameter"] = makeNumber(clampedActive);
-    writeSignatureHelpResponse(result);
-    return true;
-  }
-
   std::vector<SemanticSnapshotFunctionOverloadInfo> interactiveOverloads;
   const auto interactiveOverloadStartedAt = std::chrono::steady_clock::now();
   if (interactiveResolveFunctionOverloads(uri, *doc, functionName, ctx,
@@ -202,6 +157,51 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
     Json result = makeObject();
     result.o["signatures"] = signatures;
     result.o["activeSignature"] = makeNumber(activeSignature);
+    result.o["activeParameter"] = makeNumber(clampedActive);
+    writeSignatureHelpResponse(result);
+    return true;
+  }
+
+  std::vector<CurrentUnitFunctionTarget> currentUnitTargets;
+  if (collectCurrentUnitFunctionTargets(uri, functionName, ctx,
+                                        currentUnitTargets) &&
+      !currentUnitTargets.empty()) {
+    Json signatures = makeArray();
+    for (const auto &target : currentUnitTargets) {
+      Json signature = makeObject();
+      signature.o["label"] = makeString(
+          target.label.empty() ? (functionName + "(...)") : target.label);
+      Json parameters = makeArray();
+      for (const auto &param : target.parameters) {
+        Json parameter = makeObject();
+        parameter.o["label"] = makeString(param);
+        parameters.a.push_back(std::move(parameter));
+      }
+      signature.o["parameters"] = parameters;
+      if (currentUnitTargets.size() > 1) {
+        const std::string fileLabel =
+            std::filesystem::path(uriToPath(target.definition.uri))
+                .filename()
+                .string();
+        signature.o["documentation"] = makeMarkup(
+            "Current-unit include closure ambiguous.\n\nCandidate: " +
+            (fileLabel.empty() ? target.definition.uri : fileLabel));
+      }
+      signatures.a.push_back(std::move(signature));
+    }
+
+    int clampedActive = 0;
+    if (!currentUnitTargets.front().parameters.empty()) {
+      clampedActive = std::max(
+          0, std::min(activeParameter,
+                      static_cast<int>(
+                          currentUnitTargets.front().parameters.size()) -
+                          1));
+    }
+
+    Json result = makeObject();
+    result.o["signatures"] = signatures;
+    result.o["activeSignature"] = makeNumber(0);
     result.o["activeParameter"] = makeNumber(clampedActive);
     writeSignatureHelpResponse(result);
     return true;

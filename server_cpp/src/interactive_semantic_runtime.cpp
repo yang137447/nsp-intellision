@@ -458,6 +458,176 @@ bool appendWorkspaceSummaryOverloads(
   return overloadsOut.size() > before;
 }
 
+std::string formatIndexedFunctionFallbackLabel(const IndexedDefinition &def) {
+  std::string label;
+  if (!def.type.empty()) {
+    label += def.type;
+    label += " ";
+  }
+  label += def.name;
+  label += "(...)";
+  return label;
+}
+
+bool lookupSharedVisibleSymbolType(const InteractiveVisibilityKey &key,
+                                   const std::string &symbol,
+                                   std::string &typeOut) {
+  typeOut.clear();
+  if (symbol.empty())
+    return false;
+  InteractiveVisibleSymbolShard shard;
+  if (!interactiveVisibilityRuntimeGet(key, shard))
+    return false;
+  for (const auto &def : shard.globals) {
+    if (def.name == symbol && !def.type.empty()) {
+      typeOut = def.type;
+      return true;
+    }
+  }
+  for (const auto &def : shard.functions) {
+    if (def.name == symbol && !def.type.empty()) {
+      typeOut = def.type;
+      return true;
+    }
+  }
+  for (const auto &def : shard.types) {
+    if (def.name == symbol) {
+      typeOut = def.name;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool resolveFunctionSignatureFromSharedVisible(
+    const InteractiveVisibilityKey &key, const std::string &name,
+    const ServerRequestContext &ctx, std::string &labelOut,
+    std::vector<std::string> &parametersOut) {
+  InteractiveVisibleSymbolShard shard;
+  if (!interactiveVisibilityRuntimeGet(key, shard) || shard.functions.empty())
+    return false;
+
+  for (const auto &def : shard.functions) {
+    if (def.kind != 12 || def.name != name)
+      continue;
+    std::string candidateText;
+    if (!def.uri.empty() && ctx.readDocumentText(def.uri, candidateText)) {
+      uint64_t candidateEpoch = 0;
+      if (const Document *candidateDoc = ctx.findDocument(def.uri))
+        candidateEpoch = candidateDoc->epoch;
+      if (querySemanticSnapshotFunctionSignature(
+              def.uri, candidateText, candidateEpoch, ctx.workspaceFolders,
+              ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+              name, def.line, def.start, labelOut, parametersOut) &&
+          !labelOut.empty()) {
+        return true;
+      }
+    }
+    labelOut = formatIndexedFunctionFallbackLabel(def);
+    parametersOut.clear();
+    return true;
+  }
+  return false;
+}
+
+bool appendOverloadsFromSharedVisible(
+    const InteractiveVisibilityKey &key, const std::string &name,
+    const ServerRequestContext &ctx,
+    std::vector<SemanticSnapshotFunctionOverloadInfo> &overloadsOut) {
+  InteractiveVisibleSymbolShard shard;
+  if (!interactiveVisibilityRuntimeGet(key, shard) || shard.functions.empty())
+    return false;
+
+  std::unordered_set<std::string> seen;
+  seen.reserve(overloadsOut.size() * 2 + 8);
+  for (const auto &overload : overloadsOut) {
+    const std::string keyStr =
+        overload.label + "|" + std::to_string(overload.line) + "|" +
+        std::to_string(overload.character);
+    seen.insert(keyStr);
+  }
+
+  const size_t before = overloadsOut.size();
+  for (const auto &def : shard.functions) {
+    if (def.kind != 12 || def.name != name)
+      continue;
+
+    bool appendedFromSnapshot = false;
+    std::string candidateText;
+    if (!def.uri.empty() && ctx.readDocumentText(def.uri, candidateText)) {
+      uint64_t candidateEpoch = 0;
+      if (const Document *candidateDoc = ctx.findDocument(def.uri))
+        candidateEpoch = candidateDoc->epoch;
+      std::vector<SemanticSnapshotFunctionOverloadInfo> localOverloads;
+      if (querySemanticSnapshotFunctionOverloads(
+              def.uri, candidateText, candidateEpoch, ctx.workspaceFolders,
+              ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+              name, localOverloads)) {
+        for (const auto &overload : localOverloads) {
+          const std::string keyStr =
+              overload.label + "|" + std::to_string(overload.line) + "|" +
+              std::to_string(overload.character);
+          if (!seen.insert(keyStr).second)
+            continue;
+          overloadsOut.push_back(overload);
+          appendedFromSnapshot = true;
+        }
+      }
+    }
+    if (appendedFromSnapshot)
+      continue;
+
+    SemanticSnapshotFunctionOverloadInfo fallback;
+    fallback.label = formatIndexedFunctionFallbackLabel(def);
+    fallback.returnType = def.type;
+    fallback.line = def.line;
+    fallback.character = def.start;
+    fallback.hasBody = false;
+    const std::string keyStr =
+        fallback.label + "|" + std::to_string(fallback.line) + "|" +
+        std::to_string(fallback.character);
+    if (!seen.insert(keyStr).second)
+      continue;
+    overloadsOut.push_back(std::move(fallback));
+  }
+  return overloadsOut.size() > before;
+}
+
+bool lookupStructFieldInfosFromSharedVisible(
+    const InteractiveVisibilityKey &key, const std::string &ownerType,
+    std::vector<MemberCompletionField> &fieldsOut) {
+  if (ownerType.empty())
+    return false;
+  InteractiveVisibleSymbolShard shard;
+  if (!interactiveVisibilityRuntimeGet(key, shard) || shard.types.empty())
+    return false;
+
+  bool typeVisible = false;
+  for (const auto &typeDef : shard.types) {
+    if (typeDef.name == ownerType) {
+      typeVisible = true;
+      break;
+    }
+  }
+  if (!typeVisible)
+    return false;
+
+  std::vector<std::string> fieldNames;
+  if (!workspaceSummaryRuntimeGetStructFields(ownerType, fieldNames) ||
+      fieldNames.empty()) {
+    return false;
+  }
+  fieldsOut.clear();
+  fieldsOut.reserve(fieldNames.size());
+  for (const auto &fieldName : fieldNames) {
+    MemberCompletionField item;
+    item.name = fieldName;
+    workspaceSummaryRuntimeGetStructMemberType(ownerType, fieldName, item.type);
+    fieldsOut.push_back(std::move(item));
+  }
+  return !fieldsOut.empty();
+}
+
 bool lookupStructFieldInfosFromSnapshot(const SemanticSnapshot &snapshot,
                                         const std::string &ownerType,
                                         std::vector<MemberCompletionField> &fieldsOut) {
@@ -1203,6 +1373,16 @@ TypeEvalResult interactiveResolveHoverTypeAtDeclaration(
     return result;
   }
 
+  if (hasRuntime && lookupSharedVisibleSymbolType(runtime.interactiveVisibilityKey,
+                                                  symbol, typeName)) {
+    isParamOut = false;
+    result.type = typeName;
+    result.confidence = TypeEvalConfidence::L2;
+    result.reasonCode = "shared_visible_shard";
+    recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", symbol);
+    return result;
+  }
+
   bool deferredIsParam = false;
   if (deferred && deferred->semanticSnapshot &&
       lookupTypeAtOffsetInSnapshot(*deferred->semanticSnapshot, doc.text, symbol,
@@ -1288,6 +1468,15 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeLastGoodHits++;
       });
+      return result;
+    }
+    if (lookupSharedVisibleSymbolType(runtime.interactiveVisibilityKey, base,
+                                      publishedType) &&
+        !publishedType.empty()) {
+      result.typeName = publishedType;
+      result.resolutionPath = "shared_visible_shard";
+      result.resolved = true;
+      recordInteractiveRuntimeDebug(uri, "member-base", "shared-visible", base);
       return result;
     }
     bool deferredIsParam = false;
@@ -1485,6 +1674,12 @@ bool interactiveResolveFunctionSignature(
     });
     return true;
   }
+  if (hasRuntime && resolveFunctionSignatureFromSharedVisible(
+                        runtime.interactiveVisibilityKey, name, ctx, labelOut,
+                        parametersOut)) {
+    recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", name);
+    return true;
+  }
   if (deferred && deferred->semanticSnapshot &&
       trySnapshot(*deferred->semanticSnapshot)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
@@ -1539,6 +1734,12 @@ bool interactiveResolveFunctionOverloads(
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeLastGoodHits++;
     });
+    return true;
+  }
+  if (hasRuntime && appendOverloadsFromSharedVisible(
+                        runtime.interactiveVisibilityKey, name, ctx,
+                        overloadsOut)) {
+    recordInteractiveRuntimeDebug(uri, "signature-help", "shared-visible", name);
     return true;
   }
   if (deferred && deferred->semanticSnapshot &&
@@ -1604,6 +1805,13 @@ bool interactiveCollectMemberCompletionQuery(const std::string &uri,
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeLastGoodHits++;
     });
+    return true;
+  }
+  if (hasRuntime && lookupStructFieldInfosFromSharedVisible(
+                        runtime.interactiveVisibilityKey, ownerType,
+                        out.fields)) {
+    recordInteractiveRuntimeDebug(uri, "completion", "shared-visible",
+                                  ownerType);
     return true;
   }
   if (deferred && deferred->semanticSnapshot &&

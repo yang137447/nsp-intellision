@@ -6,6 +6,7 @@ import {
 	getCompletionItems,
 	getDocumentRuntimeDebug,
 	getWorkspaceRoot,
+	hoverToText,
 	getInteractiveRuntimeDebug,
 	openFixture,
 	positionOf,
@@ -13,6 +14,7 @@ import {
 	withTemporaryIntellisionPath,
 	waitForCompletionLabels,
 	waitForClientReady,
+	waitForHoverText,
 	waitFor
 } from '../test_helpers';
 
@@ -113,6 +115,64 @@ export function registerInteractiveVisibilityTests(): void {
 				assert.ok(labels.indexOf('visibilityLocalColor') >= 0);
 				assert.ok(labels.indexOf('VisibleIncludeHelper') >= 0);
 				assert.ok(labels.indexOf('VisibleIncludeHelper') > labels.indexOf('visibilityLocalColor'));
+			});
+		});
+
+		it('uses shared-visible cross-file type information for member completion, hover, and signature help', async function () {
+			this.timeout(120000);
+
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+				const root = await openFixture('visibility_member_root.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+
+				const memberPos = positionOf(root, 'visibleStruct.', 1, 'visibleStruct.'.length);
+				const memberItems = await waitFor(
+					() =>
+						vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
+							'vscode.executeCompletionItemProvider',
+							root.uri,
+							memberPos
+						),
+					(value) => getCompletionItems(value).some((item) => item.label.toString() === 'SharedVisibleField'),
+					'shared-visible member completion'
+				);
+				assert.ok(getCompletionItems(memberItems).some((item) => item.label.toString() === 'SharedVisibleField'));
+
+				const hoverPos = positionOf(root, 'SharedVisibleHelper', 1, 2);
+				const hoverText = hoverToText(
+					await waitForHoverText(
+						root,
+						hoverPos,
+						(text) => text.includes('SharedVisibleHelper') && text.includes('float4'),
+						'shared-visible hover'
+					)
+				);
+				assert.ok(hoverText.includes('SharedVisibleHelper'));
+				const hoverDebug = await waitFor(
+					() => getInteractiveRuntimeDebug(root.uri.toString()),
+					(value) => value.lastQueryKind === 'hover',
+					'shared-visible hover debug'
+				);
+				assert.strictEqual(hoverDebug.lastResolvedLayer, 'shared-visible');
+
+				const sigPos = positionOf(root, 'SharedVisibleHelper(', 1, 'SharedVisibleHelper('.length);
+				const sig = await waitFor(
+					() =>
+						vscode.commands.executeCommand<vscode.SignatureHelp>(
+							'vscode.executeSignatureHelpProvider',
+							root.uri,
+							sigPos
+						),
+					(value) => Boolean(value) && (value?.signatures.length ?? 0) > 0,
+					'shared-visible signature help'
+				);
+				assert.ok(sig.signatures.some((item) => item.label.includes('SharedVisibleHelper')));
+				const sigDebug = await waitFor(
+					() => getInteractiveRuntimeDebug(root.uri.toString()),
+					(value) => value.lastQueryKind === 'signature-help',
+					'shared-visible signature-help debug'
+				);
+				assert.strictEqual(sigDebug.lastResolvedLayer, 'shared-visible');
 			});
 		});
 
