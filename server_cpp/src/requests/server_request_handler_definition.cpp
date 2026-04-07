@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 
 bool request_definition_handlers::handleDefinitionRequest(
