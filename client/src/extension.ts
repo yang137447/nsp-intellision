@@ -29,6 +29,7 @@ import {
 import { computeSingleFileIncludePaths } from './single_file_config';
 import {
 	createClearActiveUnitHandler,
+	type InteractiveRuntimeDebugResponse,
 	createRuntimeDebugHandler,
 	createSetActiveUnitHandler,
 	createSpamRequestHandlers,
@@ -510,7 +511,10 @@ export function activate(context: ExtensionContext) {
 			if (!client) {
 				throw new Error('Language client is not ready yet');
 			}
-			return client.sendRequest<any>('nsf/_getInteractiveRuntimeDebug', payload ?? {});
+			return client.sendRequest<InteractiveRuntimeDebugResponse>(
+				'nsf/_getInteractiveRuntimeDebug',
+				payload ?? {}
+			);
 		}
 	});
 

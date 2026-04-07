@@ -140,6 +140,13 @@ export type DocumentRuntimeDebugEntry = {
 	changedRangesCount?: number;
 };
 
+export type InteractiveRuntimeDebugResponse = {
+	uri?: string;
+	lastQueryKind?: string;
+	lastResolvedLayer?: string;
+	lastSymbol?: string;
+};
+
 export async function getDocumentRuntimeDebug(
 	uris: string[]
 ): Promise<DocumentRuntimeDebugEntry[]> {
@@ -358,10 +365,16 @@ export async function waitForHoverText(
 	);
 }
 
-export async function getInteractiveRuntimeDebug(uri: string): Promise<any> {
+export async function getInteractiveRuntimeDebug(
+	uri: string
+): Promise<InteractiveRuntimeDebugResponse> {
 	const expectedUri = uri.toLowerCase();
 	return waitFor(
-		() => vscode.commands.executeCommand<any>('nsf._getInteractiveRuntimeDebug', { uri }),
+		() =>
+			vscode.commands.executeCommand<InteractiveRuntimeDebugResponse>(
+				'nsf._getInteractiveRuntimeDebug',
+				{ uri }
+			),
 		(value) => typeof value?.uri === 'string' && value.uri.toLowerCase() === expectedUri,
 		'interactive runtime debug'
 	);
