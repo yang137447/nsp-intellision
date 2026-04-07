@@ -35,6 +35,8 @@ void interactiveVisibilityRuntimePrewarm(const DocumentRuntime &runtime);
 bool interactiveVisibilityRuntimeCollectFunctions(
     const InteractiveVisibilityKey &key,
     std::vector<IndexedDefinition> &functionsOut);
+bool interactiveVisibilityRuntimeCollectTypes(
+    const InteractiveVisibilityKey &key, std::vector<IndexedDefinition> &typesOut);
 void interactiveVisibilityRuntimeInvalidateKey(
     const InteractiveVisibilityKey &key);
 void interactiveVisibilityRuntimeInvalidateAll();

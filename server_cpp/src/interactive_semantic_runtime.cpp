@@ -1470,15 +1470,6 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       });
       return result;
     }
-    if (lookupSharedVisibleSymbolType(runtime.interactiveVisibilityKey, base,
-                                      publishedType) &&
-        !publishedType.empty()) {
-      result.typeName = publishedType;
-      result.resolutionPath = "shared_visible_shard";
-      result.resolved = true;
-      recordInteractiveRuntimeDebug(uri, "member-base", "shared-visible", base);
-      return result;
-    }
     bool deferredIsParam = false;
     if (deferred && deferred->semanticSnapshot &&
         lookupTypeAtOffsetInSnapshot(*deferred->semanticSnapshot, doc.text,
@@ -1491,6 +1482,15 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeDeferredDocHits++;
       });
+      return result;
+    }
+    if (lookupSharedVisibleSymbolType(runtime.interactiveVisibilityKey, base,
+                                      publishedType) &&
+        !publishedType.empty()) {
+      result.typeName = publishedType;
+      result.resolutionPath = "shared_visible_shard";
+      result.resolved = true;
+      recordInteractiveRuntimeDebug(uri, "member-base", "shared-visible", base);
       return result;
     }
   }

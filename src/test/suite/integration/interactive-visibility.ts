@@ -137,6 +137,12 @@ export function registerInteractiveVisibilityTests(): void {
 					'shared-visible member completion'
 				);
 				assert.ok(getCompletionItems(memberItems).some((item) => item.label.toString() === 'SharedVisibleField'));
+				const memberDebug = await waitFor(
+					() => getInteractiveRuntimeDebug(root.uri.toString()),
+					(value) => value.lastQueryKind === 'completion',
+					'shared-visible member completion debug'
+				);
+				assert.strictEqual(memberDebug.lastResolvedLayer, 'shared-visible');
 
 				const hoverPos = positionOf(root, 'SharedVisibleHelper', 1, 2);
 				const hoverText = hoverToText(

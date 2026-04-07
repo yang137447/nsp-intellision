@@ -76,6 +76,20 @@ bool interactiveVisibilityRuntimeCollectFunctions(
   return !functionsOut.empty();
 }
 
+bool interactiveVisibilityRuntimeCollectTypes(
+    const InteractiveVisibilityKey &key,
+    std::vector<IndexedDefinition> &typesOut) {
+  typesOut.clear();
+  if (key.fullFingerprint.empty())
+    return false;
+  std::lock_guard<std::mutex> lock(gInteractiveVisibilityMutex);
+  auto it = gInteractiveVisibilityShards.find(key.fullFingerprint);
+  if (it == gInteractiveVisibilityShards.end())
+    return false;
+  typesOut = it->second.types;
+  return !typesOut.empty();
+}
+
 void interactiveVisibilityRuntimeInvalidateKey(
     const InteractiveVisibilityKey &key) {
   if (key.fullFingerprint.empty())
