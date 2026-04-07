@@ -37,6 +37,13 @@ export type RuntimeDebugResponse = {
 	documents: unknown[];
 };
 
+export type InteractiveRuntimeDebugResponse = {
+	uri?: string;
+	lastQueryKind?: string;
+	lastResolvedLayer?: string;
+	lastSymbol?: string;
+};
+
 export type InternalCommandDeps = {
 	getInternalStatus: () => InternalStatusSnapshot;
 	resetInternalStatus: () => void;
@@ -61,7 +68,9 @@ export type InternalCommandDeps = {
 	getLatestMetrics: () => LatestMetricsSnapshot;
 	getMetricsHistory: (sinceRevision?: number) => MetricsHistoryEntry[];
 	getDocumentRuntimeDebug: (payload?: { uris?: string[] }) => Promise<RuntimeDebugResponse>;
-	sendServerRequest: (method: string, params?: unknown) => Promise<any>;
+	getInteractiveRuntimeDebug: (payload: {
+		uri?: string;
+	}) => Promise<InteractiveRuntimeDebugResponse>;
 };
 
 export function registerInternalCommands(
@@ -131,7 +140,7 @@ export function registerInternalCommands(
 	);
 	context.subscriptions.push(
 		commands.registerCommand('nsf._getInteractiveRuntimeDebug', async (args?: { uri?: string }) =>
-			deps.sendServerRequest('nsf/_getInteractiveRuntimeDebug', args ?? {})
+			deps.getInteractiveRuntimeDebug(args ?? {})
 		)
 	);
 }

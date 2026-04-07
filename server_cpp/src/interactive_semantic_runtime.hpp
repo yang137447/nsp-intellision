@@ -69,6 +69,7 @@ struct InteractiveRuntimeDebugSnapshot {
   std::string uri;
   std::string lastQueryKind;
   std::string lastResolvedLayer;
+  // For completion queries this stores the query/prefix text.
   std::string lastSymbol;
 };
 

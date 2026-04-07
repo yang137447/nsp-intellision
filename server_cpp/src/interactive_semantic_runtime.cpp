@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -35,6 +36,15 @@ uint64_t currentTimeMs() {
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now().time_since_epoch())
           .count());
+}
+
+std::string normalizeInteractiveRuntimeDebugUriKey(const std::string &uri) {
+  std::string normalized = uri;
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                 [](unsigned char ch) {
+                   return static_cast<char>(std::tolower(ch));
+                 });
+  return normalized;
 }
 
 int lineIndexForOffset(const std::string &text, size_t offset) {
@@ -161,8 +171,10 @@ struct InteractiveRuntimeMetricState {
 std::mutex gInteractiveMetricsMutex;
 InteractiveRuntimeMetricState gInteractiveMetrics;
 std::mutex gInteractiveRuntimeDebugMutex;
+constexpr size_t kInteractiveRuntimeDebugMaxEntries = 256;
 std::unordered_map<std::string, InteractiveRuntimeDebugSnapshot>
     gInteractiveRuntimeDebugByUri;
+std::deque<std::string> gInteractiveRuntimeDebugInsertionOrder;
 
 void recordDurationSample(uint64_t &samples, double &totalMs, double &maxMs,
                           double sampleMs) {
@@ -1641,14 +1653,27 @@ void recordInteractiveRuntimeDebug(const std::string &uri,
                                    const std::string &layer,
                                    const std::string &symbol) {
   std::lock_guard<std::mutex> lock(gInteractiveRuntimeDebugMutex);
-  gInteractiveRuntimeDebugByUri[uri] =
+  const std::string key = normalizeInteractiveRuntimeDebugUriKey(uri);
+  if (gInteractiveRuntimeDebugByUri.find(key) ==
+      gInteractiveRuntimeDebugByUri.end()) {
+    gInteractiveRuntimeDebugInsertionOrder.push_back(key);
+    while (gInteractiveRuntimeDebugInsertionOrder.size() >
+           kInteractiveRuntimeDebugMaxEntries) {
+      const std::string evictKey =
+          gInteractiveRuntimeDebugInsertionOrder.front();
+      gInteractiveRuntimeDebugInsertionOrder.pop_front();
+      gInteractiveRuntimeDebugByUri.erase(evictKey);
+    }
+  }
+  gInteractiveRuntimeDebugByUri[key] =
       InteractiveRuntimeDebugSnapshot{uri, queryKind, layer, symbol};
 }
 
 InteractiveRuntimeDebugSnapshot
 getInteractiveRuntimeDebugSnapshot(const std::string &uri) {
   std::lock_guard<std::mutex> lock(gInteractiveRuntimeDebugMutex);
-  auto it = gInteractiveRuntimeDebugByUri.find(uri);
+  const std::string key = normalizeInteractiveRuntimeDebugUriKey(uri);
+  auto it = gInteractiveRuntimeDebugByUri.find(key);
   if (it == gInteractiveRuntimeDebugByUri.end())
     return InteractiveRuntimeDebugSnapshot{};
   return it->second;

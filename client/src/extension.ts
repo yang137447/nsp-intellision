@@ -505,12 +505,12 @@ export function activate(context: ExtensionContext) {
 		getLatestMetrics: () => metricsTracker.getLatestSnapshot(),
 		getMetricsHistory: (sinceRevision) => metricsTracker.getHistory(sinceRevision),
 		getDocumentRuntimeDebug: runtimeDebugHandler,
-		sendServerRequest: async (method, params) => {
+		getInteractiveRuntimeDebug: async (payload) => {
 			await ensureClientStarted(false);
 			if (!client) {
 				throw new Error('Language client is not ready yet');
 			}
-			return client.sendRequest<any>(method, params ?? {});
+			return client.sendRequest<any>('nsf/_getInteractiveRuntimeDebug', payload ?? {});
 		}
 	});
 
