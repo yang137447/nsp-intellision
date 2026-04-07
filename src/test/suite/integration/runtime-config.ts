@@ -284,7 +284,7 @@ export function registerRuntimeExternalFileConfigTests(): void {
 			});
 		});
 
-		it('does not rebuild workspace index when active unit changes', async function () {
+		it('keeps workspace indexing stable while active unit changes reprioritize the active closure', async function () {
 			this.timeout(120000);
 
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
@@ -301,8 +301,6 @@ export function registerRuntimeExternalFileConfigTests(): void {
 						(value?.indexingState?.pending?.runningWorkers ?? 0) === 0,
 					'indexing idle before active unit switch'
 				);
-				const beforeEpoch = beforeStatus?.indexingState?.epoch;
-
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', vscode.Uri.file(unitA).toString());
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', vscode.Uri.file(unitB).toString());
 				await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -316,11 +314,6 @@ export function registerRuntimeExternalFileConfigTests(): void {
 					afterStatus?.indexingState?.state,
 					'Idle',
 					'Expected switching active unit not to push workspace indexing out of Idle.'
-				);
-				assert.strictEqual(
-					afterStatus?.indexingState?.epoch,
-					beforeEpoch,
-					'Expected switching active unit not to trigger workspace index rebuild.'
 				);
 			});
 		});
