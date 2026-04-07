@@ -5,6 +5,7 @@
 #include "document_runtime.hpp"
 #include "hlsl_builtin_docs.hpp"
 #include "hover_markdown.hpp"
+#include "interactive_visibility_runtime.hpp"
 #include "main_occurrence_helpers.hpp"
 #include "nsf_lexer.hpp"
 #include "preprocessor_view.hpp"
@@ -1004,6 +1005,31 @@ void interactiveCollectCompletionItems(
     if (!recordedResolvedLayer) {
       recordInteractiveRuntimeDebug(uri, "completion", "deferred", prefix);
       recordedResolvedLayer = true;
+    }
+  }
+
+  if (!prefix.empty() && hasRuntime) {
+    std::vector<IndexedDefinition> visibleFunctions;
+    if (interactiveVisibilityRuntimeCollectFunctions(runtime.interactiveVisibilityKey,
+                                                     visibleFunctions)) {
+      bool addedSharedVisible = false;
+      for (const auto &def : visibleFunctions) {
+        const size_t before = outItems.size();
+        appendInteractiveCompletionCandidate(
+            outItems, seen, def.name, completionKindForWorkspaceDefinition(def),
+            def.type, prefix);
+        addedSharedVisible = addedSharedVisible || outItems.size() > before;
+      }
+      if (addedSharedVisible) {
+        recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+          state.mergeWorkspaceSummaryHits++;
+        });
+        if (!recordedResolvedLayer) {
+          recordInteractiveRuntimeDebug(uri, "completion", "shared-visible",
+                                        prefix);
+          recordedResolvedLayer = true;
+        }
+      }
     }
   }
 

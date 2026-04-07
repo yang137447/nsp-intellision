@@ -49,6 +49,9 @@ void documentOwnerDidOpen(const Document &document,
   std::lock_guard<std::mutex> ownerLock(owner->mutex);
   documentRuntimeUpsert(document, {}, options);
   interactiveSemanticRuntimePrewarm(document.uri, document, ctx);
+  DocumentRuntime runtime;
+  if (documentRuntimeGet(document.uri, runtime))
+    interactiveVisibilityRuntimePrewarm(runtime);
 }
 
 void documentOwnerDidChange(const Document &document,
@@ -70,6 +73,8 @@ void documentOwnerDidChange(const Document &document,
   }
   if (shouldPrewarm)
     interactiveSemanticRuntimePrewarm(document.uri, document, ctx);
+  if (documentRuntimeGet(document.uri, runtime))
+    interactiveVisibilityRuntimePrewarm(runtime);
   recordInteractiveOwnerDidChange(
       std::chrono::duration<double, std::milli>(
           std::chrono::steady_clock::now() - startedAt)
@@ -98,6 +103,9 @@ void documentOwnerRefreshAnalysisContext(
     auto owner = getOrCreateOwnerState(entry.first);
     std::lock_guard<std::mutex> ownerLock(owner->mutex);
     interactiveSemanticRuntimePrewarm(entry.first, entry.second, ctx);
+    DocumentRuntime runtime;
+    if (documentRuntimeGet(entry.first, runtime))
+      interactiveVisibilityRuntimePrewarm(runtime);
   }
 }
 
@@ -114,6 +122,9 @@ void documentOwnerRefreshAnalysisContextForUris(
     auto owner = getOrCreateOwnerState(uri);
     std::lock_guard<std::mutex> ownerLock(owner->mutex);
     interactiveSemanticRuntimePrewarm(uri, it->second, ctx);
+    DocumentRuntime runtime;
+    if (documentRuntimeGet(uri, runtime))
+      interactiveVisibilityRuntimePrewarm(runtime);
   }
 }
 

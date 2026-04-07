@@ -22,6 +22,10 @@
 // Task-2 scope:
 // - define shard shape and lookup/invalidation APIs
 // - provide a no-op-safe runtime skeleton without prewarm/build behavior
+//
+// Task-3 scope:
+// - prewarm/build the shared-visible shard from the active-unit include closure
+// - expose typed collectors used by interactive completion fallback
 
 struct InteractiveVisibleSymbolShard {
   InteractiveVisibilityKey key;
@@ -32,4 +36,8 @@ struct InteractiveVisibleSymbolShard {
 
 bool interactiveVisibilityRuntimeGet(const InteractiveVisibilityKey &key,
                                      InteractiveVisibleSymbolShard &out);
+void interactiveVisibilityRuntimePrewarm(const DocumentRuntime &runtime);
+bool interactiveVisibilityRuntimeCollectFunctions(
+    const InteractiveVisibilityKey &key,
+    std::vector<IndexedDefinition> &functionsOut);
 void interactiveVisibilityRuntimeInvalidateAll();

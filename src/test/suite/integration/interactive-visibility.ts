@@ -1,13 +1,16 @@
 import * as assert from 'assert';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 import {
 	getCompletionItems,
 	getDocumentRuntimeDebug,
+	getWorkspaceRoot,
 	getInteractiveRuntimeDebug,
 	openFixture,
 	positionOf,
 	repoDescribe,
+	withTemporaryIntellisionPath,
 	waitForClientReady,
 	waitFor
 } from '../test_helpers';
@@ -48,6 +51,31 @@ export function registerInteractiveVisibilityTests(): void {
 			const debug = await getInteractiveRuntimeDebug(document.uri.toString());
 			assert.strictEqual(debug.lastQueryKind, 'completion');
 			assert.strictEqual(debug.lastResolvedLayer, 'current');
+		});
+
+		it('prewarms current-context-visible cross-file function symbols from the active unit include closure', async function () {
+			this.timeout(120000);
+
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+				const root = await openFixture('visibility_root.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+
+				const position = positionOf(root, 'VisibleInc', 1, 'VisibleInc'.length);
+				const items = await waitFor(
+					() =>
+						vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
+							'vscode.executeCompletionItemProvider',
+							root.uri,
+							position
+						),
+					(value) => getCompletionItems(value).some((item) => item.label.toString() === 'VisibleIncludeHelper'),
+					'cross-file visible completion'
+				);
+
+				assert.ok(getCompletionItems(items).some((item) => item.label.toString() === 'VisibleIncludeHelper'));
+				const debug = await getInteractiveRuntimeDebug(root.uri.toString());
+				assert.strictEqual(debug.lastResolvedLayer, 'shared-visible');
+			});
 		});
 	});
 }
