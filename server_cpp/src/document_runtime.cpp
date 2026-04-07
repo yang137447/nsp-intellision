@@ -380,6 +380,21 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
   return snapshot;
 }
 
+InteractiveVisibilityKey buildInteractiveVisibilityKey(
+    const ActiveUnitSnapshot &activeUnitSnapshot) {
+  InteractiveVisibilityKey key;
+  key.activeUnitPath = activeUnitSnapshot.path;
+  key.includeClosureFingerprint = activeUnitSnapshot.includeClosureFingerprint;
+  key.activeBranchFingerprint = activeUnitSnapshot.activeBranchFingerprint;
+  key.definesFingerprint = activeUnitSnapshot.definesFingerprint;
+  key.workspaceSummaryVersion = activeUnitSnapshot.workspaceSummaryVersion;
+  key.fullFingerprint = key.activeUnitPath + "|" + key.includeClosureFingerprint +
+                        "|" + key.activeBranchFingerprint + "|" +
+                        key.definesFingerprint + "|" +
+                        std::to_string(key.workspaceSummaryVersion);
+  return key;
+}
+
 uint64_t currentTimeMs() {
   return static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -611,6 +626,8 @@ void documentRuntimeUpsert(const Document &document,
     updated.activeUnitSnapshot = buildActiveUnitSnapshot(
         options, activeUnitUri, activeUnitPath, contextFingerprints);
   }
+  updated.interactiveVisibilityKey =
+      buildInteractiveVisibilityKey(updated.activeUnitSnapshot);
   updated.analysisSnapshotKey =
       buildAnalysisSnapshotKey(document.uri, document.version, document.epoch,
                                updated.activeUnitSnapshot,
@@ -707,6 +724,7 @@ void refreshRuntimeAnalysisKey(DocumentRuntime &runtime,
     runtime.immediateSyntaxSnapshot = ImmediateSyntaxSnapshot{};
   }
   runtime.analysisSnapshotKey = nextKey;
+  runtime.interactiveVisibilityKey = buildInteractiveVisibilityKey(nextActive);
   runtime.activeUnitSnapshot = nextActive;
 }
 

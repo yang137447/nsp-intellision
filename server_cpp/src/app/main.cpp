@@ -1901,6 +1901,8 @@ int main(int argc, char **argv) {
             makeString(runtime.activeUnitSnapshot.includeClosureFingerprint);
         item.o["activeUnitBranchFingerprint"] =
             makeString(runtime.activeUnitSnapshot.activeBranchFingerprint);
+        item.o["interactiveVisibilityFingerprint"] =
+            makeString(runtime.interactiveVisibilityKey.fullFingerprint);
         item.o["activeUnitWorkspaceSummaryVersion"] = makeNumber(
             static_cast<double>(runtime.activeUnitSnapshot.workspaceSummaryVersion));
         item.o["hasInteractiveSnapshot"] =

@@ -36,6 +36,7 @@ add_executable(nsf_lsp
   src/requests/server_request_handler_signature.cpp
   src/call_query.cpp
   src/immediate_syntax_diagnostics.cpp
+  src/interactive_visibility_runtime.cpp
   src/interactive_semantic_runtime.cpp
   src/symbol_query.cpp
   src/hover_rendering.cpp

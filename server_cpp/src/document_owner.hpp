@@ -46,13 +46,15 @@ void documentOwnerDidClose(const std::string &uri);
 //
 // Stable-context reuse remains the responsibility of document_runtime.* and the
 // interactive/deferred runtimes; callers should use this entry point instead of
-// mutating document_runtime.* directly.
+// mutating document_runtime.* directly. Shared interactive-visibility shards are
+// invalidated from this boundary.
 void documentOwnerRefreshAnalysisContext(
     const DocumentRuntimeUpdateOptions &options,
     const ServerRequestContext &ctx);
 
 // Same as documentOwnerRefreshAnalysisContext, but scoped to the affected open
-// uris (for example reverse-include or file-watch refreshes).
+// uris (for example reverse-include or file-watch refreshes). Shared
+// interactive-visibility shards are invalidated before refresh.
 void documentOwnerRefreshAnalysisContextForUris(
     const std::vector<std::string> &uris,
     const DocumentRuntimeUpdateOptions &options,

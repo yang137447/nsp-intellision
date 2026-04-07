@@ -1,4 +1,5 @@
 #include "document_owner.hpp"
+#include "interactive_visibility_runtime.hpp"
 #include "interactive_semantic_runtime.hpp"
 #include "main_did_change_classification.hpp"
 #include "server_request_handlers.hpp"
@@ -85,11 +86,13 @@ void documentOwnerDidClose(const std::string &uri) {
   }
   std::lock_guard<std::mutex> lock(gDocumentOwnerMapMutex);
   gDocumentOwners.erase(uri);
+  interactiveVisibilityRuntimeInvalidateAll();
 }
 
 void documentOwnerRefreshAnalysisContext(
     const DocumentRuntimeUpdateOptions &options,
     const ServerRequestContext &ctx) {
+  interactiveVisibilityRuntimeInvalidateAll();
   documentRuntimeRefreshAnalysisKeys(options);
   for (const auto &entry : ctx.documents) {
     auto owner = getOrCreateOwnerState(entry.first);
@@ -102,6 +105,7 @@ void documentOwnerRefreshAnalysisContextForUris(
     const std::vector<std::string> &uris,
     const DocumentRuntimeUpdateOptions &options,
     const ServerRequestContext &ctx) {
+  interactiveVisibilityRuntimeInvalidateAll();
   documentRuntimeRefreshAnalysisKeysForUris(uris, options);
   for (const auto &uri : uris) {
     auto it = ctx.documents.find(uri);
