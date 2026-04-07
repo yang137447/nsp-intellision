@@ -781,6 +781,19 @@ int completionKindForWorkspaceDefinition(const IndexedDefinition &def) {
   return 6;
 }
 
+bool appendCompletionItemsFromVisibleShard(
+    const std::vector<IndexedDefinition> &defs, const std::string &prefix,
+    std::vector<InteractiveCompletionItem> &outItems,
+    std::unordered_set<std::string> &seen) {
+  const size_t beforeCount = outItems.size();
+  for (const auto &def : defs) {
+    appendInteractiveCompletionCandidate(
+        outItems, seen, def.name, completionKindForWorkspaceDefinition(def),
+        def.type, prefix);
+  }
+  return outItems.size() > beforeCount;
+}
+
 std::shared_ptr<const InteractiveSnapshot>
 buildCurrentInteractiveSnapshot(const std::string &uri, const Document &doc,
                                 const ServerRequestContext &ctx,
@@ -996,6 +1009,23 @@ void interactiveCollectCompletionItems(
       recordedResolvedLayer = true;
     }
   }
+
+  if (!prefix.empty() && hasRuntime) {
+    std::vector<IndexedDefinition> visibleFunctions;
+    if (interactiveVisibilityRuntimeCollectFunctions(runtime.interactiveVisibilityKey,
+                                                     visibleFunctions)) {
+      const bool addedSharedVisible = appendCompletionItemsFromVisibleShard(
+          visibleFunctions, prefix, outItems, seen);
+      if (addedSharedVisible) {
+        if (!recordedResolvedLayer) {
+          recordInteractiveRuntimeDebug(uri, "completion", "shared-visible",
+                                        prefix);
+          recordedResolvedLayer = true;
+        }
+      }
+    }
+  }
+
   if (deferred && deferred->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*deferred->semanticSnapshot, doc.text,
                                         cursorOffset, prefix, outItems, seen)) {
@@ -1005,28 +1035,6 @@ void interactiveCollectCompletionItems(
     if (!recordedResolvedLayer) {
       recordInteractiveRuntimeDebug(uri, "completion", "deferred", prefix);
       recordedResolvedLayer = true;
-    }
-  }
-
-  if (!prefix.empty() && hasRuntime) {
-    std::vector<IndexedDefinition> visibleFunctions;
-    if (interactiveVisibilityRuntimeCollectFunctions(runtime.interactiveVisibilityKey,
-                                                     visibleFunctions)) {
-      bool addedSharedVisible = false;
-      for (const auto &def : visibleFunctions) {
-        const size_t before = outItems.size();
-        appendInteractiveCompletionCandidate(
-            outItems, seen, def.name, completionKindForWorkspaceDefinition(def),
-            def.type, prefix);
-        addedSharedVisible = addedSharedVisible || outItems.size() > before;
-      }
-      if (addedSharedVisible) {
-        if (!recordedResolvedLayer) {
-          recordInteractiveRuntimeDebug(uri, "completion", "shared-visible",
-                                        prefix);
-          recordedResolvedLayer = true;
-        }
-      }
     }
   }
 

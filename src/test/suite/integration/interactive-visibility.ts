@@ -80,6 +80,42 @@ export function registerInteractiveVisibilityTests(): void {
 			});
 		});
 
+		it('orders completion results as current, last-good, shared-visible, then workspace fallback', async function () {
+			this.timeout(120000);
+
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+				const root = await openFixture('visibility_root.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+				const edit = new vscode.WorkspaceEdit();
+				edit.insert(
+					root.uri,
+					positionOf(root, 'return VisibleInc', 1, 0),
+					'    float4 visibilityLocalColor = float4(1.0, 0.0, 0.0, 1.0);\n'
+				);
+				await vscode.workspace.applyEdit(edit);
+
+				const position = positionOf(root, 'return Vis', 1, 'return Vis'.length);
+				const result = await waitFor(
+					() =>
+						vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
+							'vscode.executeCompletionItemProvider',
+							root.uri,
+							position
+						),
+					(value) => {
+						const labels = getCompletionItems(value).map((item) => item.label.toString());
+						return labels.includes('VisibleIncludeHelper') && labels.includes('visibilityLocalColor');
+					},
+					'ordered current/shared-visible completion'
+				);
+
+				const labels = getCompletionItems(result).map((item) => item.label.toString());
+				assert.ok(labels.indexOf('visibilityLocalColor') >= 0);
+				assert.ok(labels.indexOf('VisibleIncludeHelper') >= 0);
+				assert.ok(labels.indexOf('VisibleIncludeHelper') > labels.indexOf('visibilityLocalColor'));
+			});
+		});
+
 		it('keeps the shared-visible shard after closing an unrelated document', async function () {
 			this.timeout(120000);
 

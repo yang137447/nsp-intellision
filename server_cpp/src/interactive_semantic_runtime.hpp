@@ -21,7 +21,7 @@ struct ServerRequestContext;
 //
 // Current query order contract:
 // current interactive snapshot -> last-good interactive snapshot ->
-// deferred document snapshot -> workspace summary
+// shared-visible shard -> deferred document snapshot -> workspace summary
 //
 // Non-goals:
 // - does not own cross-file workspace search plans
