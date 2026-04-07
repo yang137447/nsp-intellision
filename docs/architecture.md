@@ -257,8 +257,8 @@
 - interactive 请求当前优先级高于 background 请求：
   - interactive: completion、hover、signature help、definition
   - background: semantic tokens、inlay hints、references、rename、document symbols
-- `.` member base-type、hover 符号类型与 signature help overload 当前都遵循 `current -> last-good -> shared-visible -> deferred -> workspace` 顺序；shared-visible 层由 `interactive_visibility_runtime.*` 提供 active unit include closure 约束下的 cross-file visible symbols
-- definition / hover / signature help 的编辑热路径当前已不再依赖 workspace scan / include graph 直扫兜底，而是优先 current-doc runtime、shared-visible shard、deferred doc snapshot 与 workspace summary
+- `.` member base-type 当前保持 `current -> last-good -> deferred -> shared-visible -> workspace` 顺序（优先消费 typed snapshot，再补 shared-visible）；hover 符号类型与 signature help overload 仍是 `current -> last-good -> shared-visible -> deferred -> workspace`；shared-visible 层由 `interactive_visibility_runtime.*` 提供 active unit include closure 约束下的 cross-file visible symbols
+- definition / hover / signature help 的编辑热路径当前已不再依赖 workspace scan / include graph 直扫兜底，而是优先 current-doc runtime，并按各查询约定顺序消费 shared-visible shard / deferred doc snapshot / workspace summary
 - function / symbol hover 的 `Defined at` 与 overload location 当前由 request/rendering 层统一输出可点击文件链接，并按签名 + 位置去重 overload 列表项
 - request 层当前会先结合 current-doc 定义位置与 workspace `kind=14` 宏定义结果，把普通 `#define` 渲染为 macro hover；只有 macro-generated function 这类展开后产出真实函数声明的模式仍走 function hover
 - function hover 的 overload 列表当前只消费 current-doc / shared semantic snapshot / workspace summary 已产出的函数语义；request 层不再额外补一份 per-definition fallback 签名，缺失项应回到共享语义链路修正
@@ -292,7 +292,9 @@
   - snapshot publish 也应通过 owner API 进入，避免请求线程直接并发写 runtime 状态
 
 - `server_cpp/src/interactive_semantic_runtime.hpp`
-  - current-doc interactive 查询顺序契约：`current -> last-good -> shared-visible -> deferred -> workspace summary`
+  - current-doc interactive 查询顺序契约：
+    - hover / signature / completion：`current -> last-good -> shared-visible -> deferred -> workspace summary`
+    - `.` member base-type：`current -> last-good -> deferred -> shared-visible -> workspace summary`
   - `last-good` 只允许在 stable context 指纹不变时复用
   - `workspace summary` 只能补 miss，不应覆盖已命中的 current-doc 主结果
 

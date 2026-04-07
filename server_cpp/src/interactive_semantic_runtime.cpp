@@ -501,33 +501,55 @@ bool lookupSharedVisibleSymbolType(const InteractiveVisibilityKey &key,
 
 bool resolveFunctionSignatureFromSharedVisible(
     const InteractiveVisibilityKey &key, const std::string &name,
-    const ServerRequestContext &ctx, std::string &labelOut,
-    std::vector<std::string> &parametersOut) {
+    int lineIndexHint, int nameCharacterHint, const ServerRequestContext &ctx,
+    std::string &labelOut, std::vector<std::string> &parametersOut) {
   InteractiveVisibleSymbolShard shard;
   if (!interactiveVisibilityRuntimeGet(key, shard) || shard.functions.empty())
     return false;
 
+  std::vector<const IndexedDefinition *> matches;
+  std::vector<const IndexedDefinition *> locationMatches;
   for (const auto &def : shard.functions) {
-    if (def.kind != 12 || def.name != name)
+    if (def.kind != 12 || def.name != name) {
       continue;
-    std::string candidateText;
-    if (!def.uri.empty() && ctx.readDocumentText(def.uri, candidateText)) {
-      uint64_t candidateEpoch = 0;
-      if (const Document *candidateDoc = ctx.findDocument(def.uri))
-        candidateEpoch = candidateDoc->epoch;
-      if (querySemanticSnapshotFunctionSignature(
-              def.uri, candidateText, candidateEpoch, ctx.workspaceFolders,
-              ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
-              name, def.line, def.start, labelOut, parametersOut) &&
-          !labelOut.empty()) {
-        return true;
-      }
     }
-    labelOut = formatIndexedFunctionFallbackLabel(def);
-    parametersOut.clear();
-    return true;
+    matches.push_back(&def);
+    if (lineIndexHint >= 0 && def.line == lineIndexHint &&
+        (nameCharacterHint < 0 || def.start == nameCharacterHint)) {
+      locationMatches.push_back(&def);
+    }
   }
-  return false;
+  if (matches.empty()) {
+    return false;
+  }
+
+  const IndexedDefinition *selected = nullptr;
+  if (matches.size() == 1) {
+    selected = matches.front();
+  } else if (locationMatches.size() == 1) {
+    selected = locationMatches.front();
+  } else {
+    // Conservative by design: avoid silently picking one shared-visible
+    // candidate when the location hints cannot disambiguate.
+    return false;
+  }
+
+  std::string candidateText;
+  if (!selected->uri.empty() && ctx.readDocumentText(selected->uri, candidateText)) {
+    uint64_t candidateEpoch = 0;
+    if (const Document *candidateDoc = ctx.findDocument(selected->uri))
+      candidateEpoch = candidateDoc->epoch;
+    if (querySemanticSnapshotFunctionSignature(
+            selected->uri, candidateText, candidateEpoch, ctx.workspaceFolders,
+            ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines, name,
+            selected->line, selected->start, labelOut, parametersOut) &&
+        !labelOut.empty()) {
+      return true;
+    }
+  }
+  labelOut = formatIndexedFunctionFallbackLabel(*selected);
+  parametersOut.clear();
+  return true;
 }
 
 bool appendOverloadsFromSharedVisible(
@@ -598,12 +620,14 @@ bool lookupStructFieldInfosFromSharedVisible(
     std::vector<MemberCompletionField> &fieldsOut) {
   if (ownerType.empty())
     return false;
-  InteractiveVisibleSymbolShard shard;
-  if (!interactiveVisibilityRuntimeGet(key, shard) || shard.types.empty())
+  std::vector<IndexedDefinition> visibleTypes;
+  if (!interactiveVisibilityRuntimeCollectTypes(key, visibleTypes) ||
+      visibleTypes.empty()) {
     return false;
+  }
 
   bool typeVisible = false;
-  for (const auto &typeDef : shard.types) {
+  for (const auto &typeDef : visibleTypes) {
     if (typeDef.name == ownerType) {
       typeVisible = true;
       break;
@@ -617,6 +641,8 @@ bool lookupStructFieldInfosFromSharedVisible(
       fieldNames.empty()) {
     return false;
   }
+  // Shared-visible shard decides visibility scope; field payload still comes
+  // from workspace summary's struct/member index.
   fieldsOut.clear();
   fieldsOut.reserve(fieldNames.size());
   for (const auto &fieldName : fieldNames) {
@@ -1675,8 +1701,8 @@ bool interactiveResolveFunctionSignature(
     return true;
   }
   if (hasRuntime && resolveFunctionSignatureFromSharedVisible(
-                        runtime.interactiveVisibilityKey, name, ctx, labelOut,
-                        parametersOut)) {
+                        runtime.interactiveVisibilityKey, name, lineIndex,
+                        nameCharacter, ctx, labelOut, parametersOut)) {
     recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", name);
     return true;
   }

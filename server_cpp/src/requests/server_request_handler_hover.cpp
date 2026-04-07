@@ -721,20 +721,45 @@ static bool queryFunctionSignatureWithSemanticFallback(
     std::vector<std::string> &parametersOut) {
   const Document *doc = ctx.findDocument(uri);
   std::string interactiveUri = uri;
+  bool injectedActiveUnitDoc = false;
   if (!doc) {
     const std::string activeUnitPath = getActiveUnitPath();
     if (!activeUnitPath.empty()) {
       const std::string activeUnitUri = pathToUri(activeUnitPath);
       if (!activeUnitUri.empty()) {
         const Document *activeDoc = ctx.findDocument(activeUnitUri);
-        if (activeDoc) {
+        bool targetInActiveClosure = sameDocumentIdentity(activeUnitUri, uri);
+        if (!targetInActiveClosure) {
+          std::vector<std::string> includeClosurePaths;
+          workspaceSummaryRuntimeCollectIncludeClosureForUnit(
+              activeUnitPath, includeClosurePaths, 512);
+          for (const auto &candidatePath : includeClosurePaths) {
+            if (sameDocumentIdentity(candidatePath, uri)) {
+              targetInActiveClosure = true;
+              break;
+            }
+          }
+        }
+        if (activeDoc && targetInActiveClosure) {
           doc = activeDoc;
           interactiveUri = activeUnitUri;
+          injectedActiveUnitDoc = !sameDocumentIdentity(interactiveUri, uri);
         }
       }
     }
   }
+  if (doc && injectedActiveUnitDoc && (lineIndex < 0 || nameCharacter < 0)) {
+    // Tight guard: when we borrow the active-unit document for an include
+    // target, we require concrete location hints from the target file.
+    // Otherwise the mixed-document interactive lookup is skipped.
+    doc = nullptr;
+  }
   if (doc &&
+      // When we inject the active-unit document for an include target, the
+      // location hints still belong to the target uri. This remains valid here
+      // because we only allow injected docs whose target is inside that active
+      // include-closure context, and semantic-snapshot fallback below still
+      // resolves directly from the target file text.
       interactiveResolveFunctionSignature(interactiveUri, *doc, name, lineIndex,
                                           nameCharacter, ctx, labelOut,
                                           parametersOut)) {

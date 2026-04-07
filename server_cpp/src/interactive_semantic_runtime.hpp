@@ -20,8 +20,12 @@ struct ServerRequestContext;
 // - merge deferred/workspace information only after current-doc misses
 //
 // Current query order contract:
-// current interactive snapshot -> last-good interactive snapshot ->
-// shared-visible shard -> deferred document snapshot -> workspace summary
+// - hover / signature / completion:
+//   current interactive snapshot -> last-good interactive snapshot ->
+//   shared-visible shard -> deferred document snapshot -> workspace summary
+// - member-access base-type:
+//   current interactive snapshot -> last-good interactive snapshot ->
+//   deferred document snapshot -> shared-visible shard -> workspace summary
 // Completion merge contract:
 // - layers are appended in the priority order above
 // - candidates are deduped by label across layers
