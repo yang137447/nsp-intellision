@@ -137,7 +137,15 @@ export type DocumentRuntimeDebugEntry = {
 	lastGoodAnalysisFullFingerprint?: string;
 	deferredAnalysisFullFingerprint?: string;
 	deferredAnalysisStableFingerprint?: string;
+	deferredHasSemanticSnapshot?: boolean;
+	deferredHasSemanticTokensFull?: boolean;
+	deferredHasDocumentSymbols?: boolean;
+	deferredHasFullDiagnostics?: boolean;
+	deferredHasInlayHintsFull?: boolean;
+	deferredSemanticTokensRangeCacheCount?: number;
+	deferredInlayRangeCacheCount?: number;
 	changedRangesCount?: number;
+	interactiveVisibilityFingerprint?: string;
 };
 
 export async function getDocumentRuntimeDebug(
@@ -355,6 +363,14 @@ export async function waitForHoverText(
 			return isReady(hoverToText(value));
 		},
 		label
+	);
+}
+
+export async function getInteractiveRuntimeDebug(uri: string): Promise<any> {
+	return waitFor(
+		() => vscode.commands.executeCommand<any>('nsf._getInteractiveRuntimeDebug', { uri }),
+		(value) => value?.uri === uri,
+		'interactive runtime debug'
 	);
 }
 

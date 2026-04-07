@@ -160,6 +160,9 @@ struct InteractiveRuntimeMetricState {
 
 std::mutex gInteractiveMetricsMutex;
 InteractiveRuntimeMetricState gInteractiveMetrics;
+std::mutex gInteractiveResolutionDebugMutex;
+std::unordered_map<std::string, InteractiveResolutionDebugSnapshot>
+    gInteractiveResolutionDebugByUri;
 
 void recordDurationSample(uint64_t &samples, double &totalMs, double &maxMs,
                           double sampleMs) {
@@ -959,24 +962,27 @@ void interactiveCollectCompletionItems(
   std::unordered_set<std::string> seen;
   if (current && current->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*current->semanticSnapshot, doc.text,
-                                        cursorOffset, prefix, outItems, seen)) {
+                                       cursorOffset, prefix, outItems, seen)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
+    recordInteractiveResolutionDebug(uri, "completion", "current", prefix);
   }
   if (lastGood && lastGood->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*lastGood->semanticSnapshot, doc.text,
-                                        cursorOffset, prefix, outItems, seen)) {
+                                       cursorOffset, prefix, outItems, seen)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeLastGoodHits++;
     });
+    recordInteractiveResolutionDebug(uri, "completion", "last-good", prefix);
   }
   if (deferred && deferred->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*deferred->semanticSnapshot, doc.text,
-                                        cursorOffset, prefix, outItems, seen)) {
+                                       cursorOffset, prefix, outItems, seen)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeDeferredDocHits++;
     });
+    recordInteractiveResolutionDebug(uri, "completion", "deferred", prefix);
   }
 
   if (!prefix.empty()) {
@@ -1614,4 +1620,22 @@ InteractiveRuntimeMetricsSnapshot takeInteractiveRuntimeMetricsSnapshot() {
   snapshot.prewarmMaxMs = gInteractiveMetrics.prewarmMaxMs;
   gInteractiveMetrics = InteractiveRuntimeMetricState{};
   return snapshot;
+}
+
+void recordInteractiveResolutionDebug(const std::string &uri,
+                                      const std::string &queryKind,
+                                      const std::string &layer,
+                                      const std::string &symbol) {
+  std::lock_guard<std::mutex> lock(gInteractiveResolutionDebugMutex);
+  gInteractiveResolutionDebugByUri[uri] =
+      InteractiveResolutionDebugSnapshot{uri, queryKind, layer, symbol};
+}
+
+InteractiveResolutionDebugSnapshot
+getInteractiveResolutionDebugSnapshot(const std::string &uri) {
+  std::lock_guard<std::mutex> lock(gInteractiveResolutionDebugMutex);
+  auto it = gInteractiveResolutionDebugByUri.find(uri);
+  return it == gInteractiveResolutionDebugByUri.end()
+             ? InteractiveResolutionDebugSnapshot{}
+             : it->second;
 }

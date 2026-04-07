@@ -1924,6 +1924,22 @@ int main(int argc, char **argv) {
               makeString(runtime.deferredDocSnapshot->key.fullFingerprint);
           item.o["deferredAnalysisStableFingerprint"] =
               makeString(runtime.deferredDocSnapshot->key.stableContextFingerprint);
+          item.o["deferredHasSemanticSnapshot"] =
+              makeBool(static_cast<bool>(runtime.deferredDocSnapshot->semanticSnapshot));
+          item.o["deferredHasSemanticTokensFull"] =
+              makeBool(runtime.deferredDocSnapshot->hasSemanticTokensFull);
+          item.o["deferredHasDocumentSymbols"] =
+              makeBool(runtime.deferredDocSnapshot->hasDocumentSymbols);
+          item.o["deferredHasFullDiagnostics"] =
+              makeBool(runtime.deferredDocSnapshot->hasFullDiagnostics);
+          item.o["deferredHasInlayHintsFull"] =
+              makeBool(runtime.deferredDocSnapshot->hasInlayHintsFull);
+          item.o["deferredSemanticTokensRangeCacheCount"] = makeNumber(
+              static_cast<double>(
+                  runtime.deferredDocSnapshot->semanticTokensRangeCache.size()));
+          item.o["deferredInlayRangeCacheCount"] = makeNumber(
+              static_cast<double>(
+                  runtime.deferredDocSnapshot->inlayHintsRangeCache.size()));
         }
         item.o["changedRangesCount"] =
             makeNumber(static_cast<double>(runtime.changedRanges.size()));
@@ -2067,6 +2083,24 @@ int main(int argc, char **argv) {
       result.o["methodCount"] =
           makeNumber(static_cast<double>(snapshot.methodCount));
       result.o["path"] = makeString(snapshot.path);
+      if (id.type != Json::Type::Null)
+        writeResponse(id, result);
+      continue;
+    }
+
+    if (method == "nsf/_getInteractiveRuntimeDebug") {
+      Json result = makeObject();
+      if (params) {
+        const Json *uriValue = getObjectValue(*params, "uri");
+        if (uriValue && uriValue->type == Json::Type::String) {
+          const auto snapshot =
+              getInteractiveResolutionDebugSnapshot(uriValue->s);
+          result.o["uri"] = makeString(snapshot.uri);
+          result.o["lastQueryKind"] = makeString(snapshot.lastQueryKind);
+          result.o["lastResolvedLayer"] = makeString(snapshot.lastResolvedLayer);
+          result.o["lastSymbol"] = makeString(snapshot.lastSymbol);
+        }
+      }
       if (id.type != Json::Type::Null)
         writeResponse(id, result);
       continue;
