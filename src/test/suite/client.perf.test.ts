@@ -1533,6 +1533,7 @@ perfDescribe('NSF perf baseline: M1 scheduling isolation', () => {
 		const burstEdits = readPerfIntEnv('NSF_PERF_LATEST_ONLY_EDITS', 24, 6, 120);
 		await waitForIndexingIdle('perf m1 latest-only indexing idle');
 		await waitForClientQuiescent('perf m1 latest-only quiescent');
+		await drainMetricsWindow('perf m1 latest-only pre-drain');
 
 		let document = await openFixture(PERF_FIXTURES.pfx3LargeCurrentDoc.primaryDocument);
 		const burstStartOffset = document.getText().length;

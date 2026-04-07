@@ -586,6 +586,21 @@ std::shared_ptr<const DeferredDocSnapshot> getOrBuildDeferredDocSnapshot(
   return deferred;
 }
 
+std::shared_ptr<const DeferredDocSnapshot> tryGetDeferredDocSnapshot(
+    const std::string &uri, const Document &doc) {
+  DocumentRuntime runtime;
+  if (!documentOwnerGetRuntime(uri, runtime))
+    return nullptr;
+  if (runtime.deferredDocSnapshot &&
+      runtime.deferredDocSnapshot->key.fullFingerprint ==
+          runtime.analysisSnapshotKey.fullFingerprint &&
+      runtime.deferredDocSnapshot->documentEpoch == doc.epoch &&
+      runtime.deferredDocSnapshot->documentVersion == doc.version) {
+    return runtime.deferredDocSnapshot;
+  }
+  return nullptr;
+}
+
 Json buildDeferredSemanticTokensFull(const std::string &uri, const Document &doc,
                                      const ServerRequestContext &ctx) {
   auto deferred = getOrBuildDeferredDocSnapshot(uri, doc, ctx);

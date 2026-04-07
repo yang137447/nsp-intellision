@@ -202,6 +202,26 @@ export function registerDeferredDocDefinesAnalysisContextTests(): void {
 					['USE_ANALYSIS_CONTEXT_ACTIVE=1'],
 					vscode.ConfigurationTarget.Workspace
 				);
+				if (process.env.NSF_LOG_ANALYSIS_CONTEXT_DEBUG === '1') {
+					const runtimeAfterDefine = await getDocumentRuntimeDebug([document.uri.toString()]);
+					let hoverDebugText = '';
+					try {
+						const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+							'vscode.executeHoverProvider',
+							document.uri,
+							hoverPosition
+						);
+						hoverDebugText = hoverToText(hovers ?? []);
+					} catch (error) {
+						hoverDebugText = `hover error: ${(error as Error).message ?? String(error)}`;
+					}
+					console.log(
+						`[analysis-defines] ${JSON.stringify({
+							runtimeAfterDefine: runtimeAfterDefine[0],
+							hoverDebugText
+						})}`
+					);
+				}
 				await waitForHoverText(
 					document,
 					hoverPosition,

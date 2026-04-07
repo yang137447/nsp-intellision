@@ -717,6 +717,23 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Missing semicolon.'));
 	});
 
+	it('does not misreport missing semicolons on technique and pass headers', async () => {
+		const document = await openFixture('module_pass_stencil_states.nsf');
+
+		await waitForDiagnostics(
+			document,
+			(value) => !value.some((diag) => diag.message.includes('Missing semicolon.')),
+			'technique/pass header diagnostics'
+		);
+
+		await waitForClientQuiescent('technique/pass diagnostics settled');
+		const settledDiagnostics = vscode.languages.getDiagnostics(document.uri);
+		assert.ok(
+			!settledDiagnostics.some((diag) => diag.message.includes('Missing semicolon.')),
+			settledDiagnostics.map((diag) => `${diag.range.start.line}:${diag.message}`).join('\n')
+		);
+	});
+
 	it('does not misreport missing semicolons inside multiline constructor expressions', async () => {
 		const document = await openFixture('module_diagnostics_multiline_semicolon_context.nsf');
 

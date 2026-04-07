@@ -1,7 +1,9 @@
 #include "document_owner.hpp"
 #include "interactive_semantic_runtime.hpp"
+#include "main_did_change_classification.hpp"
 #include "server_request_handlers.hpp"
 
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -52,10 +54,25 @@ void documentOwnerDidChange(const Document &document,
                             const std::vector<ChangedRange> &changedRanges,
                             const DocumentRuntimeUpdateOptions &options,
                             const ServerRequestContext &ctx) {
+  const auto startedAt = std::chrono::steady_clock::now();
   auto owner = getOrCreateOwnerState(document.uri);
   std::lock_guard<std::mutex> ownerLock(owner->mutex);
   documentRuntimeUpsert(document, changedRanges, options);
-  interactiveSemanticRuntimePrewarm(document.uri, document, ctx);
+  bool shouldPrewarm = true;
+  DocumentRuntime runtime;
+  if (documentRuntimeGet(document.uri, runtime)) {
+    const bool commentOnlyEdit =
+        isCommentOnlyEditForDidChange(document.text, changedRanges);
+    shouldPrewarm =
+        !((runtime.syntaxOnlyEditHint || commentOnlyEdit) &&
+          runtime.lastGoodInteractiveSnapshot != nullptr);
+  }
+  if (shouldPrewarm)
+    interactiveSemanticRuntimePrewarm(document.uri, document, ctx);
+  recordInteractiveOwnerDidChange(
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - startedAt)
+          .count());
 }
 
 void documentOwnerDidClose(const std::string &uri) {

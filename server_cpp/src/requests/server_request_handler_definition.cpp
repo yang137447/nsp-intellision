@@ -1,5 +1,6 @@
 #include "server_request_handler_definition.hpp"
 
+#include "callsite_parser.hpp"
 #include "include_resolver.hpp"
 #include "interactive_semantic_runtime.hpp"
 #include "lsp_helpers.hpp"
@@ -11,6 +12,7 @@
 #include "uri_utils.hpp"
 #include "workspace_summary_runtime.hpp"
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -18,20 +20,28 @@ bool request_definition_handlers::handleDefinitionRequest(
     const std::string &method, const Json &id, const Json *params,
     ServerRequestContext &ctx, const std::vector<std::string> &,
     const std::vector<std::string> &) {
+  auto writeDefinitionResponse = [&](const Json &response) {
+    const auto responseWriteStartedAt = std::chrono::steady_clock::now();
+    writeResponse(id, response);
+    recordDefinitionResponseWrite(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - responseWriteStartedAt)
+            .count());
+  };
   if (method != "textDocument/definition" || !params)
     return false;
 
   const Json *textDocument = getObjectValue(*params, "textDocument");
   const Json *position = getObjectValue(*params, "position");
   if (!textDocument || !position) {
-    writeResponse(id, makeArray());
+    writeDefinitionResponse(makeArray());
     return true;
   }
   const Json *uriValue = getObjectValue(*textDocument, "uri");
   const Json *lineValue = getObjectValue(*position, "line");
   const Json *charValue = getObjectValue(*position, "character");
   if (!uriValue || !lineValue || !charValue) {
-    writeResponse(id, makeArray());
+    writeDefinitionResponse(makeArray());
     return true;
   }
   std::string uri = getStringValue(*uriValue);
@@ -39,7 +49,7 @@ bool request_definition_handlers::handleDefinitionRequest(
   int character = static_cast<int>(getNumberValue(*charValue));
   const Document *doc = ctx.findDocument(uri);
   if (!doc) {
-    writeResponse(id, makeArray());
+    writeDefinitionResponse(makeArray());
     return true;
   }
   std::string lineText = getLineAt(doc->text, line);
@@ -54,7 +64,7 @@ bool request_definition_handlers::handleDefinitionRequest(
       if (_stat(candidate.c_str(), &statBuffer) == 0) {
         Json locations = makeArray();
         locations.a.push_back(makeLocation(pathToUri(candidate)));
-        writeResponse(id, locations);
+        writeDefinitionResponse(locations);
         includePath.clear();
         break;
       }
@@ -65,10 +75,20 @@ bool request_definition_handlers::handleDefinitionRequest(
   }
   std::string word = extractWordAt(lineText, character);
   if (word.empty()) {
-    writeResponse(id, makeArray());
+    writeDefinitionResponse(makeArray());
     return true;
   }
   const size_t cursorOffset = positionToOffsetUtf16(doc->text, line, character);
+  bool looksLikeCall = false;
+  {
+    std::string callName;
+    CallSiteKind callKind = CallSiteKind::FunctionCall;
+    if (detectCallLikeCalleeAtOffset(doc->text, cursorOffset, callName,
+                                     callKind) &&
+        callName == word && callKind == CallSiteKind::FunctionCall) {
+      looksLikeCall = true;
+    }
+  }
   {
     std::vector<DefinitionLocation> includeContextLocations;
     if (collectIncludeContextDefinitionLocations(uri, word, ctx,
@@ -78,19 +98,44 @@ bool request_definition_handlers::handleDefinitionRequest(
         locations.a.push_back(makeLocationRange(location.uri, location.line,
                                                 location.start, location.end));
       }
-      writeResponse(id, locations);
+      writeDefinitionResponse(locations);
+      return true;
+    }
+  }
+  if (looksLikeCall) {
+    const auto currentUnitStartedAt = std::chrono::steady_clock::now();
+    std::vector<CurrentUnitFunctionTarget> currentUnitTargets;
+    if (collectCurrentUnitFunctionTargets(uri, word, ctx,
+                                          currentUnitTargets)) {
+      recordDefinitionCurrentUnitCall(
+          std::chrono::duration<double, std::milli>(
+              std::chrono::steady_clock::now() - currentUnitStartedAt)
+              .count());
+      Json locations = makeArray();
+      for (const auto &target : currentUnitTargets) {
+        locations.a.push_back(makeLocationRange(target.definition.uri,
+                                                target.definition.line,
+                                                target.definition.start,
+                                                target.definition.end));
+      }
+      writeDefinitionResponse(locations);
       return true;
     }
   }
   {
+    const auto interactiveStartedAt = std::chrono::steady_clock::now();
     DefinitionLocation interactiveLocation;
     if (interactiveResolveDefinitionLocation(uri, *doc, word, cursorOffset, ctx,
                                              interactiveLocation)) {
+      recordDefinitionCurrentDocInteractive(
+          std::chrono::duration<double, std::milli>(
+              std::chrono::steady_clock::now() - interactiveStartedAt)
+              .count());
       Json locations = makeArray();
       locations.a.push_back(
           makeLocationRange(interactiveLocation.uri, interactiveLocation.line,
                             interactiveLocation.start, interactiveLocation.end));
-      writeResponse(id, locations);
+      writeDefinitionResponse(locations);
       return true;
     }
   }
@@ -103,7 +148,7 @@ bool request_definition_handlers::handleDefinitionRequest(
                                               workspaceLocation.line,
                                               workspaceLocation.start,
                                               workspaceLocation.end));
-      writeResponse(id, locations);
+      writeDefinitionResponse(locations);
       return true;
     }
   }
@@ -119,7 +164,7 @@ bool request_definition_handlers::handleDefinitionRequest(
                                               resolvedTarget.location.line,
                                               resolvedTarget.location.start,
                                               resolvedTarget.location.end));
-      writeResponse(id, locations);
+      writeDefinitionResponse(locations);
       return true;
     }
   }
@@ -132,11 +177,11 @@ bool request_definition_handlers::handleDefinitionRequest(
         locations.a.push_back(makeLocationRange(def.uri, def.line, def.start,
                                                 def.end));
       }
-      writeResponse(id, locations);
+      writeDefinitionResponse(locations);
       return true;
     }
   }
-  writeResponse(id, makeArray());
+  writeDefinitionResponse(makeArray());
   return true;
 }
 

@@ -1,6 +1,7 @@
 #include "declaration_query.hpp"
 
 #include "nsf_lexer.hpp"
+#include "preprocessor_view.hpp"
 #include "server_parse.hpp"
 #include "server_request_handlers.hpp"
 #include "text_utils.hpp"
@@ -14,10 +15,10 @@ bool findDeclaredIdentifierInDeclarationLine(const std::string &line,
                                              size_t &posOut);
 
 namespace {
-} // namespace
-
-bool findBestDeclarationUpTo(const std::string &text, const std::string &word,
-                             size_t maxOffset, DeclCandidate &out) {
+bool findBestDeclarationUpToImpl(const std::string &text,
+                                 const std::string &word, size_t maxOffset,
+                                 const std::vector<char> *lineActive,
+                                 DeclCandidate &out) {
   out = DeclCandidate{};
   bool found = false;
   int bestDepth = -1;
@@ -39,65 +40,76 @@ bool findBestDeclarationUpTo(const std::string &text, const std::string &word,
     if (lineStartOffset >= maxOffset) {
       break;
     }
+    const bool lineIsActive =
+        !lineActive || lineIndex >= static_cast<int>(lineActive->size()) ||
+        (*lineActive)[static_cast<size_t>(lineIndex)] != 0;
     int lineDepth = currentDepth;
     if (pendingUi) {
-      std::string code = line;
-      size_t lineComment = code.find("//");
-      if (lineComment != std::string::npos) {
-        code = code.substr(0, lineComment);
-      }
-      size_t start = 0;
-      while (start < code.size() &&
-             std::isspace(static_cast<unsigned char>(code[start]))) {
-        start++;
-      }
-      if (start < code.size()) {
-        if (code[start] == '<') {
-          if (!found || pendingUiDepth > bestDepth ||
-              (pendingUiDepth == bestDepth && pendingUiLine > bestLine)) {
-            found = true;
-            bestDepth = pendingUiDepth;
-            bestLine = pendingUiLine;
-            out.found = true;
-            out.line = pendingUiLine;
-            out.braceDepth = pendingUiDepth;
-            out.nameBytePos = pendingUiPos;
-            out.lineText = pendingUiHeaderLine;
+      if (!lineIsActive) {
+        pendingUi = false;
+      } else {
+        std::string code = line;
+        size_t lineComment = code.find("//");
+        if (lineComment != std::string::npos) {
+          code = code.substr(0, lineComment);
+        }
+        size_t start = 0;
+        while (start < code.size() &&
+               std::isspace(static_cast<unsigned char>(code[start]))) {
+          start++;
+        }
+        if (start < code.size()) {
+          if (code[start] == '<') {
+            if (!found || pendingUiDepth > bestDepth ||
+                (pendingUiDepth == bestDepth && pendingUiLine > bestLine)) {
+              found = true;
+              bestDepth = pendingUiDepth;
+              bestLine = pendingUiLine;
+              out.found = true;
+              out.line = pendingUiLine;
+              out.braceDepth = pendingUiDepth;
+              out.nameBytePos = pendingUiPos;
+              out.lineText = pendingUiHeaderLine;
+            }
+            pendingUi = false;
+          } else {
+            pendingUi = false;
           }
-          pendingUi = false;
-        } else {
-          pendingUi = false;
         }
       }
     }
-    size_t pos = 0;
-    if (findDeclaredIdentifierInDeclarationLine(line, word, pos)) {
-      if (!found || lineDepth > bestDepth ||
-          (lineDepth == bestDepth && lineIndex > bestLine)) {
-        found = true;
-        bestDepth = lineDepth;
-        bestLine = lineIndex;
-        out.found = true;
-        out.line = lineIndex;
-        out.braceDepth = lineDepth;
-        out.nameBytePos = pos;
-        out.lineText = line;
+    if (lineIsActive) {
+      size_t pos = 0;
+      if (findDeclaredIdentifierInDeclarationLine(line, word, pos)) {
+        if (!found || lineDepth > bestDepth ||
+            (lineDepth == bestDepth && lineIndex > bestLine)) {
+          found = true;
+          bestDepth = lineDepth;
+          bestLine = lineIndex;
+          out.found = true;
+          out.line = lineIndex;
+          out.braceDepth = lineDepth;
+          out.nameBytePos = pos;
+          out.lineText = line;
+        }
       }
-    }
-    if (!pendingUi) {
-      std::string uiType;
-      std::string uiName;
-      size_t uiPos = 0;
-      size_t uiEnd = 0;
-      if (findMetadataDeclarationHeaderPosShared(line, uiType, uiName, uiPos,
-                                                 uiEnd) &&
-          uiName == word) {
-        pendingUi = true;
-        pendingUiLine = lineIndex;
-        pendingUiDepth = lineDepth;
-        pendingUiPos = uiPos;
-        pendingUiHeaderLine = line;
+      if (!pendingUi) {
+        std::string uiType;
+        std::string uiName;
+        size_t uiPos = 0;
+        size_t uiEnd = 0;
+        if (findMetadataDeclarationHeaderPosShared(line, uiType, uiName, uiPos,
+                                                   uiEnd) &&
+            uiName == word) {
+          pendingUi = true;
+          pendingUiLine = lineIndex;
+          pendingUiDepth = lineDepth;
+          pendingUiPos = uiPos;
+          pendingUiHeaderLine = line;
+        }
       }
+    } else {
+      pendingUi = false;
     }
 
     bool inLineComment = false;
@@ -134,6 +146,8 @@ bool findBestDeclarationUpTo(const std::string &text, const std::string &word,
         inString = true;
         continue;
       }
+      if (!lineIsActive)
+        continue;
       if (ch == '{') {
         currentDepth++;
       } else if (ch == '}' && currentDepth > 0) {
@@ -145,4 +159,35 @@ bool findBestDeclarationUpTo(const std::string &text, const std::string &word,
     lineIndex++;
   }
   return found;
+}
+} // namespace
+
+bool findBestDeclarationUpTo(const std::string &text, const std::string &word,
+                             size_t maxOffset, DeclCandidate &out) {
+  return findBestDeclarationUpToImpl(text, word, maxOffset, nullptr, out);
+}
+
+bool findBestDeclarationUpTo(const std::string &text, const std::string &word,
+                             size_t maxOffset,
+                             const std::vector<char> &lineActive,
+                             DeclCandidate &out) {
+  return findBestDeclarationUpToImpl(text, word, maxOffset, &lineActive, out);
+}
+
+bool findBestCurrentDocDeclarationUpTo(
+    const std::string &text, const std::string &word, size_t maxOffset,
+    const std::unordered_map<std::string, int> &defines, DeclCandidate &out) {
+  const PreprocessorView preprocessorView = buildPreprocessorView(text, defines);
+  return findBestDeclarationUpToImpl(text, word, maxOffset,
+                                     &preprocessorView.lineActive, out);
+}
+
+bool findBestCurrentDocDeclarationUpTo(
+    const std::string &text, const std::string &word, size_t maxOffset,
+    const std::unordered_map<std::string, int> &defines,
+    const PreprocessorIncludeContext &includeContext, DeclCandidate &out) {
+  const PreprocessorView preprocessorView =
+      buildPreprocessorView(text, defines, includeContext);
+  return findBestDeclarationUpToImpl(text, word, maxOffset,
+                                     &preprocessorView.lineActive, out);
 }

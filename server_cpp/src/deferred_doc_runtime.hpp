@@ -58,6 +58,12 @@ struct DeferredDocRuntimeMetricsSnapshot {
 std::shared_ptr<const DeferredDocSnapshot> getOrBuildDeferredDocSnapshot(
     const std::string &uri, const Document &doc, const ServerRequestContext &ctx);
 
+// Returns the currently published deferred snapshot only when it already matches
+// the latest analysis key for `doc`. Unlike getOrBuildDeferredDocSnapshot(...),
+// this helper must not trigger a synchronous deferred rebuild.
+std::shared_ptr<const DeferredDocSnapshot> tryGetDeferredDocSnapshot(
+    const std::string &uri, const Document &doc);
+
 // Builds or reuses the full semantic tokens result for the current analysis key.
 Json buildDeferredSemanticTokensFull(const std::string &uri, const Document &doc,
                                      const ServerRequestContext &ctx);

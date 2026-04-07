@@ -7,6 +7,8 @@
 #include "server_parse.hpp"
 #include "server_request_handlers.hpp"
 #include "text_utils.hpp"
+#include "type_desc.hpp"
+#include "type_model.hpp"
 #include "workspace_summary_runtime.hpp"
 
 #include <sstream>
@@ -16,6 +18,58 @@ bool findDeclaredIdentifierInDeclarationLine(const std::string &line,
                                              const std::string &word,
                                              size_t &posOut);
 namespace {
+
+std::string makeVectorMemberType(const std::string &base, int dim) {
+  if (base.empty() || dim <= 0) {
+    return std::string();
+  }
+  if (dim == 1) {
+    return base;
+  }
+  return base + std::to_string(dim);
+}
+
+void appendSwizzleCombinations(const std::string &charset, int maxDim,
+                               std::string &current,
+                               std::vector<MemberCompletionField> &fieldsOut,
+                               const std::string &baseType) {
+  if (!current.empty()) {
+    MemberCompletionField field;
+    field.name = current;
+    field.type =
+        makeVectorMemberType(baseType, static_cast<int>(current.size()));
+    fieldsOut.push_back(std::move(field));
+  }
+  if (static_cast<int>(current.size()) >= maxDim) {
+    return;
+  }
+  for (char ch : charset) {
+    current.push_back(ch);
+    appendSwizzleCombinations(charset, maxDim, current, fieldsOut, baseType);
+    current.pop_back();
+  }
+}
+
+bool buildVectorSwizzleCompletionQuery(const std::string &ownerType,
+                                       MemberCompletionQuery &out) {
+  const TypeDesc desc = parseTypeDesc(ownerType);
+  if (desc.kind != TypeDescKind::Vector || desc.rows < 2 || desc.rows > 4 ||
+      desc.base.empty()) {
+    return false;
+  }
+
+  out.fields.clear();
+  out.methods.clear();
+  std::string xyzw = "xyzw";
+  std::string rgba = "rgba";
+  xyzw.resize(static_cast<size_t>(desc.rows));
+  rgba.resize(static_cast<size_t>(desc.rows));
+  std::string current;
+  appendSwizzleCombinations(xyzw, desc.rows, current, out.fields, desc.base);
+  current.clear();
+  appendSwizzleCombinations(rgba, desc.rows, current, out.fields, desc.base);
+  return !out.fields.empty();
+}
 
 bool findStructMemberDeclarationAtOrAfterLine(const std::string &text,
                                               int startLine,
@@ -221,10 +275,58 @@ bool resolveMemberHoverInfo(const std::string &uri,
   return out.found;
 }
 
+bool resolveStructHoverFallbackInfo(const std::string &ownerType,
+                                    StructHoverFallbackInfo &out) {
+  out = StructHoverFallbackInfo{};
+  if (ownerType.empty())
+    return false;
+
+  out.hasStructLocation =
+      workspaceSummaryRuntimeFindStructDefinition(ownerType,
+                                                  out.ownerStructLocation);
+
+  std::vector<std::string> fieldNames;
+  if (!workspaceSummaryRuntimeGetStructFields(ownerType, fieldNames) ||
+      fieldNames.empty()) {
+    return false;
+  }
+
+  out.fields.reserve(fieldNames.size());
+  for (const auto &fieldName : fieldNames) {
+    SemanticSnapshotStructFieldInfo item;
+    item.name = fieldName;
+    workspaceSummaryRuntimeGetStructMemberType(ownerType, fieldName, item.type);
+    out.fields.push_back(std::move(item));
+  }
+
+  out.found = !out.fields.empty();
+  return out.found;
+}
+
 bool collectMemberCompletionQuery(const std::string &uri,
                                   const std::string &ownerType,
                                   ServerRequestContext &ctx,
                                   MemberCompletionQuery &out) {
+  out = MemberCompletionQuery{};
+  out.ownerType = ownerType;
+  if (ownerType.empty()) {
+    return false;
+  }
+
+  if (buildVectorSwizzleCompletionQuery(ownerType, out)) {
+    return true;
+  }
+
+  std::vector<std::string> builtinMethods;
+  if (listHlslBuiltinMethodsForType(ownerType, builtinMethods) &&
+      !builtinMethods.empty()) {
+    std::string family;
+    if (getTypeModelObjectFamily(ownerType, family)) {
+      out.methods = std::move(builtinMethods);
+      return true;
+    }
+  }
+
   return interactiveCollectMemberCompletionQuery(uri, ownerType, ctx, out) &&
          (!out.fields.empty() || !out.methods.empty());
 }

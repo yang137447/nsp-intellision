@@ -119,13 +119,13 @@ bool resourceFileStampsEqual(const ResourceFileStamp &lhs,
          lhs.lastWriteTime == rhs.lastWriteTime;
 }
 
-std::vector<std::string>
-collectActiveUnitIncludeClosure(const std::string &rootUri,
-                                const std::string &rootText,
-                                const DocumentRuntimeUpdateOptions &options) {
+bool buildActiveUnitPreprocessorView(const std::string &rootUri,
+                                     const std::string &rootText,
+                                     const DocumentRuntimeUpdateOptions &options,
+                                     PreprocessorView &out) {
+  out = PreprocessorView{};
   if (rootUri.empty() || rootText.empty())
-    return {};
-
+    return false;
   PreprocessorIncludeContext includeContext;
   includeContext.currentUri = rootUri;
   includeContext.workspaceFolders = options.workspaceFolders;
@@ -136,23 +136,12 @@ collectActiveUnitIncludeClosure(const std::string &rootUri,
     const std::string path = uriToPath(uri);
     return !path.empty() && readFileText(path, textOut);
   };
-  PreprocessorView preprocessorView =
-      buildPreprocessorView(rootText, options.defines, includeContext);
-  return preprocessorView.activeIncludeUris;
+  out = buildPreprocessorView(rootText, options.defines, includeContext);
+  return true;
 }
 
 std::string buildActiveUnitBranchFingerprint(
-    const std::string &activeUnitUri, const std::string &activeUnitText,
-    const DocumentRuntimeUpdateOptions &options) {
-  if (activeUnitText.empty())
-    return std::string();
-  PreprocessorIncludeContext includeContext;
-  includeContext.currentUri = activeUnitUri;
-  includeContext.workspaceFolders = options.workspaceFolders;
-  includeContext.includePaths = options.includePaths;
-  includeContext.shaderExtensions = options.shaderExtensions;
-  const PreprocessorView preprocessorView =
-      buildPreprocessorView(activeUnitText, options.defines, includeContext);
+    const PreprocessorView &preprocessorView) {
   std::ostringstream branchFingerprint;
   branchFingerprint << preprocessorView.lineActive.size() << "|";
   for (size_t line = 0; line < preprocessorView.branchSigs.size(); line++) {
@@ -261,6 +250,41 @@ bool lineLooksSemanticNeutral(const std::string &lineText) {
          trimmed.rfind("*", 0) == 0 || trimmed.rfind("*/", 0) == 0;
 }
 
+bool lineMayAffectPreprocessorState(const std::string &lineText) {
+  const std::string trimmed = trimRightCopy(trimLeftCopy(lineText));
+  if (trimmed.empty())
+    return false;
+  if (trimmed[0] == '#')
+    return true;
+  return !trimmed.empty() && trimmed.back() == '\\';
+}
+
+bool isPreprocessorNeutralEditAgainstPrevious(
+    const std::string &oldText, const std::string &newText,
+    const std::vector<ChangedRange> &changedRanges) {
+  if (changedRanges.empty() || changedRanges.size() > 8)
+    return false;
+  int inspectedLines = 0;
+  for (const auto &range : changedRanges) {
+    const int startLine = std::max(0, range.startLine);
+    const int oldEndLine = std::max(startLine, range.endLine);
+    const int newEndLine =
+        std::max(startLine, range.startLine + range.newEndLine);
+    const int scanStartLine = std::max(0, startLine - 1);
+    const int scanEndLine = std::max(oldEndLine, newEndLine) + 1;
+    inspectedLines += (scanEndLine - scanStartLine + 1) * 2;
+    if (inspectedLines > 48)
+      return false;
+    for (int line = scanStartLine; line <= scanEndLine; line++) {
+      if (lineMayAffectPreprocessorState(getLineAt(oldText, line)) ||
+          lineMayAffectPreprocessorState(getLineAt(newText, line))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 bool isCommentOnlyEditInNewText(const std::string &newText,
                                 const std::vector<ChangedRange> &changedRanges) {
   if (changedRanges.empty() || changedRanges.size() > 8)
@@ -343,12 +367,16 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
   std::string activeUnitText = options.activeUnitText;
   if (activeUnitText.empty() && !snapshot.path.empty())
     readFileText(snapshot.path, activeUnitText);
-  snapshot.includeClosureUris =
-      collectActiveUnitIncludeClosure(snapshot.uri, activeUnitText, options);
-  snapshot.includeClosureFingerprint =
-      fingerprintStringList(snapshot.includeClosureUris);
-  snapshot.activeBranchFingerprint =
-      buildActiveUnitBranchFingerprint(snapshot.uri, activeUnitText, options);
+  PreprocessorView activeUnitPreprocessorView;
+  if (buildActiveUnitPreprocessorView(snapshot.uri, activeUnitText, options,
+                                      activeUnitPreprocessorView)) {
+    snapshot.activeLineStates = activeUnitPreprocessorView.lineActive;
+    snapshot.includeClosureUris = activeUnitPreprocessorView.activeIncludeUris;
+    snapshot.includeClosureFingerprint =
+        fingerprintStringList(snapshot.includeClosureUris);
+    snapshot.activeBranchFingerprint =
+        buildActiveUnitBranchFingerprint(activeUnitPreprocessorView);
+  }
   return snapshot;
 }
 
@@ -392,9 +420,22 @@ bool shouldReuseExistingActiveUnitSnapshot(
     const DocumentRuntime &existing, const Document &document,
     const std::string &activeUnitUri, const std::string &activeUnitPath,
     const RuntimeContextFingerprints &contextFingerprints,
-    const DocumentRuntimeUpdateOptions &options) {
-  if (!activeUnitContextMatches(existing.activeUnitSnapshot, activeUnitUri,
-                                activeUnitPath, contextFingerprints, options)) {
+    const DocumentRuntimeUpdateOptions &options,
+    const std::vector<ChangedRange> &changedRanges) {
+  const bool sameStableContext =
+      existing.activeUnitSnapshot.uri == activeUnitUri &&
+      existing.activeUnitSnapshot.path == activeUnitPath &&
+      existing.activeUnitSnapshot.workspaceSummaryVersion ==
+          options.workspaceSummaryVersion &&
+      existing.activeUnitSnapshot.workspaceFoldersFingerprint ==
+          contextFingerprints.workspaceFoldersFingerprint &&
+      existing.activeUnitSnapshot.definesFingerprint ==
+          contextFingerprints.definesFingerprint &&
+      existing.activeUnitSnapshot.includePathsFingerprint ==
+          contextFingerprints.includePathsFingerprint &&
+      existing.activeUnitSnapshot.shaderExtensionsFingerprint ==
+          contextFingerprints.shaderExtensionsFingerprint;
+  if (!sameStableContext) {
     return false;
   }
 
@@ -404,9 +445,15 @@ bool shouldReuseExistingActiveUnitSnapshot(
       (!activeUnitPath.empty() && !documentPath.empty() &&
        documentPath == activeUnitPath);
   if (!documentIsActiveUnit)
+    return activeUnitContextMatches(existing.activeUnitSnapshot, activeUnitUri,
+                                    activeUnitPath, contextFingerprints,
+                                    options);
+
+  if (existing.version == document.version && existing.epoch == document.epoch)
     return true;
 
-  return existing.version == document.version && existing.epoch == document.epoch;
+  return isPreprocessorNeutralEditAgainstPrevious(existing.text, document.text,
+                                                  changedRanges);
 }
 
 } // namespace
@@ -551,8 +598,12 @@ void documentRuntimeUpsert(const Document &document,
     if (existingIt != gDocumentRuntimes.end() &&
         shouldReuseExistingActiveUnitSnapshot(existingIt->second, document,
                                              activeUnitUri, activeUnitPath,
-                                             contextFingerprints, options)) {
+                                             contextFingerprints, options,
+                                             changedRanges)) {
       updated.activeUnitSnapshot = existingIt->second.activeUnitSnapshot;
+      updated.activeUnitSnapshot.documentVersion =
+          options.activeUnitDocumentVersion;
+      updated.activeUnitSnapshot.documentEpoch = options.activeUnitDocumentEpoch;
       reusedActiveUnitSnapshot = true;
     }
   }

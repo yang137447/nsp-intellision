@@ -735,6 +735,39 @@ bool extractMetadataDeclarationHeaderShared(const std::string &line,
   return !typeOut.empty() && !nameOut.empty();
 }
 
+bool extractTechniquePassDeclarationHeaderShared(const std::string &line,
+                                                 std::string &kindOut,
+                                                 std::string &nameOut) {
+  kindOut.clear();
+  nameOut.clear();
+
+  std::string code = line;
+  const size_t lineComment = code.find("//");
+  if (lineComment != std::string::npos)
+    code = code.substr(0, lineComment);
+
+  const auto tokens = lexLineTokens(code);
+  if (tokens.size() < 2 || tokens[0].kind != LexToken::Kind::Identifier)
+    return false;
+  if (tokens[0].text != "technique" && tokens[0].text != "pass")
+    return false;
+  if (tokens[1].kind != LexToken::Kind::Identifier)
+    return false;
+
+  kindOut = tokens[0].text;
+  nameOut = tokens[1].text;
+  for (size_t i = 2; i < tokens.size(); i++) {
+    const auto &token = tokens[i];
+    if (token.kind == LexToken::Kind::Identifier)
+      return false;
+    if (token.text == "=" || token.text == "(" || token.text == ")" ||
+        token.text == ":" || token.text == "," || token.text == ";") {
+      return false;
+    }
+  }
+  return !kindOut.empty() && !nameOut.empty();
+}
+
 bool findMetadataDeclarationHeaderPosShared(const std::string &line,
                                             std::string &typeOut,
                                             std::string &nameOut,
@@ -1086,8 +1119,11 @@ bool shouldReportMissingSemicolonShared(const std::string &trimmed,
     return false;
   }
   std::string ignoredName;
+  std::string effectKind;
   if (extractStructNameInLine(trimmed, ignoredName) ||
-      extractCBufferNameInLineShared(trimmed, ignoredName)) {
+      extractCBufferNameInLineShared(trimmed, ignoredName) ||
+      extractTechniquePassDeclarationHeaderShared(trimmed, effectKind,
+                                                 ignoredName)) {
     return false;
   }
   if (isFunctionLikeHeader(tokens, nextTrimmed))
@@ -1134,6 +1170,13 @@ bool findTypeOfIdentifierInDeclarationLineShared(const std::string &line,
       typeNameOut = item.type;
       return true;
     }
+  }
+  std::string metadataType;
+  std::string metadataName;
+  if (extractMetadataDeclarationHeaderShared(line, metadataType, metadataName) &&
+      metadataName == identifier && !metadataType.empty()) {
+    typeNameOut = metadataType;
+    return true;
   }
   return false;
 }

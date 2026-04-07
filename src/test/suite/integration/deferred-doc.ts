@@ -197,6 +197,120 @@ export function registerDeferredDocInlayTests(): void {
 			assert.ok(labels.includes('s:'), 'Expected built-in parameter hint s:.');
 		});
 
+		it('provides nested builtin inlay hints for member-access arguments', async () => {
+			const document = await openFixture('module_inlay_member_nested_builtin.nsf');
+			const range = new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length));
+			const hints = await waitFor(
+				() =>
+					vscode.commands.executeCommand<any[]>(
+						'vscode.executeInlayHintProvider',
+						document.uri,
+						range
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'nested builtin inlay hints'
+			);
+			const labelsByLine = hints
+				.map((hint) => ({ line: hint?.position?.line, label: hint?.label }))
+				.map((item) => {
+					const label = typeof item.label === 'string' ? item.label : '';
+					return `${item.line}:${label}`;
+				})
+				.filter((value) => value.endsWith(':'));
+			assert.ok(labelsByLine.includes('2:x:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('2:y:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('2:s:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('2:x:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('2:min:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('2:max:'), labelsByLine.join('\n'));
+		});
+
+		it('provides inlay hints across the real-workspace lower-block pattern', async () => {
+			const document = await openFixture('module_inlay_real_block_like.nsf');
+			const range = new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length));
+			const hints = await waitFor(
+				() =>
+					vscode.commands.executeCommand<any[]>(
+						'vscode.executeInlayHintProvider',
+						document.uri,
+						range
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'real-block-like inlay hints'
+			);
+			const labelsByLine = hints
+				.map((hint) => ({ line: hint?.position?.line, label: hint?.label }))
+				.map((item) => {
+					const label = typeof item.label === 'string' ? item.label : '';
+					return `${item.line}:${label}`;
+				})
+				.filter((value) => value.endsWith(':'));
+			assert.ok(labelsByLine.includes('13:UV:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('16:s:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('21:x:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('21:y:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('21:s:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('21:min:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('21:max:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('23:s:'), labelsByLine.join('\n'));
+			assert.ok(labelsByLine.includes('23:uv:'), labelsByLine.join('\n'));
+		});
+
+		it('provides binary inlay hints for pass stencil state values', async () => {
+			const document = await openFixture('module_pass_stencil_states.nsf');
+			const range = new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length));
+			const hints = await waitFor(
+				() =>
+					vscode.commands.executeCommand<any[]>(
+						'vscode.executeInlayHintProvider',
+						document.uri,
+						range
+					),
+				(value) => {
+					if (!Array.isArray(value) || value.length === 0) {
+						return false;
+					}
+					const labels = value
+						.map((hint) => hint?.label)
+						.map((label) => {
+							if (typeof label === 'string') {
+								return label;
+							}
+							if (Array.isArray(label)) {
+								return label
+									.map((part) => (part && typeof part.value === 'string' ? part.value : ''))
+									.join('');
+							}
+							return '';
+						});
+					return (
+						labels.includes('0b11110000') &&
+						labels.includes('0b0000000000001111') &&
+						labels.includes('0b0000000011110000')
+					);
+				},
+				'stencil binary inlay hints'
+			);
+
+			const labels = hints
+				.map((hint) => hint?.label)
+				.map((label) => {
+					if (typeof label === 'string') {
+						return label;
+					}
+					if (Array.isArray(label)) {
+						return label
+							.map((part) => (part && typeof part.value === 'string' ? part.value : ''))
+							.join('');
+					}
+					return '';
+				})
+				.filter((label) => label.length > 0);
+			assert.ok(labels.includes('0b11110000'), labels.join('\n'));
+			assert.ok(labels.includes('0b0000000000001111'), labels.join('\n'));
+			assert.ok(labels.includes('0b0000000011110000'), labels.join('\n'));
+		});
+
 		it('keeps hover responsive while inlay requests are queued', async () => {
 			const workspaceRoot = getWorkspaceRoot();
 			const heavyFilePath = path.join(workspaceRoot, 'test_files', 'module_inlay_heavy_runtime.nsf');

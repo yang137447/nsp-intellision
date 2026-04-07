@@ -8,6 +8,11 @@ struct HoverLocationListItem {
   std::string locationDisplay;
 };
 
+struct HoverKeyValueItem {
+  std::string key;
+  std::string value;
+};
+
 struct HoverFunctionMarkdownInput {
   std::string code;
   std::string kindLabel;
@@ -28,6 +33,7 @@ struct HoverSymbolMarkdownInput {
   std::vector<std::string> notes;
   std::string typeName;
   std::string indeterminateReason;
+  std::vector<HoverKeyValueItem> uiMetadata;
   std::string definedAt;
   std::string leadingDoc;
   std::string inlineDoc;

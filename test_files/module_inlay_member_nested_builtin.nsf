@@ -1,0 +1,6 @@
+float4 MainPS(float2 uv : TEXCOORD0) : SV_Target {
+  float2 addmaskdistort2UV = uv;
+  addmaskdistort2UV.x = lerp(addmaskdistort2UV.x, clamp(addmaskdistort2UV.x, 0.01, 0.99), 0.5);
+  addmaskdistort2UV.y = lerp(addmaskdistort2UV.y, clamp(addmaskdistort2UV.y, 0.01, 0.99), 0.5);
+  return float4(addmaskdistort2UV, 0.0, 1.0);
+}

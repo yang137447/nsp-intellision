@@ -22,7 +22,7 @@
 - `docs/type-method-interface-contract.md`
   - 当任务涉及 `type_model.*`、`methods/object_methods`、array texture 坐标规则，或 `label: Type name` / `label: expr` 一类参数标签语法时优先阅读
 
-默认情况下，`README.md` 和 `docs/{architecture,resources,testing}.md` 才是当前事实文档；当任务涉及对象类型 / 对象方法共享契约时，`docs/type-method-interface-contract.md` 也属于当前事实文档。
+默认情况下，`README.md` 和 `docs/{architecture,resources,testing}.md` 才是当前事实文档；当任务涉及 client 编辑器壳层能力时，`docs/client-editor-features.md` 也属于当前事实文档；当任务涉及对象类型 / 对象方法共享契约时，`docs/type-method-interface-contract.md` 也属于当前事实文档。
 
 ## 仓库地图
 
@@ -48,7 +48,7 @@
   - `server_cpp/src/language_registry.*`
   - `server_cpp/src/hlsl_builtin_docs.*`
   - `server_cpp/src/type_model.*`
-  - `server_cpp/src/server_request_handlers.cpp`
+  - `server_cpp/src/requests/server_request_handlers.cpp`
 
 ## 默认执行模式
 
@@ -132,6 +132,7 @@
 - 资源 bundle 路径、命名或加载规则
 - 模块边界、单一事实来源、关键架构关系
 - 影响 hover、completion、signature help、diagnostics、semantic tokens 的公开行为
+- 影响 client 编辑器壳层能力，例如语言扩展名归属、注释切换、自动配对、`wordPattern`、snippets、folding
 - AI 协作流程或仓库约束
 - 头文件接口契约、模块职责说明或 AI 维护约束
 
@@ -142,6 +143,8 @@
 - `docs/architecture.md`
 - `docs/resources.md`
 - `docs/testing.md`
+- `docs/client-editor-features.md`（当任务涉及 client 编辑器壳层能力时）
+- `docs/type-method-interface-contract.md`（当任务涉及对象类型 / 对象方法共享契约时）
 
 如果本次改动不需要改文档，也要在最终说明里明确写出 "No doc updates needed" 或中文等价说明，并给出原因。
 

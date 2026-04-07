@@ -8,11 +8,13 @@
 #include "hover_markdown.hpp"
 #include "lsp_helpers.hpp"
 #include "lsp_io.hpp"
+#include "server_parse.hpp"
 #include "server_request_handlers.hpp"
 #include "text_utils.hpp"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cctype>
 #include <deque>
@@ -236,19 +238,238 @@ bool isPositionWithinRange(int line, int character, int startLine,
   return true;
 }
 
-} // namespace
+bool isStencilBinaryHintTarget(const std::string &name) {
+  return name == "StencilRef" || name == "StencilWriteMask" ||
+         name == "StencilReadMask";
+}
 
-Json inlayHintsRuntimeBuildFullDocument(const std::string &uri,
-                                        const Document &doc,
-                                        ServerRequestContext &ctx) {
+bool parseStencilIntegerLiteral(const std::string &literal, uint64_t &valueOut,
+                                size_t &bitWidthOut) {
+  valueOut = 0;
+  bitWidthOut = 0;
+
+  std::string value = trimRightCopy(trimLeftCopy(literal));
+  while (!value.empty()) {
+    const char tail = value.back();
+    if (tail == 'u' || tail == 'U' || tail == 'l' || tail == 'L') {
+      value.pop_back();
+      continue;
+    }
+    break;
+  }
+  if (value.empty())
+    return false;
+
+  try {
+    size_t consumed = 0;
+    valueOut = std::stoull(value, &consumed, 0);
+    if (consumed != value.size())
+      return false;
+  } catch (...) {
+    return false;
+  }
+
+  const bool isHex = value.size() > 2 && value[0] == '0' &&
+                     (value[1] == 'x' || value[1] == 'X');
+  if (isHex) {
+    bitWidthOut = std::max<size_t>(1, (value.size() - 2) * 4);
+    return true;
+  }
+
+  size_t bitsNeeded = 1;
+  uint64_t remaining = valueOut;
+  while (remaining > 1) {
+    remaining >>= 1;
+    bitsNeeded++;
+  }
+  if (bitsNeeded <= 8) {
+    bitWidthOut = 8;
+  } else if (bitsNeeded <= 16) {
+    bitWidthOut = 16;
+  } else if (bitsNeeded <= 32) {
+    bitWidthOut = 32;
+  } else {
+    bitWidthOut = ((bitsNeeded + 7) / 8) * 8;
+  }
+  return true;
+}
+
+std::string formatStencilBinaryLiteral(uint64_t value, size_t bitWidth) {
+  if (bitWidth == 0)
+    return "0b0";
+  std::string full = "0b";
+  full.reserve(2 + bitWidth);
+  for (size_t bit = 0; bit < bitWidth; bit++) {
+    const size_t shift = bitWidth - bit - 1;
+    const bool set = shift < 64 ? ((value >> shift) & 1ULL) != 0 : false;
+    full.push_back(set ? '1' : '0');
+  }
+  return full;
+}
+
+bool tryExtractStencilAssignmentHint(const std::string &lineText,
+                                     std::string &labelOut,
+                                     int &characterOut) {
+  labelOut.clear();
+  characterOut = 0;
+
+  std::string code = lineText;
+  const size_t lineComment = code.find("//");
+  if (lineComment != std::string::npos)
+    code = code.substr(0, lineComment);
+
+  const auto tokens = lexLineTokens(code);
+  if (tokens.size() < 3 || tokens[0].kind != LexToken::Kind::Identifier)
+    return false;
+  if (!isStencilBinaryHintTarget(tokens[0].text))
+    return false;
+
+  const size_t equalsPos = code.find('=');
+  const size_t semicolonPos =
+      equalsPos == std::string::npos ? std::string::npos
+                                     : code.find(';', equalsPos + 1);
+  if (equalsPos == std::string::npos || semicolonPos == std::string::npos)
+    return false;
+
+  size_t valueStart = equalsPos + 1;
+  while (valueStart < semicolonPos &&
+         std::isspace(static_cast<unsigned char>(code[valueStart]))) {
+    valueStart++;
+  }
+  size_t valueEnd = semicolonPos;
+  while (valueEnd > valueStart &&
+         std::isspace(static_cast<unsigned char>(code[valueEnd - 1]))) {
+    valueEnd--;
+  }
+  if (valueEnd <= valueStart)
+    return false;
+
+  uint64_t parsedValue = 0;
+  size_t bitWidth = 0;
+  if (!parseStencilIntegerLiteral(code.substr(valueStart, valueEnd - valueStart),
+                                  parsedValue, bitWidth)) {
+    return false;
+  }
+
+  labelOut = formatStencilBinaryLiteral(parsedValue, bitWidth);
+  characterOut =
+      byteOffsetInLineToUtf16(lineText, static_cast<int>(valueEnd));
+  return !labelOut.empty();
+}
+
+void appendPassStencilBinaryInlayHints(const Document &doc, Json &hints,
+                                       int maxHints, int minLine,
+                                       int maxLineInclusive) {
+  const std::vector<std::string> lines = splitLinesShared(doc.text);
+  const std::vector<std::string> trimmedLines =
+      buildTrimmedCodeLinesShared(doc.text);
+
+  int braceDepth = 0;
+  bool pendingPassBody = false;
+  int activePassBraceDepth = -1;
+
+  auto updateBraceDepth = [&](const std::string &line) {
+    bool inString = false;
+    bool inBlockComment = false;
+    for (size_t i = 0; i < line.size(); i++) {
+      const char ch = line[i];
+      const char next = (i + 1 < line.size()) ? line[i + 1] : '\0';
+      if (inBlockComment) {
+        if (ch == '*' && next == '/') {
+          inBlockComment = false;
+          i++;
+        }
+        continue;
+      }
+      if (inString) {
+        if (ch == '"' && (i == 0 || line[i - 1] != '\\'))
+          inString = false;
+        continue;
+      }
+      if (ch == '/' && next == '*') {
+        inBlockComment = true;
+        i++;
+        continue;
+      }
+      if (ch == '/' && next == '/')
+        break;
+      if (ch == '"') {
+        inString = true;
+        continue;
+      }
+      if (ch == '{') {
+        braceDepth++;
+      } else if (ch == '}' && braceDepth > 0) {
+        braceDepth--;
+      }
+    }
+  };
+
+  for (size_t lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+    const int braceDepthBeforeLine = braceDepth;
+    const std::string &trimmed =
+        lineIndex < trimmedLines.size() ? trimmedLines[lineIndex] : std::string();
+
+    if (pendingPassBody) {
+      if (!trimmed.empty() && trimmed[0] == '{') {
+        activePassBraceDepth = braceDepthBeforeLine + 1;
+        pendingPassBody = false;
+      } else if (!trimmed.empty() && trimmed[0] != '<' && trimmed[0] != '>') {
+        pendingPassBody = false;
+      }
+    }
+
+    std::string blockKind;
+    std::string blockName;
+    if (extractTechniquePassDeclarationHeaderShared(trimmed, blockKind,
+                                                    blockName) &&
+        blockKind == "pass") {
+      if (trimmed.find('{') != std::string::npos) {
+        activePassBraceDepth = braceDepthBeforeLine + 1;
+      } else {
+        pendingPassBody = true;
+      }
+    }
+
+    if (activePassBraceDepth >= 0 &&
+        braceDepthBeforeLine == activePassBraceDepth &&
+        static_cast<int>(lineIndex) >= minLine &&
+        static_cast<int>(lineIndex) <= maxLineInclusive &&
+        static_cast<int>(hints.a.size()) < maxHints) {
+      std::string binaryLabel;
+      int character = 0;
+      if (tryExtractStencilAssignmentHint(lines[lineIndex], binaryLabel,
+                                          character)) {
+        Json position = makeObject();
+        position.o["line"] = makeNumber(static_cast<double>(lineIndex));
+        position.o["character"] = makeNumber(character);
+
+        Json hint = makeObject();
+        hint.o["position"] = position;
+        hint.o["label"] = makeString(binaryLabel);
+        hint.o["kind"] = makeNumber(1);
+        hint.o["paddingLeft"] = makeBool(true);
+        hints.a.push_back(std::move(hint));
+      }
+    }
+
+    updateBraceDepth(lines[lineIndex]);
+    if (activePassBraceDepth >= 0 && braceDepth < activePassBraceDepth)
+      activePassBraceDepth = -1;
+  }
+}
+
+Json buildInlayHintsForOffsets(const std::string &uri, const Document &doc,
+                               ServerRequestContext &ctx, size_t startOffset,
+                               size_t endOffset, int minLine,
+                               int maxLineInclusive, int maxHints) {
   std::vector<CallSiteArgument> arguments;
-  collectCallArgumentsInRange(doc.text, 0, doc.text.size(), arguments);
+  collectCallArgumentsInRange(doc.text, startOffset, endOffset, arguments);
   const uint64_t slowEpoch = updateInlaySlowEpoch(uri, doc.version);
   std::unordered_map<std::string, std::vector<std::string>> parameterCache;
   std::unordered_set<std::string> slowResolveSet;
   std::vector<size_t> lineStarts;
   collectLineStarts(doc.text, lineStarts);
-  const int maxHints = 160;
   Json hints = makeArray();
   for (const auto &argument : arguments) {
     if (static_cast<int>(hints.a.size()) >= maxHints)
@@ -320,6 +541,8 @@ Json inlayHintsRuntimeBuildFullDocument(const std::string &uri,
     hint.o["paddingRight"] = makeBool(true);
     hints.a.push_back(std::move(hint));
   }
+  appendPassStencilBinaryInlayHints(doc, hints, maxHints, minLine,
+                                    maxLineInclusive);
   if (ctx.inlayHintsEnabled && ctx.inlayHintsParameterNamesEnabled &&
       !slowResolveSet.empty()) {
     std::vector<std::string> cacheKeys(slowResolveSet.begin(),
@@ -330,14 +553,59 @@ Json inlayHintsRuntimeBuildFullDocument(const std::string &uri,
   return hints;
 }
 
+} // namespace
+
+Json inlayHintsRuntimeBuildFullDocument(const std::string &uri,
+                                        const Document &doc,
+                                        ServerRequestContext &ctx) {
+  static constexpr int kFullDocumentMaxHints = 4096;
+  const int documentLineCount =
+      static_cast<int>(splitLinesShared(doc.text).size());
+  return buildInlayHintsForOffsets(uri, doc, ctx, 0, doc.text.size(), 0,
+                                   std::max(0, documentLineCount - 1),
+                                   kFullDocumentMaxHints);
+}
+
+Json inlayHintsRuntimeBuildRange(const std::string &uri, const Document &doc,
+                                 ServerRequestContext &ctx, int startLine,
+                                 int startChar, int endLine, int endChar) {
+  static constexpr int kRangeMaxHints = 160;
+  const std::string &text = doc.text;
+  size_t startOffset = positionToOffsetUtf16(text, startLine, startChar);
+  size_t endOffset = positionToOffsetUtf16(text, endLine, endChar);
+  if (endOffset < startOffset)
+    std::swap(startOffset, endOffset);
+
+  const auto buildStart = std::chrono::steady_clock::now();
+  Json hints = buildInlayHintsForOffsets(uri, doc, ctx, startOffset, endOffset,
+                                         std::min(startLine, endLine),
+                                         std::max(startLine, endLine),
+                                         kRangeMaxHints);
+  const double buildDurationMs =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                buildStart)
+          .count();
+  recordInlayRangeBuild(buildDurationMs);
+  return hints;
+}
+
 Json inlayHintsRuntimeBuildOrGetDeferredFull(const std::string &uri,
                                              const Document &doc,
                                              ServerRequestContext &ctx) {
   auto deferred = getOrBuildDeferredDocSnapshot(uri, doc, ctx);
-  if (deferred && deferred->hasInlayHintsFull)
+  if (deferred && deferred->hasInlayHintsFull) {
+    recordInlayDeferredSnapshotHit();
     return deferred->inlayHintsFull;
+  }
 
+  recordInlayDeferredSnapshotMiss();
+  const auto buildStart = std::chrono::steady_clock::now();
   Json hints = inlayHintsRuntimeBuildFullDocument(uri, doc, ctx);
+  const double buildDurationMs =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                buildStart)
+          .count();
+  recordInlayFullBuild(buildDurationMs);
   if (!deferred)
     return hints;
 

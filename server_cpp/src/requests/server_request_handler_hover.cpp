@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -67,6 +68,9 @@ static bool buildMacroHoverInputFromDocumentText(
     const std::string &currentUri, const std::string &definitionUri,
     const std::string &definitionText, int definitionLine,
     const std::string &expectedName, HoverMacroMarkdownInput &macroInput);
+static void appendKnownUiMetadataHoverItems(const std::string &definitionText,
+                                            int definitionLine,
+                                            HoverSymbolMarkdownInput &input);
 
 struct IncludeContextDefinitionGroup {
   DefinitionLocation location;
@@ -203,9 +207,34 @@ static bool writeMacroHoverResponse(
   }
 
   Json hover = makeObject();
+  const auto markdownRenderStartedAt = std::chrono::steady_clock::now();
   hover.o["contents"] = makeMarkup(renderHoverMacroMarkdown(macroInput));
+  recordHoverMarkdownRender(
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - markdownRenderStartedAt)
+          .count());
   writeResponse(id, hover);
   return true;
+}
+
+static void appendKnownUiMetadataHoverItems(const std::string &definitionText,
+                                            int definitionLine,
+                                            HoverSymbolMarkdownInput &input) {
+  if (definitionLine < 0)
+    return;
+  collectKnownUiMetadataHoverItems(definitionText, definitionLine,
+                                   input.uiMetadata);
+}
+
+template <typename RenderFn>
+static std::string renderMeasuredHoverMarkdown(RenderFn &&renderFn) {
+  const auto startedAt = std::chrono::steady_clock::now();
+  std::string markdown = renderFn();
+  recordHoverMarkdownRender(
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - startedAt)
+          .count());
+  return markdown;
 }
 
 bool pathHasNsfExtension(const std::string &path) {
@@ -772,7 +801,10 @@ static bool writeIncludeContextHoverResponse(
   functionInput.listItems = std::move(listItems);
 
   Json hover = makeObject();
-  hover.o["contents"] = makeMarkup(renderHoverFunctionMarkdown(functionInput));
+  hover.o["contents"] =
+      makeMarkup(renderMeasuredHoverMarkdown([&]() {
+        return renderHoverFunctionMarkdown(functionInput);
+      }));
   writeResponse(id, hover);
   return true;
 }
@@ -803,10 +835,14 @@ static bool writeCurrentDocParameterHoverResponse(
         extractLeadingDocumentationAtLine(doc.text, definition.line);
     symbolInput.inlineDoc = extractTrailingInlineCommentAtLine(
         doc.text, definition.line, definition.end);
+    appendKnownUiMetadataHoverItems(doc.text, definition.line, symbolInput);
   }
 
   Json hover = makeObject();
-  hover.o["contents"] = makeMarkup(renderHoverSymbolMarkdown(symbolInput));
+  hover.o["contents"] =
+      makeMarkup(renderMeasuredHoverMarkdown([&]() {
+        return renderHoverSymbolMarkdown(symbolInput);
+      }));
   writeResponse(id, hover);
   return true;
 }
@@ -1265,6 +1301,14 @@ bool request_hover_handlers::handleHoverRequest(
     const std::string &method, const Json &id, const Json *params,
     ServerRequestContext &ctx, const std::vector<std::string> &keywords,
     const std::vector<std::string> &) {
+  auto writeMeasuredHoverResponse = [&](const Json &response) {
+    const auto responseWriteStartedAt = std::chrono::steady_clock::now();
+    writeResponse(id, response);
+    recordHoverResponseWrite(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - responseWriteStartedAt)
+            .count());
+  };
   if (method != "textDocument/hover" || !params)
     return false;
 
@@ -1289,6 +1333,7 @@ bool request_hover_handlers::handleHoverRequest(
     writeResponse(id, makeNull());
     return true;
   }
+  const auto requestSetupStartedAt = std::chrono::steady_clock::now();
   std::string lineText = getLineAt(doc->text, line);
   size_t cursorOffset = positionToOffsetUtf16(doc->text, line, character);
 
@@ -1327,8 +1372,26 @@ bool request_hover_handlers::handleHoverRequest(
     writeResponse(id, makeNull());
     return true;
   }
+  recordHoverRequestSetup(
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - requestSetupStartedAt)
+          .count());
   IncludeContextResolutionSummary includeContextSummary;
-  buildIncludeContextResolutionSummary(uri, word, ctx, includeContextSummary);
+  bool includeContextSummaryComputed = false;
+  auto getIncludeContextSummary =
+      [&]() -> const IncludeContextResolutionSummary & {
+    if (!includeContextSummaryComputed) {
+      const auto startedAt = std::chrono::steady_clock::now();
+      buildIncludeContextResolutionSummary(uri, word, ctx,
+                                           includeContextSummary);
+      includeContextSummaryComputed = true;
+      recordHoverIncludeContextSummary(
+          std::chrono::duration<double, std::milli>(
+              std::chrono::steady_clock::now() - startedAt)
+              .count());
+    }
+    return includeContextSummary;
+  };
   ParsedMacroDefinitionInfo currentLineMacro;
   if (extractMacroDefinitionInLineShared(lineText, currentLineMacro) &&
       currentLineMacro.name == word &&
@@ -1340,7 +1403,6 @@ bool request_hover_handlers::handleHoverRequest(
   std::string member;
   if (extractMemberAccessAtOffset(doc->text, cursorOffset, base, member)) {
     MemberAccessBaseTypeOptions baseOptions;
-    baseOptions.includeWorkspaceIndexFallback = true;
     MemberAccessBaseTypeResult baseResolution =
         resolveMemberAccessBaseType(uri, *doc, base, cursorOffset, ctx,
                                     baseOptions);
@@ -1355,14 +1417,17 @@ bool request_hover_handlers::handleHoverRequest(
       symbolInput.notes.push_back("(Member access base)");
       symbolInput.typeName = baseType;
       DeclCandidate decl;
-      if (findBestDeclarationUpTo(doc->text, base, cursorOffset, decl) &&
+      if (findBestCurrentDocDeclarationUpTo(doc->text, base, cursorOffset,
+                                            ctx.preprocessorDefines, decl) &&
           decl.found) {
         if (decl.braceDepth > 0) {
           symbolInput.notes.push_back("(Local variable)");
         }
         symbolInput.definedAt = formatFileLineDisplay(uri, decl.line, uri);
       }
-      std::string md = renderHoverSymbolMarkdown(symbolInput);
+      std::string md = renderMeasuredHoverMarkdown([&]() {
+        return renderHoverSymbolMarkdown(symbolInput);
+      });
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
       writeResponse(id, hover);
@@ -1459,6 +1524,7 @@ bool request_hover_handlers::handleHoverRequest(
 
   const HlslBuiltinSignature *builtinSig = lookupHlslBuiltinSignature(word);
   if (builtinSig) {
+    const auto builtinStartedAt = std::chrono::steady_clock::now();
     std::string md;
     md += formatCppCodeBlock(builtinSig->label.empty() ? word
                                                        : builtinSig->label);
@@ -1469,25 +1535,30 @@ bool request_hover_handlers::handleHoverRequest(
     }
     Json hover = makeObject();
     hover.o["contents"] = makeMarkup(md);
-    writeResponse(id, hover);
+    recordHoverBuiltinDoc(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - builtinStartedAt)
+            .count());
+    writeMeasuredHoverResponse(hover);
     return true;
   }
 
   const std::string *builtinDoc = lookupHlslBuiltinDoc(word);
   if (builtinDoc) {
+    const auto builtinStartedAt = std::chrono::steady_clock::now();
     std::string md;
     md += formatCppCodeBlock("ret " + word + "(...)");
     md += "\n\n(HLSL built-in function)\n\n";
     md += *builtinDoc;
     Json hover = makeObject();
     hover.o["contents"] = makeMarkup(md);
-    writeResponse(id, hover);
+    recordHoverBuiltinDoc(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - builtinStartedAt)
+            .count());
+    writeMeasuredHoverResponse(hover);
     return true;
   }
-
-  if (writeIncludeContextHoverResponse(id, uri, word, includeContextSummary,
-                                       ctx))
-    return true;
 
   bool looksLikeCall = false;
   {
@@ -1504,6 +1575,7 @@ bool request_hover_handlers::handleHoverRequest(
     int localDeclChar = 0;
     if (findLocalFunctionDeclarationUpTo(doc->text, word, cursorOffset,
                                          localDeclLine, localDeclChar)) {
+      const auto currentDocFunctionStartedAt = std::chrono::steady_clock::now();
       if (writeMacroHoverResponse(id, uri, uri, localDeclLine, word, ctx)) {
         return true;
       }
@@ -1525,12 +1597,86 @@ bool request_hover_handlers::handleHoverRequest(
         functionInput.inlineDoc =
             extractTrailingInlineCommentAtLine(doc->text, localDeclLine, 0);
         appendIncludeContextFunctionSummaryIfNeeded(
-            uri, uri, word, includeContextSummary, ctx, functionInput);
-        std::string md = renderHoverFunctionMarkdown(functionInput);
+            uri, uri, word, getIncludeContextSummary(), ctx, functionInput);
+        std::string md = renderMeasuredHoverMarkdown([&]() {
+          return renderHoverFunctionMarkdown(functionInput);
+        });
         Json hover = makeObject();
         hover.o["contents"] = makeMarkup(md);
-        writeResponse(id, hover);
+        recordHoverCurrentDocFunction(
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - currentDocFunctionStartedAt)
+                .count());
+        writeMeasuredHoverResponse(hover);
         return true;
+      }
+    }
+
+    std::vector<CurrentUnitFunctionTarget> currentUnitTargets;
+    if (collectCurrentUnitFunctionTargets(uri, word, ctx,
+                                          currentUnitTargets) &&
+        !currentUnitTargets.empty()) {
+      if (currentUnitTargets.size() > 1) {
+        HoverFunctionMarkdownInput functionInput;
+        functionInput.code = currentUnitTargets.front().label.empty()
+                                 ? (word + "(...)")
+                                 : currentUnitTargets.front().label;
+        functionInput.kindLabel = "(HLSL function)";
+        functionInput.returnType = currentUnitTargets.front().returnType;
+        functionInput.parameters = currentUnitTargets.front().parameters;
+        functionInput.selectionNote =
+            "(Current-unit include closure ambiguous) Multiple helper "
+            "definitions matched in the current unit include closure.";
+        functionInput.listTitle = "Candidate definitions";
+        for (const auto &target : currentUnitTargets) {
+          HoverLocationListItem item;
+          item.label = target.label.empty() ? word : target.label;
+          item.locationDisplay = formatFileLineDisplay(
+              target.definition.uri, target.definition.line, uri);
+          functionInput.listItems.push_back(std::move(item));
+        }
+        std::string md = renderMeasuredHoverMarkdown([&]() {
+          return renderHoverFunctionMarkdown(functionInput);
+        });
+        Json hover = makeObject();
+        hover.o["contents"] = makeMarkup(md);
+        writeMeasuredHoverResponse(hover);
+        return true;
+      }
+
+      const CurrentUnitFunctionTarget &currentUnitTarget =
+          currentUnitTargets.front();
+      if (!currentUnitTarget.label.empty()) {
+      HoverFunctionMarkdownInput functionInput;
+      functionInput.code = currentUnitTarget.label;
+      functionInput.kindLabel = "(HLSL function)";
+      functionInput.returnType =
+          currentUnitTarget.returnType.empty()
+              ? extractReturnTypeFromFunctionLabel(currentUnitTarget.label, word)
+              : currentUnitTarget.returnType;
+      functionInput.parameters = currentUnitTarget.parameters;
+      functionInput.definedAt =
+          formatFileLineDisplay(currentUnitTarget.definition.uri,
+                                currentUnitTarget.definition.line, uri);
+      std::string defText;
+      if (ctx.readDocumentText(currentUnitTarget.definition.uri, defText)) {
+        functionInput.leadingDoc = extractLeadingDocumentationAtLine(
+            defText, currentUnitTarget.definition.line);
+        functionInput.inlineDoc = extractTrailingInlineCommentAtLine(
+            defText, currentUnitTarget.definition.line,
+            currentUnitTarget.definition.end);
+      }
+      appendIncludeContextFunctionSummaryIfNeeded(
+          uri, currentUnitTarget.definition.uri, word, getIncludeContextSummary(),
+          ctx,
+          functionInput);
+      std::string md = renderMeasuredHoverMarkdown([&]() {
+        return renderHoverFunctionMarkdown(functionInput);
+      });
+      Json hover = makeObject();
+      hover.o["contents"] = makeMarkup(md);
+      writeResponse(id, hover);
+      return true;
       }
     }
   }
@@ -1539,6 +1685,10 @@ bool request_hover_handlers::handleHoverRequest(
                                             ctx)) {
     return true;
   }
+
+  if (writeIncludeContextHoverResponse(id, uri, word, getIncludeContextSummary(),
+                                       ctx))
+    return true;
 
   std::vector<IndexedDefinition> defs;
       if (workspaceSummaryRuntimeFindDefinitions(word, defs, 64)) {
@@ -1557,7 +1707,7 @@ bool request_hover_handlers::handleHoverRequest(
     if (!funcDefs.empty()) {
       IndexedDefinition primary = funcDefs.front();
       std::string preferredDefinitionKey;
-      if (!includeContextSummary.hasAmbiguousDefinitions()) {
+      if (!getIncludeContextSummary().hasAmbiguousDefinitions()) {
         DefinitionLocation preferredLocation;
         if (pickBestWorkspaceDefinitionForCurrentContext(uri, word,
                                                          preferredLocation)) {
@@ -1703,7 +1853,7 @@ bool request_hover_handlers::handleHoverRequest(
             "(Multiple candidates) Unable to select best overload reliably.";
       }
       appendIncludeContextFunctionSummaryIfNeeded(
-          uri, primary.uri, word, includeContextSummary, ctx, functionInput);
+          uri, primary.uri, word, getIncludeContextSummary(), ctx, functionInput);
       const bool hasIncludeContextSummary =
           functionInput.listTitle == "Candidate definitions" &&
           !functionInput.listItems.empty();
@@ -1731,7 +1881,9 @@ bool request_hover_handlers::handleHoverRequest(
           functionInput.appendEllipsisAfterList = hasMoreUniqueItems;
         }
       }
-      std::string md = renderHoverFunctionMarkdown(functionInput);
+      std::string md = renderMeasuredHoverMarkdown([&]() {
+        return renderHoverFunctionMarkdown(functionInput);
+      });
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
       writeResponse(id, hover);
@@ -1765,19 +1917,10 @@ bool request_hover_handlers::handleHoverRequest(
           !fields.empty()) {
         appendStructFieldMarkdown(md, fields);
       } else {
-        std::vector<std::string> fieldNames;
-      if (workspaceSummaryRuntimeGetStructFields(word, fieldNames) &&
-          !fieldNames.empty()) {
-          std::vector<SemanticSnapshotStructFieldInfo> fallback;
-          fallback.reserve(fieldNames.size());
-          for (const auto &fieldName : fieldNames) {
-            SemanticSnapshotStructFieldInfo item;
-            item.name = fieldName;
-          workspaceSummaryRuntimeGetStructMemberType(word, fieldName,
-                                                     item.type);
-            fallback.push_back(std::move(item));
-          }
-          appendStructFieldMarkdown(md, fallback);
+        StructHoverFallbackInfo fallbackInfo;
+        if (resolveStructHoverFallbackInfo(word, fallbackInfo) &&
+            !fallbackInfo.fields.empty()) {
+          appendStructFieldMarkdown(md, fallbackInfo.fields);
         }
       }
       Json hover = makeObject();
@@ -1788,8 +1931,10 @@ bool request_hover_handlers::handleHoverRequest(
   }
 
   {
-    DefinitionLocation structLoc;
-      if (workspaceSummaryRuntimeFindStructDefinition(word, structLoc)) {
+    StructHoverFallbackInfo fallbackInfo;
+    if (resolveStructHoverFallbackInfo(word, fallbackInfo) &&
+        fallbackInfo.hasStructLocation) {
+      const DefinitionLocation &structLoc = fallbackInfo.ownerStructLocation;
       std::string md;
       md += formatCppCodeBlock("struct " + word);
       md += "\n\nDefined at: ";
@@ -1806,19 +1951,8 @@ bool request_hover_handlers::handleHoverRequest(
           !fields.empty()) {
         appendStructFieldMarkdown(md, fields);
       } else {
-        std::vector<std::string> fieldNames;
-      if (workspaceSummaryRuntimeGetStructFields(word, fieldNames) &&
-          !fieldNames.empty()) {
-          std::vector<SemanticSnapshotStructFieldInfo> fallback;
-          fallback.reserve(fieldNames.size());
-          for (const auto &fieldName : fieldNames) {
-            SemanticSnapshotStructFieldInfo item;
-            item.name = fieldName;
-          workspaceSummaryRuntimeGetStructMemberType(word, fieldName,
-                                                     item.type);
-            fallback.push_back(std::move(item));
-          }
-          appendStructFieldMarkdown(md, fallback);
+        if (!fallbackInfo.fields.empty()) {
+          appendStructFieldMarkdown(md, fallbackInfo.fields);
         }
       }
       Json hover = makeObject();
@@ -1830,23 +1964,21 @@ bool request_hover_handlers::handleHoverRequest(
 
   {
     std::vector<SemanticSnapshotStructFieldInfo> fieldInfos;
-    DefinitionLocation indexedStructLoc;
-    const bool hasIndexedStructLoc =
-      workspaceSummaryRuntimeFindStructDefinition(word, indexedStructLoc);
+    StructHoverFallbackInfo fallbackInfo;
+    const bool haveFallbackInfo = resolveStructHoverFallbackInfo(word, fallbackInfo);
+    const bool hasIndexedStructLoc = haveFallbackInfo && fallbackInfo.hasStructLocation;
+    const DefinitionLocation &indexedStructLoc = fallbackInfo.ownerStructLocation;
     const bool allowInlineIncludeFallback =
         !hasIndexedStructLoc || sameDocumentIdentity(indexedStructLoc.uri, uri);
     queryStructFieldInfosWithInlineIncludeFallback(
         uri, doc->text, doc->epoch, word, allowInlineIncludeFallback, ctx,
         fieldInfos);
 
-    std::vector<std::string> fields;
-    bool haveFields = false;
-    if (fieldInfos.empty())
-      haveFields = workspaceSummaryRuntimeGetStructFields(word, fields);
+    const bool haveFields = haveFallbackInfo && !fallbackInfo.fields.empty();
 
-    if ((haveFields && !fields.empty()) || !fieldInfos.empty()) {
-      DefinitionLocation loc;
-    bool hasLoc = workspaceSummaryRuntimeFindDefinition(word, loc);
+    if (haveFields || !fieldInfos.empty()) {
+      DefinitionLocation loc = fallbackInfo.ownerStructLocation;
+      const bool hasLoc = fallbackInfo.hasStructLocation;
       std::string md;
       md += formatCppCodeBlock("struct " + word);
       if (hasLoc) {
@@ -1866,15 +1998,11 @@ bool request_hover_handlers::handleHoverRequest(
       } else {
         std::unordered_set<std::string> seen;
         std::vector<SemanticSnapshotStructFieldInfo> fallback;
-        fallback.reserve(fields.size());
-        for (const auto &fieldName : fields) {
-          if (!seen.insert(fieldName).second)
+        fallback.reserve(fallbackInfo.fields.size());
+        for (const auto &field : fallbackInfo.fields) {
+          if (!seen.insert(field.name).second)
             continue;
-          SemanticSnapshotStructFieldInfo item;
-          item.name = fieldName;
-          workspaceSummaryRuntimeGetStructMemberType(word, fieldName,
-                                                     item.type);
-          fallback.push_back(std::move(item));
+          fallback.push_back(field);
         }
         appendStructFieldMarkdown(md, fallback);
       }
@@ -1886,8 +2014,10 @@ bool request_hover_handlers::handleHoverRequest(
   }
 
   {
+    const auto currentDocDeclStartedAt = std::chrono::steady_clock::now();
     DeclCandidate decl;
-    if (findBestDeclarationUpTo(doc->text, word, cursorOffset, decl) &&
+    if (findBestCurrentDocDeclarationUpTo(doc->text, word, cursorOffset,
+                                          ctx.preprocessorDefines, decl) &&
         decl.found) {
       if (decl.braceDepth == 0 &&
           writeMacroHoverResponse(id, uri, uri, decl.line, word, ctx)) {
@@ -1919,12 +2049,16 @@ bool request_hover_handlers::handleHoverRequest(
               decl.lineText, static_cast<int>(decl.nameBytePos + word.size()));
           functionInput.inlineDoc =
               extractTrailingInlineCommentAtLine(doc->text, decl.line, endChar);
-          appendIncludeContextFunctionSummaryIfNeeded(
-              uri, uri, word, includeContextSummary, ctx, functionInput);
-          std::string md = renderHoverFunctionMarkdown(functionInput);
+          std::string md = renderMeasuredHoverMarkdown([&]() {
+            return renderHoverFunctionMarkdown(functionInput);
+          });
           Json hover = makeObject();
           hover.o["contents"] = makeMarkup(md);
-          writeResponse(id, hover);
+          recordHoverCurrentDocDeclaration(
+              std::chrono::duration<double, std::milli>(
+                  std::chrono::steady_clock::now() - currentDocDeclStartedAt)
+                  .count());
+          writeMeasuredHoverResponse(hover);
           return true;
         }
       }
@@ -1947,13 +2081,18 @@ bool request_hover_handlers::handleHoverRequest(
         int endChar = byteOffsetInLineToUtf16(decl.lineText, endByte);
         symbolInput.inlineDoc =
             extractTrailingInlineCommentAtLine(doc->text, decl.line, endChar);
+        appendKnownUiMetadataHoverItems(doc->text, decl.line, symbolInput);
       }
-      appendIncludeContextSymbolNoteIfNeeded(uri, uri, includeContextSummary,
-                                             symbolInput);
-      std::string md = renderHoverSymbolMarkdown(symbolInput);
+      std::string md = renderMeasuredHoverMarkdown([&]() {
+        return renderHoverSymbolMarkdown(symbolInput);
+      });
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
-      writeResponse(id, hover);
+      recordHoverCurrentDocDeclaration(
+          std::chrono::duration<double, std::milli>(
+              std::chrono::steady_clock::now() - currentDocDeclStartedAt)
+              .count());
+      writeMeasuredHoverResponse(hover);
       return true;
     }
   }
@@ -1963,6 +2102,7 @@ bool request_hover_handlers::handleHoverRequest(
     if (interactiveResolveDefinitionLocation(uri, *doc, word, cursorOffset, ctx,
                                              interactiveDefinition) &&
         interactiveDefinition.uri == uri) {
+      const auto currentDocFunctionStartedAt = std::chrono::steady_clock::now();
       if (writeMacroHoverResponse(id, uri, interactiveDefinition.uri,
                                   interactiveDefinition.line, word, ctx)) {
         return true;
@@ -1985,10 +2125,18 @@ bool request_hover_handlers::handleHoverRequest(
             extractLeadingDocumentationAtLine(doc->text, interactiveDefinition.line);
         functionInput.inlineDoc = extractTrailingInlineCommentAtLine(
             doc->text, interactiveDefinition.line, interactiveDefinition.end);
-        std::string md = renderHoverFunctionMarkdown(functionInput);
+        std::string md = renderMeasuredHoverMarkdown([&]() {
+          return renderHoverFunctionMarkdown(functionInput);
+        });
         Json hover = makeObject();
         hover.o["contents"] = makeMarkup(md);
-        writeResponse(id, hover);
+        if (looksLikeCall) {
+          recordHoverCurrentDocFunction(
+              std::chrono::duration<double, std::milli>(
+                  std::chrono::steady_clock::now() - currentDocFunctionStartedAt)
+                  .count());
+        }
+        writeMeasuredHoverResponse(hover);
         return true;
       }
 
@@ -2005,12 +2153,14 @@ bool request_hover_handlers::handleHoverRequest(
           extractLeadingDocumentationAtLine(doc->text, interactiveDefinition.line);
       symbolInput.inlineDoc = extractTrailingInlineCommentAtLine(
           doc->text, interactiveDefinition.line, interactiveDefinition.end);
-      appendIncludeContextSymbolNoteIfNeeded(
-          uri, interactiveDefinition.uri, includeContextSummary, symbolInput);
-      std::string md = renderHoverSymbolMarkdown(symbolInput);
+      appendKnownUiMetadataHoverItems(doc->text, interactiveDefinition.line,
+                                      symbolInput);
+      std::string md = renderMeasuredHoverMarkdown([&]() {
+        return renderHoverSymbolMarkdown(symbolInput);
+      });
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
-      writeResponse(id, hover);
+      writeMeasuredHoverResponse(hover);
       return true;
     }
   }
@@ -2039,10 +2189,12 @@ bool request_hover_handlers::handleHoverRequest(
               defText, macroFn.definition.line, macroFn.definition.end);
         }
         appendIncludeContextFunctionSummaryIfNeeded(
-            uri, macroFn.definition.uri, word, includeContextSummary, ctx,
+            uri, macroFn.definition.uri, word, getIncludeContextSummary(), ctx,
             functionInput);
-        std::string md = renderHoverFunctionMarkdown(functionInput);
-        Json hover = makeObject();
+      std::string md = renderMeasuredHoverMarkdown([&]() {
+        return renderHoverFunctionMarkdown(functionInput);
+      });
+      Json hover = makeObject();
         hover.o["contents"] = makeMarkup(md);
         writeResponse(id, hover);
         return true;
@@ -2080,8 +2232,10 @@ bool request_hover_handlers::handleHoverRequest(
           functionInput.inlineDoc =
               extractTrailingInlineCommentAtLine(defText, loc.line, loc.end);
           appendIncludeContextFunctionSummaryIfNeeded(
-              uri, loc.uri, word, includeContextSummary, ctx, functionInput);
-          std::string md = renderHoverFunctionMarkdown(functionInput);
+              uri, loc.uri, word, getIncludeContextSummary(), ctx, functionInput);
+          std::string md = renderMeasuredHoverMarkdown([&]() {
+            return renderHoverFunctionMarkdown(functionInput);
+          });
           Json hover = makeObject();
           hover.o["contents"] = makeMarkup(md);
           writeResponse(id, hover);
@@ -2099,10 +2253,13 @@ bool request_hover_handlers::handleHoverRequest(
             extractLeadingDocumentationAtLine(defText, loc.line);
         symbolInput.inlineDoc =
             extractTrailingInlineCommentAtLine(defText, loc.line, loc.end);
+        appendKnownUiMetadataHoverItems(defText, loc.line, symbolInput);
       }
-      appendIncludeContextSymbolNoteIfNeeded(uri, loc.uri, includeContextSummary,
+      appendIncludeContextSymbolNoteIfNeeded(uri, loc.uri, getIncludeContextSummary(),
                                              symbolInput);
-      std::string md = renderHoverSymbolMarkdown(symbolInput);
+      std::string md = renderMeasuredHoverMarkdown([&]() {
+        return renderHoverSymbolMarkdown(symbolInput);
+      });
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
       writeResponse(id, hover);

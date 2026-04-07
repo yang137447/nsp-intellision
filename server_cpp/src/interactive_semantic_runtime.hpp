@@ -45,6 +45,18 @@ struct InteractiveRuntimeMetricsSnapshot {
   uint64_t snapshotWaitSamples = 0;
   double snapshotWaitTotalMs = 0.0;
   double snapshotWaitMaxMs = 0.0;
+  uint64_t requestQueueWaitSamples = 0;
+  double requestQueueWaitTotalMs = 0.0;
+  double requestQueueWaitMaxMs = 0.0;
+  uint64_t requestContextBuildSamples = 0;
+  double requestContextBuildTotalMs = 0.0;
+  double requestContextBuildMaxMs = 0.0;
+  uint64_t ownerDidChangeSamples = 0;
+  double ownerDidChangeTotalMs = 0.0;
+  double ownerDidChangeMaxMs = 0.0;
+  uint64_t prewarmSamples = 0;
+  double prewarmTotalMs = 0.0;
+  double prewarmMaxMs = 0.0;
 };
 
 struct InteractiveCompletionItem {
@@ -66,6 +78,13 @@ std::shared_ptr<const InteractiveSnapshot> getOrBuildInteractiveSnapshot(
 void interactiveSemanticRuntimePrewarm(const std::string &uri,
                                        const Document &doc,
                                        const ServerRequestContext &ctx);
+
+// Metrics hooks for the P1 interactive hot path. These record orchestration
+// overhead around the interactive lane without changing semantic behavior.
+void recordInteractiveRequestQueueWait(double waitMs);
+void recordInteractiveRequestContextBuild(double buildMs);
+void recordInteractiveOwnerDidChange(double durationMs);
+void recordInteractivePrewarm(double durationMs);
 
 // Collects completion candidates in current-doc-first order. Workspace summary
 // may add miss-only candidates but must not replace current-doc hits.

@@ -1,0 +1,7 @@
+#include "../shared/multi_context_helper_conflict_a.hlsl"
+#include "../shared/multi_context_helper_conflict_b.hlsl"
+
+half3 MultiContextHelperConflictRoot(half3 color : COLOR0) : SV_Target0
+{
+    return MultiContextHelperConflict(color, half4(1.0, 0.5, 0.25, 1.0));
+}

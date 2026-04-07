@@ -109,7 +109,90 @@ static std::atomic<uint64_t> gOverloadResolverAttempts{0};
 static std::atomic<uint64_t> gOverloadResolverResolved{0};
 static std::atomic<uint64_t> gOverloadResolverAmbiguous{0};
 static std::atomic<uint64_t> gOverloadResolverNoViable{0};
-static std::atomic<uint64_t> gOverloadResolverShadowMismatch{0};
+
+struct SignatureHelpTimingMetricState {
+  uint64_t interactiveOverloadSamples = 0;
+  double interactiveOverloadTotalMs = 0.0;
+  double interactiveOverloadMaxMs = 0.0;
+  uint64_t builtinSignatureSamples = 0;
+  double builtinSignatureTotalMs = 0.0;
+  double builtinSignatureMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
+};
+
+static std::mutex gSignatureHelpTimingMetricsMutex;
+static SignatureHelpTimingMetricState gSignatureHelpTimingMetrics;
+
+struct DefinitionMetricState {
+  uint64_t currentDocInteractiveSamples = 0;
+  double currentDocInteractiveTotalMs = 0.0;
+  double currentDocInteractiveMaxMs = 0.0;
+  uint64_t currentUnitCallSamples = 0;
+  double currentUnitCallTotalMs = 0.0;
+  double currentUnitCallMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
+};
+
+static std::mutex gDefinitionMetricsMutex;
+static DefinitionMetricState gDefinitionMetrics;
+
+struct HoverMetricState {
+  uint64_t currentDocDeclarationSamples = 0;
+  double currentDocDeclarationTotalMs = 0.0;
+  double currentDocDeclarationMaxMs = 0.0;
+  uint64_t requestSetupSamples = 0;
+  double requestSetupTotalMs = 0.0;
+  double requestSetupMaxMs = 0.0;
+  uint64_t currentDocFunctionSamples = 0;
+  double currentDocFunctionTotalMs = 0.0;
+  double currentDocFunctionMaxMs = 0.0;
+  uint64_t includeContextSummarySamples = 0;
+  double includeContextSummaryTotalMs = 0.0;
+  double includeContextSummaryMaxMs = 0.0;
+  uint64_t builtinDocSamples = 0;
+  double builtinDocTotalMs = 0.0;
+  double builtinDocMaxMs = 0.0;
+  uint64_t markdownRenderSamples = 0;
+  double markdownRenderTotalMs = 0.0;
+  double markdownRenderMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
+};
+
+static std::mutex gHoverMetricsMutex;
+static HoverMetricState gHoverMetrics;
+
+struct InlayMetricState {
+  uint64_t deferredSnapshotHitCount = 0;
+  uint64_t deferredSnapshotMissCount = 0;
+  uint64_t rangeBuildSamples = 0;
+  double rangeBuildTotalMs = 0.0;
+  double rangeBuildMaxMs = 0.0;
+  uint64_t fullBuildSamples = 0;
+  double fullBuildTotalMs = 0.0;
+  double fullBuildMaxMs = 0.0;
+  uint64_t rangeFilterSamples = 0;
+  double rangeFilterTotalMs = 0.0;
+  double rangeFilterMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
+};
+
+static std::mutex gInlayMetricsMutex;
+static InlayMetricState gInlayMetrics;
+
+static void recordSignatureHelpDuration(uint64_t &samples, double &totalMs,
+                                        double &maxMs, double durationMs) {
+  samples++;
+  totalMs += durationMs;
+  maxMs = std::max(maxMs, durationMs);
+}
 
 void
 emitSignatureHelpIndeterminateTrace(const std::string &functionName,
@@ -141,20 +224,6 @@ emitSignatureHelpIndeterminateTrace(const std::string &functionName,
   writeNotification("window/logMessage", params);
 }
 
-void emitSignatureHelpResolverShadowMismatch(
-    const std::string &uri, const std::string &functionName,
-    const std::string &resolverLabel, const std::string &legacyLabel,
-    const std::string &resolverStatus) {
-  gOverloadResolverShadowMismatch.fetch_add(1, std::memory_order_relaxed);
-  Json params = makeObject();
-  params.o["type"] = makeNumber(4);
-  params.o["message"] =
-      makeString("nsf signatureHelp overloadResolver mismatch: uri=" + uri +
-                 " function=" + functionName + " status=" + resolverStatus +
-                 " resolver=" + resolverLabel + " legacy=" + legacyLabel);
-  writeNotification("window/logMessage", params);
-}
-
 void recordOverloadResolverResult(const ResolveCallResult &result) {
   gOverloadResolverAttempts.fetch_add(1, std::memory_order_relaxed);
   switch (result.status) {
@@ -168,6 +237,144 @@ void recordOverloadResolverResult(const ResolveCallResult &result) {
     gOverloadResolverNoViable.fetch_add(1, std::memory_order_relaxed);
     break;
   }
+}
+
+void recordSignatureHelpInteractiveOverloads(double durationMs) {
+  std::lock_guard<std::mutex> lock(gSignatureHelpTimingMetricsMutex);
+  recordSignatureHelpDuration(
+      gSignatureHelpTimingMetrics.interactiveOverloadSamples,
+      gSignatureHelpTimingMetrics.interactiveOverloadTotalMs,
+      gSignatureHelpTimingMetrics.interactiveOverloadMaxMs, durationMs);
+}
+
+void recordSignatureHelpBuiltinSignature(double durationMs) {
+  std::lock_guard<std::mutex> lock(gSignatureHelpTimingMetricsMutex);
+  recordSignatureHelpDuration(
+      gSignatureHelpTimingMetrics.builtinSignatureSamples,
+      gSignatureHelpTimingMetrics.builtinSignatureTotalMs,
+      gSignatureHelpTimingMetrics.builtinSignatureMaxMs, durationMs);
+}
+
+void recordSignatureHelpResponseWrite(double durationMs) {
+  std::lock_guard<std::mutex> lock(gSignatureHelpTimingMetricsMutex);
+  recordSignatureHelpDuration(
+      gSignatureHelpTimingMetrics.responseWriteSamples,
+      gSignatureHelpTimingMetrics.responseWriteTotalMs,
+      gSignatureHelpTimingMetrics.responseWriteMaxMs, durationMs);
+}
+
+void recordDefinitionCurrentDocInteractive(double durationMs) {
+  std::lock_guard<std::mutex> lock(gDefinitionMetricsMutex);
+  recordSignatureHelpDuration(gDefinitionMetrics.currentDocInteractiveSamples,
+                              gDefinitionMetrics.currentDocInteractiveTotalMs,
+                              gDefinitionMetrics.currentDocInteractiveMaxMs,
+                              durationMs);
+}
+
+void recordDefinitionCurrentUnitCall(double durationMs) {
+  std::lock_guard<std::mutex> lock(gDefinitionMetricsMutex);
+  recordSignatureHelpDuration(gDefinitionMetrics.currentUnitCallSamples,
+                              gDefinitionMetrics.currentUnitCallTotalMs,
+                              gDefinitionMetrics.currentUnitCallMaxMs,
+                              durationMs);
+}
+
+void recordDefinitionResponseWrite(double durationMs) {
+  std::lock_guard<std::mutex> lock(gDefinitionMetricsMutex);
+  recordSignatureHelpDuration(gDefinitionMetrics.responseWriteSamples,
+                              gDefinitionMetrics.responseWriteTotalMs,
+                              gDefinitionMetrics.responseWriteMaxMs,
+                              durationMs);
+}
+
+void recordHoverRequestSetup(double durationMs) {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  recordSignatureHelpDuration(gHoverMetrics.requestSetupSamples,
+                              gHoverMetrics.requestSetupTotalMs,
+                              gHoverMetrics.requestSetupMaxMs, durationMs);
+}
+
+void recordHoverCurrentDocDeclaration(double durationMs) {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  recordSignatureHelpDuration(gHoverMetrics.currentDocDeclarationSamples,
+                              gHoverMetrics.currentDocDeclarationTotalMs,
+                              gHoverMetrics.currentDocDeclarationMaxMs,
+                              durationMs);
+}
+
+void recordHoverCurrentDocFunction(double durationMs) {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  recordSignatureHelpDuration(gHoverMetrics.currentDocFunctionSamples,
+                              gHoverMetrics.currentDocFunctionTotalMs,
+                              gHoverMetrics.currentDocFunctionMaxMs,
+                              durationMs);
+}
+
+void recordHoverIncludeContextSummary(double durationMs) {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  recordSignatureHelpDuration(gHoverMetrics.includeContextSummarySamples,
+                              gHoverMetrics.includeContextSummaryTotalMs,
+                              gHoverMetrics.includeContextSummaryMaxMs,
+                              durationMs);
+}
+
+void recordHoverBuiltinDoc(double durationMs) {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  recordSignatureHelpDuration(gHoverMetrics.builtinDocSamples,
+                              gHoverMetrics.builtinDocTotalMs,
+                              gHoverMetrics.builtinDocMaxMs, durationMs);
+}
+
+void recordHoverMarkdownRender(double durationMs) {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  recordSignatureHelpDuration(gHoverMetrics.markdownRenderSamples,
+                              gHoverMetrics.markdownRenderTotalMs,
+                              gHoverMetrics.markdownRenderMaxMs, durationMs);
+}
+
+void recordHoverResponseWrite(double durationMs) {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  recordSignatureHelpDuration(gHoverMetrics.responseWriteSamples,
+                              gHoverMetrics.responseWriteTotalMs,
+                              gHoverMetrics.responseWriteMaxMs, durationMs);
+}
+
+void recordInlayDeferredSnapshotHit() {
+  std::lock_guard<std::mutex> lock(gInlayMetricsMutex);
+  gInlayMetrics.deferredSnapshotHitCount++;
+}
+
+void recordInlayDeferredSnapshotMiss() {
+  std::lock_guard<std::mutex> lock(gInlayMetricsMutex);
+  gInlayMetrics.deferredSnapshotMissCount++;
+}
+
+void recordInlayRangeBuild(double durationMs) {
+  std::lock_guard<std::mutex> lock(gInlayMetricsMutex);
+  recordSignatureHelpDuration(gInlayMetrics.rangeBuildSamples,
+                              gInlayMetrics.rangeBuildTotalMs,
+                              gInlayMetrics.rangeBuildMaxMs, durationMs);
+}
+
+void recordInlayFullBuild(double durationMs) {
+  std::lock_guard<std::mutex> lock(gInlayMetricsMutex);
+  recordSignatureHelpDuration(gInlayMetrics.fullBuildSamples,
+                              gInlayMetrics.fullBuildTotalMs,
+                              gInlayMetrics.fullBuildMaxMs, durationMs);
+}
+
+void recordInlayRangeFilter(double durationMs) {
+  std::lock_guard<std::mutex> lock(gInlayMetricsMutex);
+  recordSignatureHelpDuration(gInlayMetrics.rangeFilterSamples,
+                              gInlayMetrics.rangeFilterTotalMs,
+                              gInlayMetrics.rangeFilterMaxMs, durationMs);
+}
+
+void recordInlayResponseWrite(double durationMs) {
+  std::lock_guard<std::mutex> lock(gInlayMetricsMutex);
+  recordSignatureHelpDuration(gInlayMetrics.responseWriteSamples,
+                              gInlayMetrics.responseWriteTotalMs,
+                              gInlayMetrics.responseWriteMaxMs, durationMs);
 }
 
 bool handleCoreRequestMethods(const std::string &method, const Json &id,
@@ -205,7 +412,102 @@ SignatureHelpMetricsSnapshot takeSignatureHelpMetricsSnapshot() {
       gOverloadResolverAmbiguous.exchange(0, std::memory_order_relaxed);
   snapshot.overloadResolverNoViable =
       gOverloadResolverNoViable.exchange(0, std::memory_order_relaxed);
-  snapshot.overloadResolverShadowMismatch =
-      gOverloadResolverShadowMismatch.exchange(0, std::memory_order_relaxed);
+  snapshot.overloadResolverShadowMismatch = 0;
+  {
+    std::lock_guard<std::mutex> lock(gSignatureHelpTimingMetricsMutex);
+    snapshot.interactiveOverloadSamples =
+        gSignatureHelpTimingMetrics.interactiveOverloadSamples;
+    snapshot.interactiveOverloadTotalMs =
+        gSignatureHelpTimingMetrics.interactiveOverloadTotalMs;
+    snapshot.interactiveOverloadMaxMs =
+        gSignatureHelpTimingMetrics.interactiveOverloadMaxMs;
+    snapshot.builtinSignatureSamples =
+        gSignatureHelpTimingMetrics.builtinSignatureSamples;
+    snapshot.builtinSignatureTotalMs =
+        gSignatureHelpTimingMetrics.builtinSignatureTotalMs;
+    snapshot.builtinSignatureMaxMs =
+        gSignatureHelpTimingMetrics.builtinSignatureMaxMs;
+    snapshot.responseWriteSamples =
+        gSignatureHelpTimingMetrics.responseWriteSamples;
+    snapshot.responseWriteTotalMs =
+        gSignatureHelpTimingMetrics.responseWriteTotalMs;
+    snapshot.responseWriteMaxMs =
+        gSignatureHelpTimingMetrics.responseWriteMaxMs;
+    gSignatureHelpTimingMetrics = SignatureHelpTimingMetricState{};
+  }
+  return snapshot;
+}
+
+DefinitionMetricsSnapshot takeDefinitionMetricsSnapshot() {
+  std::lock_guard<std::mutex> lock(gDefinitionMetricsMutex);
+  DefinitionMetricsSnapshot snapshot;
+  snapshot.currentDocInteractiveSamples =
+      gDefinitionMetrics.currentDocInteractiveSamples;
+  snapshot.currentDocInteractiveTotalMs =
+      gDefinitionMetrics.currentDocInteractiveTotalMs;
+  snapshot.currentDocInteractiveMaxMs =
+      gDefinitionMetrics.currentDocInteractiveMaxMs;
+  snapshot.currentUnitCallSamples = gDefinitionMetrics.currentUnitCallSamples;
+  snapshot.currentUnitCallTotalMs = gDefinitionMetrics.currentUnitCallTotalMs;
+  snapshot.currentUnitCallMaxMs = gDefinitionMetrics.currentUnitCallMaxMs;
+  snapshot.responseWriteSamples = gDefinitionMetrics.responseWriteSamples;
+  snapshot.responseWriteTotalMs = gDefinitionMetrics.responseWriteTotalMs;
+  snapshot.responseWriteMaxMs = gDefinitionMetrics.responseWriteMaxMs;
+  gDefinitionMetrics = DefinitionMetricState{};
+  return snapshot;
+}
+
+HoverMetricsSnapshot takeHoverMetricsSnapshot() {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  HoverMetricsSnapshot snapshot;
+  snapshot.currentDocDeclarationSamples =
+      gHoverMetrics.currentDocDeclarationSamples;
+  snapshot.currentDocDeclarationTotalMs =
+      gHoverMetrics.currentDocDeclarationTotalMs;
+  snapshot.currentDocDeclarationMaxMs =
+      gHoverMetrics.currentDocDeclarationMaxMs;
+  snapshot.requestSetupSamples = gHoverMetrics.requestSetupSamples;
+  snapshot.requestSetupTotalMs = gHoverMetrics.requestSetupTotalMs;
+  snapshot.requestSetupMaxMs = gHoverMetrics.requestSetupMaxMs;
+  snapshot.currentDocFunctionSamples = gHoverMetrics.currentDocFunctionSamples;
+  snapshot.currentDocFunctionTotalMs = gHoverMetrics.currentDocFunctionTotalMs;
+  snapshot.currentDocFunctionMaxMs = gHoverMetrics.currentDocFunctionMaxMs;
+  snapshot.includeContextSummarySamples =
+      gHoverMetrics.includeContextSummarySamples;
+  snapshot.includeContextSummaryTotalMs =
+      gHoverMetrics.includeContextSummaryTotalMs;
+  snapshot.includeContextSummaryMaxMs =
+      gHoverMetrics.includeContextSummaryMaxMs;
+  snapshot.builtinDocSamples = gHoverMetrics.builtinDocSamples;
+  snapshot.builtinDocTotalMs = gHoverMetrics.builtinDocTotalMs;
+  snapshot.builtinDocMaxMs = gHoverMetrics.builtinDocMaxMs;
+  snapshot.markdownRenderSamples = gHoverMetrics.markdownRenderSamples;
+  snapshot.markdownRenderTotalMs = gHoverMetrics.markdownRenderTotalMs;
+  snapshot.markdownRenderMaxMs = gHoverMetrics.markdownRenderMaxMs;
+  snapshot.responseWriteSamples = gHoverMetrics.responseWriteSamples;
+  snapshot.responseWriteTotalMs = gHoverMetrics.responseWriteTotalMs;
+  snapshot.responseWriteMaxMs = gHoverMetrics.responseWriteMaxMs;
+  gHoverMetrics = HoverMetricState{};
+  return snapshot;
+}
+
+InlayMetricsSnapshot takeInlayMetricsSnapshot() {
+  std::lock_guard<std::mutex> lock(gInlayMetricsMutex);
+  InlayMetricsSnapshot snapshot;
+  snapshot.deferredSnapshotHitCount = gInlayMetrics.deferredSnapshotHitCount;
+  snapshot.deferredSnapshotMissCount = gInlayMetrics.deferredSnapshotMissCount;
+  snapshot.rangeBuildSamples = gInlayMetrics.rangeBuildSamples;
+  snapshot.rangeBuildTotalMs = gInlayMetrics.rangeBuildTotalMs;
+  snapshot.rangeBuildMaxMs = gInlayMetrics.rangeBuildMaxMs;
+  snapshot.fullBuildSamples = gInlayMetrics.fullBuildSamples;
+  snapshot.fullBuildTotalMs = gInlayMetrics.fullBuildTotalMs;
+  snapshot.fullBuildMaxMs = gInlayMetrics.fullBuildMaxMs;
+  snapshot.rangeFilterSamples = gInlayMetrics.rangeFilterSamples;
+  snapshot.rangeFilterTotalMs = gInlayMetrics.rangeFilterTotalMs;
+  snapshot.rangeFilterMaxMs = gInlayMetrics.rangeFilterMaxMs;
+  snapshot.responseWriteSamples = gInlayMetrics.responseWriteSamples;
+  snapshot.responseWriteTotalMs = gInlayMetrics.responseWriteTotalMs;
+  snapshot.responseWriteMaxMs = gInlayMetrics.responseWriteMaxMs;
+  gInlayMetrics = InlayMetricState{};
   return snapshot;
 }

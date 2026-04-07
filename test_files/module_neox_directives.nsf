@@ -1,0 +1,8 @@
+#art USE_FRESNEL "Enable Fresnel" "BOOL"
+#expression FRESNEL_TERM "dot(n, v)"
+#excludefromtemptech USE_FRESNEL
+
+float4 NeoxDirectiveEntry(float4 input) : SV_Target0
+{
+    return input;
+}

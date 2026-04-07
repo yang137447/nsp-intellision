@@ -1,10 +1,13 @@
 #include "interactive_semantic_runtime.hpp"
 
+#include "declaration_query.hpp"
 #include "document_owner.hpp"
 #include "document_runtime.hpp"
 #include "hlsl_builtin_docs.hpp"
 #include "hover_markdown.hpp"
+#include "main_occurrence_helpers.hpp"
 #include "nsf_lexer.hpp"
+#include "preprocessor_view.hpp"
 #include "server_parse.hpp"
 #include "semantic_snapshot.hpp"
 #include "server_request_handlers.hpp"
@@ -56,6 +59,74 @@ struct RuntimeSemanticInputs {
   std::unordered_map<std::string, int> defines;
 };
 
+PreprocessorIncludeContext makeInteractiveIncludeContext(
+    const std::string &uri, const ServerRequestContext &ctx) {
+  PreprocessorIncludeContext includeContext;
+  includeContext.currentUri = uri;
+  includeContext.workspaceFolders = ctx.workspaceFolders;
+  includeContext.includePaths = ctx.includePaths;
+  includeContext.shaderExtensions = ctx.shaderExtensions;
+  includeContext.loadText = [&](const std::string &includeUri,
+                                std::string &textOut) -> bool {
+    return ctx.readDocumentText(includeUri, textOut);
+  };
+  return includeContext;
+}
+
+bool tryFindNearbyDeclarationUpTo(const std::string &text,
+                                  const std::string &identifier,
+                                  size_t maxOffset,
+                                  const std::vector<char> *lineActive,
+                                  DeclCandidate &out) {
+  out = DeclCandidate{};
+  if (identifier.empty())
+    return false;
+  const std::vector<std::string> lines = splitLinesShared(text);
+  if (lines.empty())
+    return false;
+  const int cursorLine = std::max(
+      0, std::min(static_cast<int>(lines.size()) - 1,
+                  lineIndexForOffset(text, maxOffset)));
+  const int minLine = std::max(0, cursorLine - 48);
+  int closedBlockDepth = 0;
+  DeclCandidate uniqueMatch;
+  bool foundAny = false;
+  for (int lineIndex = cursorLine - 1; lineIndex >= minLine; --lineIndex) {
+    const bool lineIsActive =
+        !lineActive || lineIndex >= static_cast<int>(lineActive->size()) ||
+        (*lineActive)[static_cast<size_t>(lineIndex)] != 0;
+    if (lineIsActive && closedBlockDepth == 0) {
+      size_t pos = 0;
+      if (findDeclaredIdentifierInDeclarationLine(lines[lineIndex], identifier,
+                                                  pos)) {
+        if (foundAny) {
+          out = DeclCandidate{};
+          return false;
+        }
+        foundAny = true;
+        uniqueMatch.found = true;
+        uniqueMatch.line = lineIndex;
+        uniqueMatch.braceDepth = 0;
+        uniqueMatch.nameBytePos = pos;
+        uniqueMatch.lineText = lines[lineIndex];
+      }
+    }
+    if (!lineIsActive)
+      continue;
+    for (char ch : lines[lineIndex]) {
+      if (ch == '}') {
+        closedBlockDepth++;
+      } else if (ch == '{' && closedBlockDepth > 0) {
+        closedBlockDepth--;
+      }
+    }
+  }
+  if (!foundAny)
+    return false;
+  out = uniqueMatch;
+  return true;
+}
+
 struct InteractiveRuntimeMetricState {
   uint64_t snapshotRequests = 0;
   uint64_t analysisKeyHits = 0;
@@ -73,23 +144,53 @@ struct InteractiveRuntimeMetricState {
   uint64_t snapshotWaitSamples = 0;
   double snapshotWaitTotalMs = 0.0;
   double snapshotWaitMaxMs = 0.0;
+  uint64_t requestQueueWaitSamples = 0;
+  double requestQueueWaitTotalMs = 0.0;
+  double requestQueueWaitMaxMs = 0.0;
+  uint64_t requestContextBuildSamples = 0;
+  double requestContextBuildTotalMs = 0.0;
+  double requestContextBuildMaxMs = 0.0;
+  uint64_t ownerDidChangeSamples = 0;
+  double ownerDidChangeTotalMs = 0.0;
+  double ownerDidChangeMaxMs = 0.0;
+  uint64_t prewarmSamples = 0;
+  double prewarmTotalMs = 0.0;
+  double prewarmMaxMs = 0.0;
 };
 
 std::mutex gInteractiveMetricsMutex;
 InteractiveRuntimeMetricState gInteractiveMetrics;
 
+void recordDurationSample(uint64_t &samples, double &totalMs, double &maxMs,
+                          double sampleMs) {
+  samples++;
+  totalMs += sampleMs;
+  maxMs = std::max(maxMs, sampleMs);
+}
+
 void recordInteractiveSnapshotWait(double waitMs) {
   std::lock_guard<std::mutex> lock(gInteractiveMetricsMutex);
-  gInteractiveMetrics.snapshotWaitSamples++;
-  gInteractiveMetrics.snapshotWaitTotalMs += waitMs;
-  gInteractiveMetrics.snapshotWaitMaxMs =
-      std::max(gInteractiveMetrics.snapshotWaitMaxMs, waitMs);
+  recordDurationSample(gInteractiveMetrics.snapshotWaitSamples,
+                       gInteractiveMetrics.snapshotWaitTotalMs,
+                       gInteractiveMetrics.snapshotWaitMaxMs, waitMs);
 }
 
 void recordInteractiveMetric(const std::function<void(InteractiveRuntimeMetricState &)> &fn) {
   std::lock_guard<std::mutex> lock(gInteractiveMetricsMutex);
   fn(gInteractiveMetrics);
 }
+
+struct ScopedPrewarmMetric {
+  const std::chrono::steady_clock::time_point startedAt =
+      std::chrono::steady_clock::now();
+
+  ~ScopedPrewarmMetric() {
+    recordInteractivePrewarm(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - startedAt)
+            .count());
+  }
+};
 
 RuntimeSemanticInputs getRuntimeSemanticInputs(const DocumentRuntime &runtime,
                                                const ServerRequestContext &ctx) {
@@ -712,6 +813,37 @@ void collectEligibleSnapshots(
 
 } // namespace
 
+void recordInteractiveRequestQueueWait(double waitMs) {
+  recordInteractiveMetric([&](InteractiveRuntimeMetricState &state) {
+    recordDurationSample(state.requestQueueWaitSamples,
+                         state.requestQueueWaitTotalMs,
+                         state.requestQueueWaitMaxMs, waitMs);
+  });
+}
+
+void recordInteractiveRequestContextBuild(double buildMs) {
+  recordInteractiveMetric([&](InteractiveRuntimeMetricState &state) {
+    recordDurationSample(state.requestContextBuildSamples,
+                         state.requestContextBuildTotalMs,
+                         state.requestContextBuildMaxMs, buildMs);
+  });
+}
+
+void recordInteractiveOwnerDidChange(double durationMs) {
+  recordInteractiveMetric([&](InteractiveRuntimeMetricState &state) {
+    recordDurationSample(state.ownerDidChangeSamples,
+                         state.ownerDidChangeTotalMs,
+                         state.ownerDidChangeMaxMs, durationMs);
+  });
+}
+
+void recordInteractivePrewarm(double durationMs) {
+  recordInteractiveMetric([&](InteractiveRuntimeMetricState &state) {
+    recordDurationSample(state.prewarmSamples, state.prewarmTotalMs,
+                         state.prewarmMaxMs, durationMs);
+  });
+}
+
 std::shared_ptr<const InteractiveSnapshot> getOrBuildInteractiveSnapshot(
     const std::string &uri, const Document &doc, const ServerRequestContext &ctx,
     bool *usedLastGoodOut) {
@@ -751,6 +883,17 @@ std::shared_ptr<const InteractiveSnapshot> getOrBuildInteractiveSnapshot(
     return runtime.lastGoodInteractiveSnapshot;
   }
   recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+    state.snapshotBuildAttempts++;
+  });
+  if (auto built = buildCurrentInteractiveSnapshot(uri, doc, ctx, runtime)) {
+    documentOwnerStoreInteractiveSnapshot(uri, built);
+    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+      state.snapshotBuildSuccess++;
+    });
+    return built;
+  }
+  recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+    state.snapshotBuildFailed++;
     state.noSnapshotAvailable++;
     state.mergeMisses++;
   });
@@ -760,6 +903,7 @@ std::shared_ptr<const InteractiveSnapshot> getOrBuildInteractiveSnapshot(
 void interactiveSemanticRuntimePrewarm(const std::string &uri,
                                        const Document &doc,
                                        const ServerRequestContext &ctx) {
+  const ScopedPrewarmMetric metric;
   DocumentRuntime runtime;
   if (!documentRuntimeGet(uri, runtime))
     return;
@@ -837,7 +981,14 @@ void interactiveCollectCompletionItems(
 
   if (!prefix.empty()) {
     std::vector<IndexedDefinition> defs;
-    if (workspaceSummaryRuntimeQuerySymbols(prefix, defs, 64)) {
+    const auto workspaceQueryStartedAt = std::chrono::steady_clock::now();
+    const bool haveWorkspaceDefs =
+        workspaceSummaryRuntimeQuerySymbols(prefix, defs, 64);
+    recordCompletionWorkspaceSummaryQuery(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - workspaceQueryStartedAt)
+            .count());
+    if (haveWorkspaceDefs) {
       bool addedWorkspace = false;
       for (const auto &def : defs) {
         const size_t before = outItems.size();
@@ -864,6 +1015,41 @@ bool interactiveResolveDefinitionLocation(const std::string &uri,
   outLocation = DefinitionLocation{};
   DocumentRuntime runtime;
   const bool hasRuntime = documentOwnerGetRuntime(uri, runtime);
+  DeclCandidate currentDecl;
+  if (hasRuntime && runtime.activeUnitSnapshot.uri == uri &&
+      !runtime.activeUnitSnapshot.activeLineStates.empty() &&
+      findBestDeclarationUpTo(doc.text, symbol, cursorOffset,
+                              runtime.activeUnitSnapshot.activeLineStates,
+                              currentDecl) &&
+      currentDecl.found) {
+    outLocation.uri = uri;
+    outLocation.line = currentDecl.line;
+    outLocation.start = byteOffsetInLineToUtf16(
+        currentDecl.lineText, static_cast<int>(currentDecl.nameBytePos));
+    outLocation.end = outLocation.start + static_cast<int>(symbol.size());
+    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+      state.mergeCurrentDocHits++;
+    });
+    return true;
+  }
+
+  const PreprocessorIncludeContext includeContext =
+      makeInteractiveIncludeContext(uri, ctx);
+  if (findBestCurrentDocDeclarationUpTo(doc.text, symbol, cursorOffset,
+                                        ctx.preprocessorDefines, includeContext,
+                                        currentDecl) &&
+      currentDecl.found) {
+    outLocation.uri = uri;
+    outLocation.line = currentDecl.line;
+    outLocation.start = byteOffsetInLineToUtf16(
+        currentDecl.lineText, static_cast<int>(currentDecl.nameBytePos));
+    outLocation.end = outLocation.start + static_cast<int>(symbol.size());
+    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+      state.mergeCurrentDocHits++;
+    });
+    return true;
+  }
+
   bool usedLastGood = false;
   std::shared_ptr<const InteractiveSnapshot> current =
       getOrBuildInteractiveSnapshot(uri, doc, ctx, &usedLastGood);
@@ -991,18 +1177,192 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
     size_t cursorOffset, const ServerRequestContext &ctx,
     const MemberAccessBaseTypeOptions &options) {
   MemberAccessBaseTypeResult result;
+  DocumentRuntime runtime;
+  const bool hasRuntime = documentOwnerGetRuntime(uri, runtime);
+  DeclCandidate decl;
+  if (tryFindNearbyDeclarationUpTo(doc.text, base, cursorOffset, nullptr,
+                                   decl) &&
+      decl.found &&
+      findTypeOfIdentifierInDeclarationLineShared(decl.lineText, base,
+                                                  result.typeName) &&
+      !result.typeName.empty()) {
+    result.resolutionPath = "nearby_decl";
+    result.resolved = true;
+    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+      state.mergeCurrentDocHits++;
+    });
+    return result;
+  }
+
+  if (hasRuntime) {
+    bool publishedIsParam = false;
+    std::string publishedType;
+    std::shared_ptr<const InteractiveSnapshot> lastGood;
+    std::shared_ptr<const DeferredDocSnapshot> deferred;
+    collectEligibleSnapshots(runtime, lastGood, deferred);
+    if (runtime.interactiveSnapshot && runtime.interactiveSnapshot->semanticSnapshot &&
+        lookupTypeAtOffsetInSnapshot(*runtime.interactiveSnapshot->semanticSnapshot,
+                                     doc.text, base, cursorOffset, publishedType,
+                                     publishedIsParam) &&
+        !publishedType.empty()) {
+      result.typeName = publishedType;
+      result.resolutionPath = "published_current_snapshot";
+      result.resolved = true;
+      recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+        state.mergeCurrentDocHits++;
+      });
+      return result;
+    }
+    bool lastGoodIsParam = false;
+    if (lastGood && lastGood->semanticSnapshot &&
+        lookupTypeAtOffsetInSnapshot(*lastGood->semanticSnapshot, doc.text,
+                                     base, cursorOffset, publishedType,
+                                     lastGoodIsParam) &&
+        !publishedType.empty()) {
+      result.typeName = publishedType;
+      result.resolutionPath = "published_last_good_snapshot";
+      result.resolved = true;
+      recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+        state.mergeLastGoodHits++;
+      });
+      return result;
+    }
+    bool deferredIsParam = false;
+    if (deferred && deferred->semanticSnapshot &&
+        lookupTypeAtOffsetInSnapshot(*deferred->semanticSnapshot, doc.text,
+                                     base, cursorOffset, publishedType,
+                                     deferredIsParam) &&
+        !publishedType.empty()) {
+      result.typeName = publishedType;
+      result.resolutionPath = "published_deferred_snapshot";
+      result.resolved = true;
+      recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+        state.mergeDeferredDocHits++;
+      });
+      return result;
+    }
+  }
+
+  if (hasRuntime && runtime.activeUnitSnapshot.uri == uri &&
+      !runtime.activeUnitSnapshot.activeLineStates.empty() &&
+      findBestDeclarationUpTo(doc.text, base, cursorOffset,
+                              runtime.activeUnitSnapshot.activeLineStates,
+                              decl) &&
+      decl.found &&
+      findTypeOfIdentifierInDeclarationLineShared(decl.lineText, base,
+                                                  result.typeName) &&
+      !result.typeName.empty()) {
+    result.resolutionPath = "cached_active_lines_decl";
+    result.resolved = true;
+    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+      state.mergeCurrentDocHits++;
+    });
+    return result;
+  }
+
+  const PreprocessorIncludeContext includeContext =
+      makeInteractiveIncludeContext(uri, ctx);
+  if (findBestCurrentDocDeclarationUpTo(doc.text, base, cursorOffset,
+                                        ctx.preprocessorDefines, includeContext,
+                                        decl) &&
+      decl.found &&
+      findTypeOfIdentifierInDeclarationLineShared(decl.lineText, base,
+                                                  result.typeName) &&
+      !result.typeName.empty()) {
+    result.resolutionPath = "include_aware_decl";
+    result.resolved = true;
+    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+      state.mergeCurrentDocHits++;
+    });
+    return result;
+  }
+
+  if (findBestDeclarationUpTo(doc.text, base, cursorOffset, decl) &&
+      decl.found &&
+      findTypeOfIdentifierInDeclarationLineShared(decl.lineText, base,
+                                                  result.typeName) &&
+      !result.typeName.empty()) {
+    result.resolutionPath = "raw_decl";
+    result.resolved = true;
+    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+      state.mergeCurrentDocHits++;
+    });
+    return result;
+  }
+
   bool isParam = false;
   TypeEvalResult typeEval = interactiveResolveHoverTypeAtDeclaration(
       uri, doc, base, cursorOffset, ctx, isParam);
   result.typeName = typeEval.type;
+  if (!result.typeName.empty())
+    result.resolutionPath = "interactive_hover_type";
   result.resolved = !result.typeName.empty();
   if (result.resolved)
     return result;
+
+  const PreprocessorView preprocessorView =
+      buildPreprocessorView(doc.text, ctx.preprocessorDefines, includeContext);
+  for (const auto &includeUri : preprocessorView.activeIncludeUris) {
+    if (includeUri.empty() || includeUri == uri) {
+      continue;
+    }
+    std::string includeText;
+    if (!ctx.readDocumentText(includeUri, includeText)) {
+      continue;
+    }
+    DeclCandidate includeDecl;
+    if (!findBestDeclarationUpTo(includeText, base, includeText.size(),
+                                 includeDecl) ||
+        !includeDecl.found) {
+      continue;
+    }
+    if (!findTypeOfIdentifierInDeclarationLineShared(includeDecl.lineText,
+                                                     base, result.typeName) ||
+        result.typeName.empty()) {
+      continue;
+    }
+    result.resolutionPath = "active_include_decl";
+    result.resolved = true;
+    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+      state.mergeCurrentDocHits++;
+    });
+    return result;
+  }
+
+  if (hasRuntime) {
+    for (const auto &includeUri : runtime.activeUnitSnapshot.includeClosureUris) {
+      if (includeUri.empty() || includeUri == uri) {
+        continue;
+      }
+      std::string includeText;
+      if (!ctx.readDocumentText(includeUri, includeText)) {
+        continue;
+      }
+      DeclCandidate includeDecl;
+      if (!findBestDeclarationUpTo(includeText, base, includeText.size(),
+                                   includeDecl) ||
+          !includeDecl.found) {
+        continue;
+      }
+      if (!findTypeOfIdentifierInDeclarationLineShared(includeDecl.lineText,
+                                                       base, result.typeName) ||
+          result.typeName.empty()) {
+        continue;
+      }
+      result.resolutionPath = "include_closure_decl";
+      result.resolved = true;
+      recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+        state.mergeCurrentDocHits++;
+      });
+      return result;
+    }
+  }
 
   if (options.includeWorkspaceIndexFallback) {
     workspaceSummaryRuntimeGetSymbolType(base, result.typeName);
     result.resolved = !result.typeName.empty();
     if (result.resolved) {
+      result.resolutionPath = "workspace_symbol_type";
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeWorkspaceSummaryHits++;
       });
@@ -1236,6 +1596,22 @@ InteractiveRuntimeMetricsSnapshot takeInteractiveRuntimeMetricsSnapshot() {
   snapshot.snapshotWaitSamples = gInteractiveMetrics.snapshotWaitSamples;
   snapshot.snapshotWaitTotalMs = gInteractiveMetrics.snapshotWaitTotalMs;
   snapshot.snapshotWaitMaxMs = gInteractiveMetrics.snapshotWaitMaxMs;
+  snapshot.requestQueueWaitSamples =
+      gInteractiveMetrics.requestQueueWaitSamples;
+  snapshot.requestQueueWaitTotalMs = gInteractiveMetrics.requestQueueWaitTotalMs;
+  snapshot.requestQueueWaitMaxMs = gInteractiveMetrics.requestQueueWaitMaxMs;
+  snapshot.requestContextBuildSamples =
+      gInteractiveMetrics.requestContextBuildSamples;
+  snapshot.requestContextBuildTotalMs =
+      gInteractiveMetrics.requestContextBuildTotalMs;
+  snapshot.requestContextBuildMaxMs =
+      gInteractiveMetrics.requestContextBuildMaxMs;
+  snapshot.ownerDidChangeSamples = gInteractiveMetrics.ownerDidChangeSamples;
+  snapshot.ownerDidChangeTotalMs = gInteractiveMetrics.ownerDidChangeTotalMs;
+  snapshot.ownerDidChangeMaxMs = gInteractiveMetrics.ownerDidChangeMaxMs;
+  snapshot.prewarmSamples = gInteractiveMetrics.prewarmSamples;
+  snapshot.prewarmTotalMs = gInteractiveMetrics.prewarmTotalMs;
+  snapshot.prewarmMaxMs = gInteractiveMetrics.prewarmMaxMs;
   gInteractiveMetrics = InteractiveRuntimeMetricState{};
   return snapshot;
 }

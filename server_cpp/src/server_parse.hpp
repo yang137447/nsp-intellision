@@ -57,6 +57,13 @@ bool extractMetadataDeclarationHeaderShared(const std::string &line,
                                            std::string &typeOut,
                                            std::string &nameOut);
 
+// Parses an effect block declaration header such as `technique TShader` or
+// `pass p0`, returning the block kind and declared name when the line is a
+// valid header rather than an assignment or statement.
+bool extractTechniquePassDeclarationHeaderShared(const std::string &line,
+                                                 std::string &kindOut,
+                                                 std::string &nameOut);
+
 // Parses a metadata-block declaration header such as:
 // - `float u_value`
 // - `float4 u_uv_info : UVScale`

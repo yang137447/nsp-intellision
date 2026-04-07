@@ -24,6 +24,7 @@
 
 #include "active_unit.hpp"
 #include "crash_handler.hpp"
+#include "callsite_parser.hpp"
 #include "definition_location.hpp"
 #include "declaration_query.hpp"
 #include "deferred_doc_runtime.hpp"
@@ -58,6 +59,7 @@
 #include "main_background_refresh.hpp"
 #include "main_did_change_classification.hpp"
 #include "main_include_graph_cache.hpp"
+#include "member_query.hpp"
 #include "main_occurrence_helpers.hpp"
 
 
@@ -577,6 +579,10 @@ int main(int argc, char **argv) {
       IncludeGraphCacheMetricsSnapshot includeGraphSnapshot;
       FullAstMetricsSnapshot fullAstSnapshot;
       SignatureHelpMetricsSnapshot signatureHelpSnapshot;
+      CompletionMetricsSnapshot completionSnapshot;
+      DefinitionMetricsSnapshot definitionSnapshot;
+      HoverMetricsSnapshot hoverSnapshot;
+      InlayMetricsSnapshot inlaySnapshot;
       InteractiveRuntimeMetricsSnapshot interactiveRuntimeSnapshot;
       DeferredDocRuntimeMetricsSnapshot deferredDocRuntimeSnapshot;
       auto percentileMs = [](std::vector<double> samples,
@@ -633,6 +639,10 @@ int main(int argc, char **argv) {
       includeGraphSnapshot = takeIncludeGraphCacheMetricsSnapshot();
       fullAstSnapshot = takeFullAstMetricsSnapshot();
       signatureHelpSnapshot = takeSignatureHelpMetricsSnapshot();
+      completionSnapshot = takeCompletionMetricsSnapshot();
+      definitionSnapshot = takeDefinitionMetricsSnapshot();
+      hoverSnapshot = takeHoverMetricsSnapshot();
+      inlaySnapshot = takeInlayMetricsSnapshot();
       interactiveRuntimeSnapshot = takeInteractiveRuntimeMetricsSnapshot();
       deferredDocRuntimeSnapshot = takeDeferredDocRuntimeMetricsSnapshot();
       SemanticCacheMetricsSnapshot semanticCacheSnapshot =
@@ -763,6 +773,36 @@ int main(int argc, char **argv) {
           static_cast<double>(signatureHelpSnapshot.indeterminateReasonOther));
       signatureHelp.o["indeterminateReasons"] =
           signatureHelpIndeterminateReasons;
+      signatureHelp.o["interactiveOverloadSamples"] = makeNumber(
+          static_cast<double>(signatureHelpSnapshot.interactiveOverloadSamples));
+      signatureHelp.o["interactiveOverloadAvgMs"] = makeNumber(
+          signatureHelpSnapshot.interactiveOverloadSamples > 0
+              ? signatureHelpSnapshot.interactiveOverloadTotalMs /
+                    static_cast<double>(
+                        signatureHelpSnapshot.interactiveOverloadSamples)
+              : 0.0);
+      signatureHelp.o["interactiveOverloadMaxMs"] =
+          makeNumber(signatureHelpSnapshot.interactiveOverloadMaxMs);
+      signatureHelp.o["builtinSignatureSamples"] = makeNumber(
+          static_cast<double>(signatureHelpSnapshot.builtinSignatureSamples));
+      signatureHelp.o["builtinSignatureAvgMs"] = makeNumber(
+          signatureHelpSnapshot.builtinSignatureSamples > 0
+              ? signatureHelpSnapshot.builtinSignatureTotalMs /
+                    static_cast<double>(
+                        signatureHelpSnapshot.builtinSignatureSamples)
+              : 0.0);
+      signatureHelp.o["builtinSignatureMaxMs"] =
+          makeNumber(signatureHelpSnapshot.builtinSignatureMaxMs);
+      signatureHelp.o["responseWriteSamples"] = makeNumber(
+          static_cast<double>(signatureHelpSnapshot.responseWriteSamples));
+      signatureHelp.o["responseWriteAvgMs"] = makeNumber(
+          signatureHelpSnapshot.responseWriteSamples > 0
+              ? signatureHelpSnapshot.responseWriteTotalMs /
+                    static_cast<double>(
+                        signatureHelpSnapshot.responseWriteSamples)
+              : 0.0);
+      signatureHelp.o["responseWriteMaxMs"] =
+          makeNumber(signatureHelpSnapshot.responseWriteMaxMs);
       Json overloadResolverMetrics = makeObject();
       overloadResolverMetrics.o["attempts"] = makeNumber(
           static_cast<double>(signatureHelpSnapshot.overloadResolverAttempts));
@@ -776,6 +816,215 @@ int main(int argc, char **argv) {
           makeNumber(static_cast<double>(
               signatureHelpSnapshot.overloadResolverShadowMismatch));
       signatureHelp.o["overloadResolver"] = overloadResolverMetrics;
+      Json completionMetrics = makeObject();
+      completionMetrics.o["interactiveCollectSamples"] =
+          makeNumber(static_cast<double>(
+              completionSnapshot.interactiveCollectSamples));
+      completionMetrics.o["interactiveCollectAvgMs"] = makeNumber(
+          completionSnapshot.interactiveCollectSamples > 0
+              ? completionSnapshot.interactiveCollectTotalMs /
+                    static_cast<double>(
+                        completionSnapshot.interactiveCollectSamples)
+              : 0.0);
+      completionMetrics.o["interactiveCollectMaxMs"] =
+          makeNumber(completionSnapshot.interactiveCollectMaxMs);
+      completionMetrics.o["memberAccessDetectedCount"] =
+          makeNumber(static_cast<double>(
+              completionSnapshot.memberAccessDetectedCount));
+      completionMetrics.o["memberTypeResolvedCount"] =
+          makeNumber(static_cast<double>(
+              completionSnapshot.memberTypeResolvedCount));
+      completionMetrics.o["memberItemsReturnedCount"] =
+          makeNumber(static_cast<double>(
+              completionSnapshot.memberItemsReturnedCount));
+      completionMetrics.o["memberGenericFallbackCount"] =
+          makeNumber(static_cast<double>(
+              completionSnapshot.memberGenericFallbackCount));
+      completionMetrics.o["memberBaseResolveSamples"] = makeNumber(
+          static_cast<double>(completionSnapshot.memberBaseResolveSamples));
+      completionMetrics.o["memberBaseResolveAvgMs"] = makeNumber(
+          completionSnapshot.memberBaseResolveSamples > 0
+              ? completionSnapshot.memberBaseResolveTotalMs /
+                    static_cast<double>(
+                        completionSnapshot.memberBaseResolveSamples)
+              : 0.0);
+      completionMetrics.o["memberBaseResolveMaxMs"] =
+          makeNumber(completionSnapshot.memberBaseResolveMaxMs);
+      completionMetrics.o["memberQuerySamples"] = makeNumber(
+          static_cast<double>(completionSnapshot.memberQuerySamples));
+      completionMetrics.o["memberQueryAvgMs"] = makeNumber(
+          completionSnapshot.memberQuerySamples > 0
+              ? completionSnapshot.memberQueryTotalMs /
+                    static_cast<double>(completionSnapshot.memberQuerySamples)
+              : 0.0);
+      completionMetrics.o["memberQueryMaxMs"] =
+          makeNumber(completionSnapshot.memberQueryMaxMs);
+      completionMetrics.o["workspaceSummaryQuerySamples"] = makeNumber(
+          static_cast<double>(
+              completionSnapshot.workspaceSummaryQuerySamples));
+      completionMetrics.o["workspaceSummaryQueryAvgMs"] = makeNumber(
+          completionSnapshot.workspaceSummaryQuerySamples > 0
+              ? completionSnapshot.workspaceSummaryQueryTotalMs /
+                    static_cast<double>(
+                        completionSnapshot.workspaceSummaryQuerySamples)
+              : 0.0);
+      completionMetrics.o["workspaceSummaryQueryMaxMs"] =
+          makeNumber(completionSnapshot.workspaceSummaryQueryMaxMs);
+      completionMetrics.o["itemAssemblySamples"] = makeNumber(
+          static_cast<double>(completionSnapshot.itemAssemblySamples));
+      completionMetrics.o["itemAssemblyAvgMs"] = makeNumber(
+          completionSnapshot.itemAssemblySamples > 0
+              ? completionSnapshot.itemAssemblyTotalMs /
+                    static_cast<double>(completionSnapshot.itemAssemblySamples)
+              : 0.0);
+      completionMetrics.o["itemAssemblyMaxMs"] =
+          makeNumber(completionSnapshot.itemAssemblyMaxMs);
+      completionMetrics.o["responseWriteSamples"] = makeNumber(
+          static_cast<double>(completionSnapshot.responseWriteSamples));
+      completionMetrics.o["responseWriteAvgMs"] = makeNumber(
+          completionSnapshot.responseWriteSamples > 0
+              ? completionSnapshot.responseWriteTotalMs /
+                    static_cast<double>(completionSnapshot.responseWriteSamples)
+              : 0.0);
+      completionMetrics.o["responseWriteMaxMs"] =
+          makeNumber(completionSnapshot.responseWriteMaxMs);
+      Json definitionMetrics = makeObject();
+      definitionMetrics.o["currentDocInteractiveSamples"] = makeNumber(
+          static_cast<double>(definitionSnapshot.currentDocInteractiveSamples));
+      definitionMetrics.o["currentDocInteractiveAvgMs"] = makeNumber(
+          definitionSnapshot.currentDocInteractiveSamples > 0
+              ? definitionSnapshot.currentDocInteractiveTotalMs /
+                    static_cast<double>(
+                        definitionSnapshot.currentDocInteractiveSamples)
+              : 0.0);
+      definitionMetrics.o["currentDocInteractiveMaxMs"] =
+          makeNumber(definitionSnapshot.currentDocInteractiveMaxMs);
+      definitionMetrics.o["currentUnitCallSamples"] = makeNumber(
+          static_cast<double>(definitionSnapshot.currentUnitCallSamples));
+      definitionMetrics.o["currentUnitCallAvgMs"] = makeNumber(
+          definitionSnapshot.currentUnitCallSamples > 0
+              ? definitionSnapshot.currentUnitCallTotalMs /
+                    static_cast<double>(
+                        definitionSnapshot.currentUnitCallSamples)
+              : 0.0);
+      definitionMetrics.o["currentUnitCallMaxMs"] =
+          makeNumber(definitionSnapshot.currentUnitCallMaxMs);
+      definitionMetrics.o["responseWriteSamples"] = makeNumber(
+          static_cast<double>(definitionSnapshot.responseWriteSamples));
+      definitionMetrics.o["responseWriteAvgMs"] = makeNumber(
+          definitionSnapshot.responseWriteSamples > 0
+              ? definitionSnapshot.responseWriteTotalMs /
+                    static_cast<double>(
+                        definitionSnapshot.responseWriteSamples)
+              : 0.0);
+      definitionMetrics.o["responseWriteMaxMs"] =
+          makeNumber(definitionSnapshot.responseWriteMaxMs);
+      Json hoverMetrics = makeObject();
+      hoverMetrics.o["currentDocDeclarationSamples"] = makeNumber(
+          static_cast<double>(hoverSnapshot.currentDocDeclarationSamples));
+      hoverMetrics.o["currentDocDeclarationAvgMs"] = makeNumber(
+          hoverSnapshot.currentDocDeclarationSamples > 0
+              ? hoverSnapshot.currentDocDeclarationTotalMs /
+                    static_cast<double>(
+                        hoverSnapshot.currentDocDeclarationSamples)
+              : 0.0);
+      hoverMetrics.o["currentDocDeclarationMaxMs"] =
+          makeNumber(hoverSnapshot.currentDocDeclarationMaxMs);
+      hoverMetrics.o["requestSetupSamples"] = makeNumber(
+          static_cast<double>(hoverSnapshot.requestSetupSamples));
+      hoverMetrics.o["requestSetupAvgMs"] = makeNumber(
+          hoverSnapshot.requestSetupSamples > 0
+              ? hoverSnapshot.requestSetupTotalMs /
+                    static_cast<double>(hoverSnapshot.requestSetupSamples)
+              : 0.0);
+      hoverMetrics.o["requestSetupMaxMs"] =
+          makeNumber(hoverSnapshot.requestSetupMaxMs);
+      hoverMetrics.o["currentDocFunctionSamples"] = makeNumber(
+          static_cast<double>(hoverSnapshot.currentDocFunctionSamples));
+      hoverMetrics.o["currentDocFunctionAvgMs"] = makeNumber(
+          hoverSnapshot.currentDocFunctionSamples > 0
+              ? hoverSnapshot.currentDocFunctionTotalMs /
+                    static_cast<double>(hoverSnapshot.currentDocFunctionSamples)
+              : 0.0);
+      hoverMetrics.o["currentDocFunctionMaxMs"] =
+          makeNumber(hoverSnapshot.currentDocFunctionMaxMs);
+      hoverMetrics.o["includeContextSummarySamples"] = makeNumber(
+          static_cast<double>(hoverSnapshot.includeContextSummarySamples));
+      hoverMetrics.o["includeContextSummaryAvgMs"] = makeNumber(
+          hoverSnapshot.includeContextSummarySamples > 0
+              ? hoverSnapshot.includeContextSummaryTotalMs /
+                    static_cast<double>(hoverSnapshot.includeContextSummarySamples)
+              : 0.0);
+      hoverMetrics.o["includeContextSummaryMaxMs"] =
+          makeNumber(hoverSnapshot.includeContextSummaryMaxMs);
+      hoverMetrics.o["builtinDocSamples"] = makeNumber(
+          static_cast<double>(hoverSnapshot.builtinDocSamples));
+      hoverMetrics.o["builtinDocAvgMs"] = makeNumber(
+          hoverSnapshot.builtinDocSamples > 0
+              ? hoverSnapshot.builtinDocTotalMs /
+                    static_cast<double>(hoverSnapshot.builtinDocSamples)
+              : 0.0);
+      hoverMetrics.o["builtinDocMaxMs"] =
+          makeNumber(hoverSnapshot.builtinDocMaxMs);
+      hoverMetrics.o["markdownRenderSamples"] = makeNumber(
+          static_cast<double>(hoverSnapshot.markdownRenderSamples));
+      hoverMetrics.o["markdownRenderAvgMs"] = makeNumber(
+          hoverSnapshot.markdownRenderSamples > 0
+              ? hoverSnapshot.markdownRenderTotalMs /
+                    static_cast<double>(hoverSnapshot.markdownRenderSamples)
+              : 0.0);
+      hoverMetrics.o["markdownRenderMaxMs"] =
+          makeNumber(hoverSnapshot.markdownRenderMaxMs);
+      hoverMetrics.o["responseWriteSamples"] = makeNumber(
+          static_cast<double>(hoverSnapshot.responseWriteSamples));
+      hoverMetrics.o["responseWriteAvgMs"] = makeNumber(
+          hoverSnapshot.responseWriteSamples > 0
+              ? hoverSnapshot.responseWriteTotalMs /
+                    static_cast<double>(hoverSnapshot.responseWriteSamples)
+              : 0.0);
+      hoverMetrics.o["responseWriteMaxMs"] =
+          makeNumber(hoverSnapshot.responseWriteMaxMs);
+      Json inlayMetrics = makeObject();
+      inlayMetrics.o["deferredSnapshotHitCount"] =
+          makeNumber(static_cast<double>(inlaySnapshot.deferredSnapshotHitCount));
+      inlayMetrics.o["deferredSnapshotMissCount"] =
+          makeNumber(static_cast<double>(inlaySnapshot.deferredSnapshotMissCount));
+      inlayMetrics.o["rangeBuildSamples"] =
+          makeNumber(static_cast<double>(inlaySnapshot.rangeBuildSamples));
+      inlayMetrics.o["rangeBuildAvgMs"] = makeNumber(
+          inlaySnapshot.rangeBuildSamples > 0
+              ? inlaySnapshot.rangeBuildTotalMs /
+                    static_cast<double>(inlaySnapshot.rangeBuildSamples)
+              : 0.0);
+      inlayMetrics.o["rangeBuildMaxMs"] =
+          makeNumber(inlaySnapshot.rangeBuildMaxMs);
+      inlayMetrics.o["fullBuildSamples"] =
+          makeNumber(static_cast<double>(inlaySnapshot.fullBuildSamples));
+      inlayMetrics.o["fullBuildAvgMs"] = makeNumber(
+          inlaySnapshot.fullBuildSamples > 0
+              ? inlaySnapshot.fullBuildTotalMs /
+                    static_cast<double>(inlaySnapshot.fullBuildSamples)
+              : 0.0);
+      inlayMetrics.o["fullBuildMaxMs"] =
+          makeNumber(inlaySnapshot.fullBuildMaxMs);
+      inlayMetrics.o["rangeFilterSamples"] =
+          makeNumber(static_cast<double>(inlaySnapshot.rangeFilterSamples));
+      inlayMetrics.o["rangeFilterAvgMs"] = makeNumber(
+          inlaySnapshot.rangeFilterSamples > 0
+              ? inlaySnapshot.rangeFilterTotalMs /
+                    static_cast<double>(inlaySnapshot.rangeFilterSamples)
+              : 0.0);
+      inlayMetrics.o["rangeFilterMaxMs"] =
+          makeNumber(inlaySnapshot.rangeFilterMaxMs);
+      inlayMetrics.o["responseWriteSamples"] =
+          makeNumber(static_cast<double>(inlaySnapshot.responseWriteSamples));
+      inlayMetrics.o["responseWriteAvgMs"] = makeNumber(
+          inlaySnapshot.responseWriteSamples > 0
+              ? inlaySnapshot.responseWriteTotalMs /
+                    static_cast<double>(inlaySnapshot.responseWriteSamples)
+              : 0.0);
+      inlayMetrics.o["responseWriteMaxMs"] =
+          makeNumber(inlaySnapshot.responseWriteMaxMs);
       Json interactiveRuntime = makeObject();
       const uint64_t interactiveMergeTotal =
           interactiveRuntimeSnapshot.mergeCurrentDocHits +
@@ -834,6 +1083,46 @@ int main(int argc, char **argv) {
               : 0.0);
       interactiveRuntime.o["snapshotWaitMaxMs"] =
           makeNumber(interactiveRuntimeSnapshot.snapshotWaitMaxMs);
+      interactiveRuntime.o["requestQueueWaitSamples"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.requestQueueWaitSamples));
+      interactiveRuntime.o["requestQueueWaitAvgMs"] = makeNumber(
+          interactiveRuntimeSnapshot.requestQueueWaitSamples > 0
+              ? interactiveRuntimeSnapshot.requestQueueWaitTotalMs /
+                    static_cast<double>(
+                        interactiveRuntimeSnapshot.requestQueueWaitSamples)
+              : 0.0);
+      interactiveRuntime.o["requestQueueWaitMaxMs"] =
+          makeNumber(interactiveRuntimeSnapshot.requestQueueWaitMaxMs);
+      interactiveRuntime.o["requestContextBuildSamples"] = makeNumber(
+          static_cast<double>(
+              interactiveRuntimeSnapshot.requestContextBuildSamples));
+      interactiveRuntime.o["requestContextBuildAvgMs"] = makeNumber(
+          interactiveRuntimeSnapshot.requestContextBuildSamples > 0
+              ? interactiveRuntimeSnapshot.requestContextBuildTotalMs /
+                    static_cast<double>(
+                        interactiveRuntimeSnapshot.requestContextBuildSamples)
+              : 0.0);
+      interactiveRuntime.o["requestContextBuildMaxMs"] =
+          makeNumber(interactiveRuntimeSnapshot.requestContextBuildMaxMs);
+      interactiveRuntime.o["ownerDidChangeSamples"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.ownerDidChangeSamples));
+      interactiveRuntime.o["ownerDidChangeAvgMs"] = makeNumber(
+          interactiveRuntimeSnapshot.ownerDidChangeSamples > 0
+              ? interactiveRuntimeSnapshot.ownerDidChangeTotalMs /
+                    static_cast<double>(
+                        interactiveRuntimeSnapshot.ownerDidChangeSamples)
+              : 0.0);
+      interactiveRuntime.o["ownerDidChangeMaxMs"] =
+          makeNumber(interactiveRuntimeSnapshot.ownerDidChangeMaxMs);
+      interactiveRuntime.o["prewarmSamples"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.prewarmSamples));
+      interactiveRuntime.o["prewarmAvgMs"] = makeNumber(
+          interactiveRuntimeSnapshot.prewarmSamples > 0
+              ? interactiveRuntimeSnapshot.prewarmTotalMs /
+                    static_cast<double>(interactiveRuntimeSnapshot.prewarmSamples)
+              : 0.0);
+      interactiveRuntime.o["prewarmMaxMs"] =
+          makeNumber(interactiveRuntimeSnapshot.prewarmMaxMs);
 
       Json deferredDocRuntime = makeObject();
       deferredDocRuntime.o["scheduled"] =
@@ -870,6 +1159,10 @@ int main(int argc, char **argv) {
       params.o["includeGraphCache"] = includeGraphCache;
       params.o["fullAst"] = fullAst;
       params.o["signatureHelp"] = signatureHelp;
+      params.o["completionMetrics"] = completionMetrics;
+      params.o["definitionMetrics"] = definitionMetrics;
+      params.o["hoverMetrics"] = hoverMetrics;
+      params.o["inlayMetrics"] = inlayMetrics;
       params.o["interactiveRuntime"] = interactiveRuntime;
       params.o["deferredDocRuntime"] = deferredDocRuntime;
       writeNotification("nsf/metrics", params);
@@ -900,6 +1193,8 @@ int main(int argc, char **argv) {
     uint64_t latestOnlyEpoch = 0;
     std::string inlayUri;
     uint64_t inlayEpoch = 0;
+    std::chrono::steady_clock::time_point enqueuedAt =
+        std::chrono::steady_clock::now();
   };
 
   std::mutex queueMutex;
@@ -997,6 +1292,7 @@ int main(int argc, char **argv) {
 
   auto enqueueRequest = [&](QueuedRequest request) {
     std::lock_guard<std::mutex> lock(queueMutex);
+    request.enqueuedAt = std::chrono::steady_clock::now();
     if (request.method == "textDocument/inlayHint" &&
         !request.inlayUri.empty()) {
       request.inlayEpoch = ++inlayLatestEpochByUri[request.inlayUri];
@@ -1084,6 +1380,12 @@ int main(int argc, char **argv) {
       }
 
       const auto requestStart = std::chrono::steady_clock::now();
+      if (interactiveLane) {
+        recordInteractiveRequestQueueWait(
+            std::chrono::duration<double, std::milli>(requestStart -
+                                                      request.enqueuedAt)
+                .count());
+      }
       if (isRequestCanceled(request)) {
         if (request.hasId)
           writeError(request.id, -32800, "Request cancelled");
@@ -1098,7 +1400,17 @@ int main(int argc, char **argv) {
         continue;
       }
 
-      ServerRequestContext requestCtx = makeRuntimeRequestContext();
+      ServerRequestContext requestCtx;
+      if (interactiveLane) {
+        const auto contextBuildStartedAt = std::chrono::steady_clock::now();
+        requestCtx = makeRuntimeRequestContext();
+        recordInteractiveRequestContextBuild(
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - contextBuildStartedAt)
+                .count());
+      } else {
+        requestCtx = makeRuntimeRequestContext();
+      }
       requestCtx.isCancellationRequested = [&, request]() {
         return isRequestCanceled(request);
       };
@@ -1195,8 +1507,14 @@ int main(int argc, char **argv) {
                                        shaderExtensionsSnapshot);
       Json completionProvider = makeObject();
       Json triggerChars = makeArray();
+      for (char ch = 'a'; ch <= 'z'; ++ch)
+        triggerChars.a.push_back(makeString(std::string(1, ch)));
+      for (char ch = 'A'; ch <= 'Z'; ++ch)
+        triggerChars.a.push_back(makeString(std::string(1, ch)));
+      for (char ch = '0'; ch <= '9'; ++ch)
+        triggerChars.a.push_back(makeString(std::string(1, ch)));
       for (const auto &ch :
-           std::vector<std::string>{"#", "\"", "<", ".", "["}) {
+           std::vector<std::string>{"_", "#", "\"", "<", ".", "["}) {
         triggerChars.a.push_back(makeString(ch));
       }
       completionProvider.o["triggerCharacters"] = triggerChars;
@@ -1447,7 +1765,6 @@ int main(int argc, char **argv) {
 
         const int delay = 180;
         const int followupDelay = 1200;
-        const bool fallbackRefreshAll = !changedUris.empty();
         for (const auto &doc : documentSnapshot) {
           std::string docPath = uriToPath(doc.uri);
           if (docPath.empty())
@@ -1463,8 +1780,7 @@ int main(int argc, char **argv) {
           if (directlyChanged || includeImpacted) {
             refreshUris.push_back(doc.uri);
           }
-          if (underUnit || directlyChanged || includeImpacted ||
-              fallbackRefreshAll) {
+          if (underUnit || directlyChanged || includeImpacted) {
             scheduleDiagnosticsForText(doc, true, false, delay);
             if (!changedUris.empty()) {
               scheduleDiagnosticsForText(doc, false, true, -1, followupDelay);
@@ -1500,12 +1816,7 @@ int main(int argc, char **argv) {
         unitPath = pathValue->s;
         uri = pathToUri(unitPath);
       }
-      const std::string previousUri = getActiveUnitUri();
-      const std::string previousPath = getActiveUnitPath();
       setActiveUnit(uri, unitPath);
-      if (previousUri != uri || previousPath != unitPath) {
-        workspaceSummaryRuntimeKickIndexing("activeUnitChange");
-      }
       documentOwnerRefreshAnalysisContext(makeDocumentRuntimeOptions(),
                                           makeRuntimeRequestContext());
       if (!uri.empty()) {
@@ -1523,6 +1834,8 @@ int main(int argc, char **argv) {
           scheduleDiagnosticsForText(activeDoc, true, true, 80, 220);
         }
       }
+      if (id.type != Json::Type::Null)
+        writeResponse(id, makeNull());
       continue;
     }
 
@@ -1619,6 +1932,162 @@ int main(int argc, char **argv) {
       result.o["documents"] = std::move(documents);
       if (id.type != Json::Type::Null)
         writeResponse(id, result);
+      continue;
+    }
+
+    if (method == "nsf/_debugMemberCompletion") {
+      Json result = makeObject();
+      if (params) {
+        const Json *uriValue = getObjectValue(*params, "uri");
+        const Json *lineValue = getObjectValue(*params, "line");
+        const Json *charValue = getObjectValue(*params, "character");
+        if (uriValue && lineValue && charValue &&
+            uriValue->type == Json::Type::String &&
+            lineValue->type == Json::Type::Number &&
+            charValue->type == Json::Type::Number) {
+          const std::string uri = uriValue->s;
+          Document doc;
+          bool hasDoc = false;
+          {
+            std::lock_guard<std::mutex> lock(coreMutex);
+            auto it = core.documents.find(uri);
+            if (it != core.documents.end()) {
+              doc = it->second;
+              hasDoc = true;
+            }
+          }
+          if (hasDoc) {
+            const int line =
+                static_cast<int>(std::llround(getNumberValue(*lineValue)));
+            const int character =
+                static_cast<int>(std::llround(getNumberValue(*charValue)));
+            const size_t cursorOffset =
+                positionToOffsetUtf16(doc.text, line, character);
+            std::string base;
+            std::string member;
+            const bool detected = extractMemberAccessAtOffset(
+                doc.text, cursorOffset, base, member);
+            result.o["memberAccessDetected"] = makeBool(detected);
+            result.o["base"] = makeString(base);
+            result.o["member"] = makeString(member);
+            if (detected) {
+              ServerRequestContext debugCtx = makeRuntimeRequestContext();
+              PreprocessorIncludeContext includeContext;
+              includeContext.currentUri = uri;
+              includeContext.workspaceFolders = debugCtx.workspaceFolders;
+              includeContext.includePaths = debugCtx.includePaths;
+              includeContext.shaderExtensions = debugCtx.shaderExtensions;
+              includeContext.loadText = [&](const std::string &includeUri,
+                                            std::string &textOut) -> bool {
+                return debugCtx.readDocumentText(includeUri, textOut);
+              };
+              DeclCandidate decl;
+              DeclCandidate rawDecl;
+              if (findBestDeclarationUpTo(doc.text, base, cursorOffset, rawDecl) &&
+                  rawDecl.found) {
+                result.o["rawCurrentDocDeclarationFound"] = makeBool(true);
+                result.o["rawCurrentDocDeclarationLine"] =
+                    makeNumber(static_cast<double>(rawDecl.line));
+                result.o["rawCurrentDocDeclarationLineText"] =
+                    makeString(rawDecl.lineText);
+              } else {
+                result.o["rawCurrentDocDeclarationFound"] = makeBool(false);
+              }
+              if (findBestCurrentDocDeclarationUpTo(
+                      doc.text, base, cursorOffset, preprocessorDefines,
+                      includeContext, decl) &&
+                  decl.found) {
+                result.o["currentDocDeclarationFound"] = makeBool(true);
+                result.o["currentDocDeclarationLine"] =
+                    makeNumber(static_cast<double>(decl.line));
+                result.o["currentDocDeclarationLineText"] =
+                    makeString(decl.lineText);
+                std::string declarationType;
+                if (findTypeOfIdentifierInDeclarationLineShared(
+                        decl.lineText, base, declarationType)) {
+                  result.o["currentDocDeclarationType"] =
+                      makeString(declarationType);
+                }
+              } else {
+                result.o["currentDocDeclarationFound"] = makeBool(false);
+              }
+              MemberAccessBaseTypeOptions options;
+              options.includeWorkspaceIndexFallback = true;
+              MemberAccessBaseTypeResult resolved =
+                  resolveMemberAccessBaseType(uri, doc, base, cursorOffset,
+                                              debugCtx, options);
+              result.o["resolved"] = makeBool(resolved.resolved);
+              result.o["resolvedType"] = makeString(resolved.typeName);
+              result.o["resolutionPath"] = makeString(resolved.resolutionPath);
+              if (resolved.resolved) {
+                MemberCompletionQuery query;
+                const bool queryOk = collectMemberCompletionQuery(
+                    uri, resolved.typeName, debugCtx, query);
+                result.o["queryOk"] = makeBool(queryOk);
+                result.o["fieldCount"] =
+                    makeNumber(static_cast<double>(query.fields.size()));
+                result.o["methodCount"] =
+                    makeNumber(static_cast<double>(query.methods.size()));
+                Json fields = makeArray();
+                for (const auto &field : query.fields) {
+                  fields.a.push_back(makeString(field.name));
+                }
+                Json methods = makeArray();
+                for (const auto &methodName : query.methods) {
+                  methods.a.push_back(makeString(methodName));
+                }
+                result.o["fields"] = std::move(fields);
+                result.o["methods"] = std::move(methods);
+              }
+            }
+          }
+        }
+      }
+      if (id.type != Json::Type::Null)
+        writeResponse(id, result);
+      continue;
+    }
+
+    if (method == "nsf/_getLastCompletionDebug") {
+      CompletionDebugSnapshot snapshot = getLastCompletionDebugSnapshot();
+      Json result = makeObject();
+      result.o["memberAccessDetected"] =
+          makeBool(snapshot.memberAccessDetected);
+      result.o["line"] = makeNumber(static_cast<double>(snapshot.line));
+      result.o["character"] =
+          makeNumber(static_cast<double>(snapshot.character));
+      result.o["lineText"] = makeString(snapshot.lineText);
+      result.o["base"] = makeString(snapshot.base);
+      result.o["member"] = makeString(snapshot.member);
+      result.o["memberTypeResolved"] = makeBool(snapshot.memberTypeResolved);
+      result.o["resolvedType"] = makeString(snapshot.resolvedType);
+      result.o["memberItemsReturned"] = makeBool(snapshot.memberItemsReturned);
+      result.o["fieldCount"] =
+          makeNumber(static_cast<double>(snapshot.fieldCount));
+      result.o["methodCount"] =
+          makeNumber(static_cast<double>(snapshot.methodCount));
+      result.o["path"] = makeString(snapshot.path);
+      if (id.type != Json::Type::Null)
+        writeResponse(id, result);
+      continue;
+    }
+
+    if (method == "nsf/_invalidateInlayHints") {
+      if (params) {
+        const Json *uriValue = getObjectValue(*params, "uri");
+        if (uriValue && uriValue->type == Json::Type::String &&
+            !uriValue->s.empty()) {
+          deferredDocRuntimeInvalidateInlayHints(uriValue->s);
+        }
+      }
+      if (id.type != Json::Type::Null)
+        writeResponse(id, makeNull());
+      continue;
+    }
+
+    if (method == "nsf/ping") {
+      if (id.type != Json::Type::Null)
+        writeResponse(id, makeNull());
       continue;
     }
 

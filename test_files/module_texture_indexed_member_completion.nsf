@@ -1,0 +1,6 @@
+Texture2D gTexArr[2];
+SamplerState gSampler;
+
+float4 TextureIndexedMemberEntry(float2 uv : TEXCOORD0) : SV_Target0 {
+  return gTexArr[0].Sample(gSampler, uv);
+}

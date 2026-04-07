@@ -3,6 +3,7 @@ node_modules
 .vscode-test
 *.tsbuildinfo
 debug.log
+*.log
 .trae/
 .vscode/nsp/
 server_cpp/build*/
@@ -13,3 +14,4 @@ nsf_lsp_crash.log
 Thumbs.db
 .DS_Store
 .vsix-stage2/
+.agent-harness/

@@ -50,6 +50,21 @@
       "name": "pragma",
       "documentation": "Passes implementation-defined instructions to the compiler.",
       "syntax": "#pragma directive"
+    },
+    {
+      "name": "art",
+      "documentation": "Project-specific Neox directive that declares an artist-visible macro for material and shader tooling.",
+      "syntax": "#art NAME \"Label\" \"TYPE\""
+    },
+    {
+      "name": "expression",
+      "documentation": "Project-specific Neox directive that declares an expression-export macro.",
+      "syntax": "#expression NAME \"Expression\""
+    },
+    {
+      "name": "excludefromtemptech",
+      "documentation": "Project-specific Neox directive that excludes a macro from temporary-tech auto-processing.",
+      "syntax": "#excludefromtemptech NAME"
     }
   ]
 }

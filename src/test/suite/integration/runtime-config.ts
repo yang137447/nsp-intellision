@@ -229,6 +229,101 @@ export function registerRuntimeExternalFileConfigTests(): void {
 				await configuration.update('intellisionPath', previousIncludePaths, vscode.ConfigurationTarget.Workspace);
 			}
 		});
+
+		it('does not rebuild workspace index when opening external files with workspace folders', async function () {
+			this.timeout(120000);
+
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+				const tempRoot = path.join(os.tmpdir(), `nsf_external_index_${Date.now()}`);
+				const shaderSource = path.join(tempRoot, 'shader-source');
+				const terrain = path.join(shaderSource, 'terrain');
+				const mainFile = path.join(terrain, 'external_index_guard.hlsl');
+
+				try {
+					await fs.promises.mkdir(terrain, { recursive: true });
+					await fs.promises.writeFile(
+						mainFile,
+						`float4 ExternalIndexGuard(float2 uv : TEXCOORD0) : SV_Target0\n{\n    return float4(uv, 0.0, 1.0);\n}\n`,
+						'utf8'
+					);
+
+					await waitForClientReady('client ready before opening external file');
+					const beforeStatus = await waitFor(
+						() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+						(value) =>
+							value?.indexingState?.state === 'Idle' &&
+							(value?.indexingState?.pending?.queuedTasks ?? 0) === 0 &&
+							(value?.indexingState?.pending?.runningWorkers ?? 0) === 0,
+						'indexing idle before opening external file'
+					);
+					const beforeEpoch = beforeStatus?.indexingState?.epoch;
+
+					await openExternalDocument(mainFile);
+					await new Promise((resolve) => setTimeout(resolve, 1200));
+
+					const afterStatus = await waitFor(
+						() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+						(value) => Boolean(value?.indexingState),
+						'indexing state after opening external file'
+					);
+					assert.strictEqual(
+						afterStatus?.indexingState?.state,
+						'Idle',
+						'Expected opening an external file not to push the workspace index out of Idle.'
+					);
+					assert.strictEqual(
+						afterStatus?.indexingState?.epoch,
+						beforeEpoch,
+						'Expected opening an external file not to trigger a workspace index reconfiguration.'
+					);
+				} finally {
+					if (fs.existsSync(tempRoot)) {
+						await fs.promises.rmdir(tempRoot, { recursive: true });
+					}
+				}
+			});
+		});
+
+		it('does not rebuild workspace index when active unit changes', async function () {
+			this.timeout(120000);
+
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
+				const unitA = path.join(getWorkspaceRoot(), 'test_files', 'include_context', 'units', 'multi_context_symbol_a.nsf');
+				const unitB = path.join(getWorkspaceRoot(), 'test_files', 'include_context', 'units', 'multi_context_symbol_b.nsf');
+
+				await waitForClientReady('client ready before active unit switch');
+				await openFixture('include_context/units/multi_context_symbol_a.nsf');
+				const beforeStatus = await waitFor(
+					() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+					(value) =>
+						value?.indexingState?.state === 'Idle' &&
+						(value?.indexingState?.pending?.queuedTasks ?? 0) === 0 &&
+						(value?.indexingState?.pending?.runningWorkers ?? 0) === 0,
+					'indexing idle before active unit switch'
+				);
+				const beforeEpoch = beforeStatus?.indexingState?.epoch;
+
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', vscode.Uri.file(unitA).toString());
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', vscode.Uri.file(unitB).toString());
+				await new Promise((resolve) => setTimeout(resolve, 1200));
+
+				const afterStatus = await waitFor(
+					() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+					(value) => Boolean(value?.indexingState),
+					'indexing state after active unit switch'
+				);
+				assert.strictEqual(
+					afterStatus?.indexingState?.state,
+					'Idle',
+					'Expected switching active unit not to push workspace indexing out of Idle.'
+				);
+				assert.strictEqual(
+					afterStatus?.indexingState?.epoch,
+					beforeEpoch,
+					'Expected switching active unit not to trigger workspace index rebuild.'
+				);
+			});
+		});
 	});
 }
 
@@ -244,6 +339,8 @@ export function registerRuntimeFileWatchTests(): void {
 			const expectedUndefinedAfterUpdate = updatedDefinedSymbol !== 'u_value';
 
 			try {
+				await waitForClientReady('client ready for file-watch smoke');
+				await waitForIndexingIdle('indexing idle for file-watch smoke');
 				const consumerDocument = await openFixture('watch_consumer.nsf');
 
 				const initialDiagnostics = await waitFor(
@@ -260,31 +357,13 @@ export function registerRuntimeFileWatchTests(): void {
 				revertEdit.delete(consumerDocument.uri, new vscode.Range(0, 0, 0, 1));
 				await vscode.workspace.applyEdit(revertEdit);
 
-				let updatedDiagnostics: readonly vscode.Diagnostic[];
-				try {
-					updatedDiagnostics = await waitFor(
-						() => vscode.languages.getDiagnostics(consumerDocument.uri),
-						(value) =>
-							Array.isArray(value) &&
-							value.some((diag) => diag.message.includes('Undefined identifier: u_value.')) === expectedUndefinedAfterUpdate,
-						'watch updated diagnostics'
-					);
-				} catch {
-					const reopenedDocument = await openFixture('watch_consumer.nsf');
-					const refreshEdit = new vscode.WorkspaceEdit();
-					refreshEdit.insert(reopenedDocument.uri, new vscode.Position(0, 0), ' ');
-					await vscode.workspace.applyEdit(refreshEdit);
-					const refreshRevert = new vscode.WorkspaceEdit();
-					refreshRevert.delete(reopenedDocument.uri, new vscode.Range(0, 0, 0, 1));
-					await vscode.workspace.applyEdit(refreshRevert);
-					updatedDiagnostics = await waitFor(
-						() => vscode.languages.getDiagnostics(reopenedDocument.uri),
-						(value) =>
-							Array.isArray(value) &&
-							value.some((diag) => diag.message.includes('Undefined identifier: u_value.')) === expectedUndefinedAfterUpdate,
-						'watch updated diagnostics after reopen'
-					);
-				}
+				const updatedDiagnostics = await waitForDiagnosticsWithTouches(
+					consumerDocument,
+					(value) =>
+						value.some((diag) => diag.message.includes('Undefined identifier: u_value.')) ===
+						expectedUndefinedAfterUpdate,
+					'watch updated diagnostics'
+				);
 				const updatedHasUndefined = updatedDiagnostics.some((diag) =>
 					diag.message.includes('Undefined identifier: u_value.')
 				);

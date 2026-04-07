@@ -1,6 +1,7 @@
 #pragma once
 
 #include "definition_location.hpp"
+#include "semantic_snapshot.hpp"
 #include "server_documents.hpp"
 
 #include <cstddef>
@@ -17,6 +18,7 @@ struct MemberAccessBaseTypeOptions {
 
 struct MemberAccessBaseTypeResult {
   std::string typeName;
+  std::string resolutionPath;
   bool resolved = false;
 };
 
@@ -40,6 +42,20 @@ bool resolveMemberHoverInfo(const std::string &uri,
                             const std::string &memberName,
                             ServerRequestContext &ctx,
                             MemberHoverInfo &out);
+
+// Shared workspace-summary fallback payload for struct hover.
+//
+// This query centralizes the request-layer fallback that assembles field names,
+// field types, and indexed struct location from workspace summary.
+struct StructHoverFallbackInfo {
+  std::vector<SemanticSnapshotStructFieldInfo> fields;
+  DefinitionLocation ownerStructLocation;
+  bool hasStructLocation = false;
+  bool found = false;
+};
+
+bool resolveStructHoverFallbackInfo(const std::string &ownerType,
+                                    StructHoverFallbackInfo &out);
 
 // Consumer-ready struct field entry used by member completion rendering.
 //

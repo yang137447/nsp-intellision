@@ -102,6 +102,27 @@ function getCompletionItems(result: vscode.CompletionList | vscode.CompletionIte
 	return Array.isArray(result) ? result : result.items;
 }
 
+function hoverToText(hovers: vscode.Hover[]): string {
+	const parts: string[] = [];
+	for (const hover of hovers) {
+		for (const content of hover.contents) {
+			if (typeof content === 'string') {
+				parts.push(content);
+				continue;
+			}
+			if (content instanceof vscode.MarkdownString) {
+				parts.push(content.value);
+				continue;
+			}
+			const maybeValue = (content as unknown as { value?: unknown }).value;
+			if (typeof maybeValue === 'string') {
+				parts.push(maybeValue);
+			}
+		}
+	}
+	return parts.join('\n');
+}
+
 realDescribe('NSF real workspace smoke', () => {
 	it('works against a real project nsf file', async function () {
 		this.timeout(180000);
@@ -357,5 +378,47 @@ realDescribe('NSF real workspace smoke', () => {
 		assert.ok(names.includes('BlueTideInflunence'));
 		assert.ok(names.includes('textureNoTile'));
 		assert.ok(names.includes('BlueTideTerrainInflunence'));
+	});
+
+	it('resolves hover and definition for direct include-chain helper functions in real nsf files', async function () {
+		this.timeout(180000);
+		const shaderSourceRoot = getWorkspaceFolderPath('shader-source');
+		const multilayerPath = path.join(shaderSourceRoot, 'sfx', 'uber_fx_common_multilayer.nsf');
+		const multilayerDocument = await openDocument(multilayerPath);
+		await waitForIndexingIdle('real workspace indexing idle for uber_fx_common_multilayer.nsf');
+
+		const loadBatchPosition = positionOf(multilayerDocument, 'LoadBatchParamsVs', 1, 3);
+		const hovers = await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Hover[]>(
+					'vscode.executeHoverProvider',
+					multilayerDocument.uri,
+					loadBatchPosition
+				),
+			(value) => {
+				if (!Array.isArray(value) || value.length === 0) {
+					return false;
+				}
+				return hoverToText(value).includes('LoadBatchParamsVs(');
+			},
+			'real workspace LoadBatchParamsVs hover'
+		);
+		assert.ok(hoverToText(hovers).includes('LoadBatchParamsVs('));
+
+		const definitions = await waitFor(
+			() =>
+				vscode.commands.executeCommand<ProviderLocation[]>(
+					'vscode.executeDefinitionProvider',
+					multilayerDocument.uri,
+					loadBatchPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'real workspace LoadBatchParamsVs definition'
+		);
+		const basenames = definitions.map((item) => path.basename(toFsPath(item)).toLowerCase());
+		assert.ok(
+			basenames.includes('uber_fx_common_multilayer_batch.hlsl'),
+			`Expected LoadBatchParamsVs to resolve to uber_fx_common_multilayer_batch.hlsl, got ${basenames.join(', ')}`
+		);
 	});
 });

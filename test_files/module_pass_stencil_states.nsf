@@ -1,0 +1,29 @@
+float4 vs_main(float4 position : POSITION) : SV_Position
+{
+    return position;
+}
+
+float4 ps_main() : SV_Target0
+{
+    return float4(1.0, 1.0, 1.0, 1.0);
+}
+
+technique TShader
+<
+    string Description = "pbr_default";
+    string SupportDeferredShading = "1";
+>
+{
+    pass p0
+    {
+        StencilEnable = TRUE;
+        StencilRef = 240;
+        StencilReadMask = 0x000f;
+        StencilWriteMask = 0x00f0;
+        StencilFunc = ALWAYS;
+        StencilPass = REPLACE;
+
+        VertexShader = vs_main;
+        PixelShader = ps_main;
+    }
+}

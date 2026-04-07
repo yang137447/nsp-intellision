@@ -9,8 +9,11 @@
 #include "lsp_io.hpp"
 #include "server_request_handler_common.hpp"
 #include "text_utils.hpp"
+#include "uri_utils.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -19,20 +22,28 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
                                        ServerRequestContext &ctx,
                                        const std::vector<std::string> &,
                                        const std::vector<std::string> &) {
+  auto writeSignatureHelpResponse = [&](const Json &response) {
+    const auto responseWriteStartedAt = std::chrono::steady_clock::now();
+    writeResponse(id, response);
+    recordSignatureHelpResponseWrite(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - responseWriteStartedAt)
+            .count());
+  };
   if (method != "textDocument/signatureHelp" || !params)
     return false;
 
   const Json *textDocument = getObjectValue(*params, "textDocument");
   const Json *position = getObjectValue(*params, "position");
   if (!textDocument || !position) {
-    writeResponse(id, makeNull());
+    writeSignatureHelpResponse(makeNull());
     return true;
   }
   const Json *uriValue = getObjectValue(*textDocument, "uri");
   const Json *lineValue = getObjectValue(*position, "line");
   const Json *charValue = getObjectValue(*position, "character");
   if (!uriValue || !lineValue || !charValue) {
-    writeResponse(id, makeNull());
+    writeSignatureHelpResponse(makeNull());
     return true;
   }
   std::string uri = getStringValue(*uriValue);
@@ -40,7 +51,7 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
   int character = static_cast<int>(getNumberValue(*charValue));
   const Document *doc = ctx.findDocument(uri);
   if (!doc) {
-    writeResponse(id, makeNull());
+    writeSignatureHelpResponse(makeNull());
     return true;
   }
 
@@ -49,7 +60,7 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
   int activeParameter = 0;
   if (!parseCallSiteAtOffset(doc->text, cursorOffset, functionName,
                              activeParameter)) {
-    writeResponse(id, makeNull());
+    writeSignatureHelpResponse(makeNull());
     return true;
   }
 
@@ -94,16 +105,67 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
         result.o["signatures"] = signatures;
         result.o["activeSignature"] = makeNumber(0);
         result.o["activeParameter"] = makeNumber(clampedActive);
-        writeResponse(id, result);
+        recordSignatureHelpBuiltinSignature(0.0);
+        writeSignatureHelpResponse(result);
         return true;
       }
     }
   }
 
+  std::vector<CurrentUnitFunctionTarget> currentUnitTargets;
+  if (collectCurrentUnitFunctionTargets(uri, functionName, ctx,
+                                        currentUnitTargets) &&
+      !currentUnitTargets.empty()) {
+    Json signatures = makeArray();
+    for (const auto &target : currentUnitTargets) {
+      Json signature = makeObject();
+      signature.o["label"] = makeString(
+          target.label.empty() ? (functionName + "(...)") : target.label);
+      Json parameters = makeArray();
+      for (const auto &param : target.parameters) {
+        Json parameter = makeObject();
+        parameter.o["label"] = makeString(param);
+        parameters.a.push_back(std::move(parameter));
+      }
+      signature.o["parameters"] = parameters;
+      if (currentUnitTargets.size() > 1) {
+        const std::string fileLabel =
+            std::filesystem::path(uriToPath(target.definition.uri))
+                .filename()
+                .string();
+        signature.o["documentation"] = makeMarkup(
+            "Current-unit include closure ambiguous.\n\nCandidate: " +
+            (fileLabel.empty() ? target.definition.uri : fileLabel));
+      }
+      signatures.a.push_back(std::move(signature));
+    }
+
+    int clampedActive = 0;
+    if (!currentUnitTargets.front().parameters.empty()) {
+      clampedActive = std::max(
+          0, std::min(activeParameter,
+                      static_cast<int>(
+                          currentUnitTargets.front().parameters.size()) -
+                          1));
+    }
+
+    Json result = makeObject();
+    result.o["signatures"] = signatures;
+    result.o["activeSignature"] = makeNumber(0);
+    result.o["activeParameter"] = makeNumber(clampedActive);
+    writeSignatureHelpResponse(result);
+    return true;
+  }
+
   std::vector<SemanticSnapshotFunctionOverloadInfo> interactiveOverloads;
+  const auto interactiveOverloadStartedAt = std::chrono::steady_clock::now();
   if (interactiveResolveFunctionOverloads(uri, *doc, functionName, ctx,
                                           interactiveOverloads) &&
       !interactiveOverloads.empty()) {
+    recordSignatureHelpInteractiveOverloads(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - interactiveOverloadStartedAt)
+            .count());
     Json signatures = makeArray();
     const size_t signatureLimit =
         std::min<size_t>(50, interactiveOverloads.size());
@@ -141,13 +203,14 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
     result.o["signatures"] = signatures;
     result.o["activeSignature"] = makeNumber(activeSignature);
     result.o["activeParameter"] = makeNumber(clampedActive);
-    writeResponse(id, result);
+    writeSignatureHelpResponse(result);
     return true;
   }
 
   SignatureHelpTargetResult target =
       resolveSignatureHelpTarget(uri, functionName, ctx);
   if (target.builtinSigs && !target.builtinSigs->empty()) {
+    const auto builtinSignatureStartedAt = std::chrono::steady_clock::now();
     Json signatures = makeArray();
     const size_t signatureLimit =
         std::min<size_t>(50, target.builtinSigs->size());
@@ -188,13 +251,17 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
     result.o["signatures"] = signatures;
     result.o["activeSignature"] = makeNumber(activeSignature);
     result.o["activeParameter"] = makeNumber(clampedActive);
-    writeResponse(id, result);
+    recordSignatureHelpBuiltinSignature(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - builtinSignatureStartedAt)
+            .count());
+    writeSignatureHelpResponse(result);
     return true;
   }
 
   if (!target.hasDefinition) {
     emitSignatureHelpIndeterminateTrace(functionName, target.typeEval);
-    writeResponse(id, makeNull());
+    writeSignatureHelpResponse(makeNull());
     return true;
   }
   if (kEnableOverloadResolver) {
@@ -256,24 +323,11 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
                             static_cast<int>(bestCandidate.params.size()) - 1));
           }
         }
-        if (kEnableOverloadResolverShadowCompare) {
-          std::string legacyLabel;
-          std::vector<std::string> legacyParams;
-          if (resolveFunctionParametersFromTarget(functionName, target, ctx,
-                                                  legacyLabel, legacyParams)) {
-            if (!legacyLabel.empty() && !resolverLabel.empty() &&
-                legacyLabel != resolverLabel) {
-              emitSignatureHelpResolverShadowMismatch(
-                  uri, functionName, resolverLabel, legacyLabel,
-                  resolveCallStatusToString(resolveResult.status));
-            }
-          }
-        }
         Json result = makeObject();
         result.o["signatures"] = signatures;
         result.o["activeSignature"] = makeNumber(0);
         result.o["activeParameter"] = makeNumber(clampedActive);
-        writeResponse(id, result);
+        writeSignatureHelpResponse(result);
         return true;
       }
     }
@@ -287,7 +341,7 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
     typeEval.reasonCode =
         IndeterminateReason::SignatureHelpSignatureExtractFailed;
     emitSignatureHelpIndeterminateTrace(functionName, typeEval);
-    writeResponse(id, makeNull());
+    writeSignatureHelpResponse(makeNull());
     return true;
   }
 
@@ -313,7 +367,7 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
   result.o["signatures"] = signatures;
   result.o["activeSignature"] = makeNumber(0);
   result.o["activeParameter"] = makeNumber(clampedActive);
-  writeResponse(id, result);
+  writeSignatureHelpResponse(result);
   return true;
 }
 

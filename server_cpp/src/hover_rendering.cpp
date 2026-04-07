@@ -99,6 +99,17 @@ std::string renderHoverSymbolMarkdown(const HoverSymbolMarkdownInput &input) {
     markdown += "\n\nIndeterminate reason=";
     markdown += input.indeterminateReason;
   }
+  if (!input.uiMetadata.empty()) {
+    markdown += "\n\nUI metadata:";
+    for (const auto &item : input.uiMetadata) {
+      if (item.key.empty() || item.value.empty())
+        continue;
+      markdown += "\n- ";
+      markdown += item.key;
+      markdown += ": ";
+      markdown += item.value;
+    }
+  }
   if (!input.definedAt.empty()) {
     markdown += "\n\nDefined at: ";
     markdown += input.definedAt;

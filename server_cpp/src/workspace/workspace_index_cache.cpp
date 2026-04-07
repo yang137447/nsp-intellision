@@ -189,44 +189,22 @@ bool loadIndexStoreFromDisk(const std::string &key,
     return true;
   };
 
-  auto tryLoadIndexV1 = [&](const fs::path &path, IndexStore &loadedOut) -> bool {
-    std::error_code ec;
-    if (!fs::exists(path, ec))
-      return false;
-    std::string content;
-    if (!readFileToString(path.string(), content))
-      return false;
-    Json root;
-    if (!parseJson(content, root))
-      return false;
-    IndexStore loaded;
-    if (!deserializeIndex(root, loaded))
-      return false;
-    if (loaded.key != key)
-      return false;
-    loadedOut = std::move(loaded);
-    return true;
-  };
-
   IndexStore loaded;
   if (tryLoadIndexV2(loaded)) {
     out = std::move(loaded);
     return true;
   }
 
+  auto clearLegacyV1Path = [](const fs::path &path) {
+    std::error_code ec;
+    if (!fs::exists(path, ec))
+      return;
+    fs::remove(path, ec);
+  };
   const fs::path shardV1Path = indexV1CachePathForKey(workspaceFolders, key);
-  if (tryLoadIndexV1(shardV1Path, loaded)) {
-    out = loaded;
-    saveIndexStoreToDisk(out, workspaceFolders);
-    return true;
-  }
-
   const fs::path legacyV1Path = indexV1LegacyCachePath(workspaceFolders);
-  if (tryLoadIndexV1(legacyV1Path, loaded)) {
-    out = loaded;
-    saveIndexStoreToDisk(out, workspaceFolders);
-    return true;
-  }
+  clearLegacyV1Path(shardV1Path);
+  clearLegacyV1Path(legacyV1Path);
 
   return false;
 }

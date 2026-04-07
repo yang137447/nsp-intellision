@@ -86,9 +86,151 @@ struct SignatureHelpMetricsSnapshot {
   uint64_t overloadResolverAmbiguous = 0;
   uint64_t overloadResolverNoViable = 0;
   uint64_t overloadResolverShadowMismatch = 0;
+  uint64_t interactiveOverloadSamples = 0;
+  double interactiveOverloadTotalMs = 0.0;
+  double interactiveOverloadMaxMs = 0.0;
+  uint64_t builtinSignatureSamples = 0;
+  double builtinSignatureTotalMs = 0.0;
+  double builtinSignatureMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
 };
 
+void recordSignatureHelpInteractiveOverloads(double durationMs);
+void recordSignatureHelpBuiltinSignature(double durationMs);
+void recordSignatureHelpResponseWrite(double durationMs);
 SignatureHelpMetricsSnapshot takeSignatureHelpMetricsSnapshot();
+
+struct CompletionMetricsSnapshot {
+  uint64_t interactiveCollectSamples = 0;
+  double interactiveCollectTotalMs = 0.0;
+  double interactiveCollectMaxMs = 0.0;
+  uint64_t memberAccessDetectedCount = 0;
+  uint64_t memberTypeResolvedCount = 0;
+  uint64_t memberItemsReturnedCount = 0;
+  uint64_t memberGenericFallbackCount = 0;
+  uint64_t memberBaseResolveSamples = 0;
+  double memberBaseResolveTotalMs = 0.0;
+  double memberBaseResolveMaxMs = 0.0;
+  uint64_t memberQuerySamples = 0;
+  double memberQueryTotalMs = 0.0;
+  double memberQueryMaxMs = 0.0;
+  uint64_t workspaceSummaryQuerySamples = 0;
+  double workspaceSummaryQueryTotalMs = 0.0;
+  double workspaceSummaryQueryMaxMs = 0.0;
+  uint64_t itemAssemblySamples = 0;
+  double itemAssemblyTotalMs = 0.0;
+  double itemAssemblyMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
+};
+
+void recordCompletionInteractiveCollect(double durationMs);
+void recordCompletionWorkspaceSummaryQuery(double durationMs);
+void recordCompletionItemAssembly(double durationMs);
+void recordCompletionResponseWrite(double durationMs);
+void recordCompletionMemberAccessDetected();
+void recordCompletionMemberTypeResolved();
+void recordCompletionMemberItemsReturned();
+void recordCompletionMemberGenericFallback();
+void recordCompletionMemberBaseResolve(double durationMs);
+void recordCompletionMemberQuery(double durationMs);
+CompletionMetricsSnapshot takeCompletionMetricsSnapshot();
+
+struct CompletionDebugSnapshot {
+  bool memberAccessDetected = false;
+  int line = -1;
+  int character = -1;
+  std::string lineText;
+  std::string base;
+  std::string member;
+  bool memberTypeResolved = false;
+  std::string resolvedType;
+  bool memberItemsReturned = false;
+  uint64_t fieldCount = 0;
+  uint64_t methodCount = 0;
+  std::string path;
+};
+
+void updateLastCompletionDebugSnapshot(const CompletionDebugSnapshot &snapshot);
+CompletionDebugSnapshot getLastCompletionDebugSnapshot();
+
+struct DefinitionMetricsSnapshot {
+  uint64_t currentDocInteractiveSamples = 0;
+  double currentDocInteractiveTotalMs = 0.0;
+  double currentDocInteractiveMaxMs = 0.0;
+  uint64_t currentUnitCallSamples = 0;
+  double currentUnitCallTotalMs = 0.0;
+  double currentUnitCallMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
+};
+
+void recordDefinitionCurrentDocInteractive(double durationMs);
+void recordDefinitionCurrentUnitCall(double durationMs);
+void recordDefinitionResponseWrite(double durationMs);
+DefinitionMetricsSnapshot takeDefinitionMetricsSnapshot();
+
+struct HoverMetricsSnapshot {
+  uint64_t currentDocDeclarationSamples = 0;
+  double currentDocDeclarationTotalMs = 0.0;
+  double currentDocDeclarationMaxMs = 0.0;
+  uint64_t requestSetupSamples = 0;
+  double requestSetupTotalMs = 0.0;
+  double requestSetupMaxMs = 0.0;
+  uint64_t currentDocFunctionSamples = 0;
+  double currentDocFunctionTotalMs = 0.0;
+  double currentDocFunctionMaxMs = 0.0;
+  uint64_t includeContextSummarySamples = 0;
+  double includeContextSummaryTotalMs = 0.0;
+  double includeContextSummaryMaxMs = 0.0;
+  uint64_t builtinDocSamples = 0;
+  double builtinDocTotalMs = 0.0;
+  double builtinDocMaxMs = 0.0;
+  uint64_t markdownRenderSamples = 0;
+  double markdownRenderTotalMs = 0.0;
+  double markdownRenderMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
+};
+
+void recordHoverRequestSetup(double durationMs);
+void recordHoverCurrentDocDeclaration(double durationMs);
+void recordHoverCurrentDocFunction(double durationMs);
+void recordHoverIncludeContextSummary(double durationMs);
+void recordHoverBuiltinDoc(double durationMs);
+void recordHoverMarkdownRender(double durationMs);
+void recordHoverResponseWrite(double durationMs);
+HoverMetricsSnapshot takeHoverMetricsSnapshot();
+
+struct InlayMetricsSnapshot {
+  uint64_t deferredSnapshotHitCount = 0;
+  uint64_t deferredSnapshotMissCount = 0;
+  uint64_t rangeBuildSamples = 0;
+  double rangeBuildTotalMs = 0.0;
+  double rangeBuildMaxMs = 0.0;
+  uint64_t fullBuildSamples = 0;
+  double fullBuildTotalMs = 0.0;
+  double fullBuildMaxMs = 0.0;
+  uint64_t rangeFilterSamples = 0;
+  double rangeFilterTotalMs = 0.0;
+  double rangeFilterMaxMs = 0.0;
+  uint64_t responseWriteSamples = 0;
+  double responseWriteTotalMs = 0.0;
+  double responseWriteMaxMs = 0.0;
+};
+
+void recordInlayDeferredSnapshotHit();
+void recordInlayDeferredSnapshotMiss();
+void recordInlayRangeBuild(double durationMs);
+void recordInlayFullBuild(double durationMs);
+void recordInlayRangeFilter(double durationMs);
+void recordInlayResponseWrite(double durationMs);
+InlayMetricsSnapshot takeInlayMetricsSnapshot();
 
 // Dispatches the core LSP request methods owned by server_request_handlers.cpp.
 //

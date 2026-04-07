@@ -1,7 +1,9 @@
 float u_b_distance_length
 <
+    string SasUiGroup = "Distance";
     string SasUiLabel = "Distance length";
     string SasUiControl = "FloatSlider";
+    float SasUiSteps = 0.5;
     float SasUiMin = 0.0;
     float SasUiMax = 2000.0;
 > = 800.0f;

@@ -1,5 +1,6 @@
 #include "call_query.hpp"
 
+#include "active_unit.hpp"
 #include "interactive_semantic_runtime.hpp"
 #include "callsite_parser.hpp"
 #include "indeterminate_reasons.hpp"
@@ -7,11 +8,14 @@
 #include "nsf_lexer.hpp"
 #include "semantic_snapshot.hpp"
 #include "server_request_handlers.hpp"
+#include "server_parse.hpp"
 #include "text_utils.hpp"
+#include "uri_utils.hpp"
 #include "workspace_summary_runtime.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <unordered_set>
 #include <utility>
 
@@ -19,6 +23,70 @@ namespace {
 
 std::string trimCopyCallQuery(const std::string &value) {
   return trimRightCopy(trimLeftCopy(value));
+}
+
+bool pathHasNsfExtensionCallQuery(const std::string &path) {
+  std::string ext = std::filesystem::path(path).extension().string();
+  std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return ext == ".nsf";
+}
+
+std::string normalizeComparablePathCallQuery(std::string value) {
+  value = std::filesystem::path(value).lexically_normal().string();
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char ch) {
+                   char c = static_cast<char>(std::tolower(ch));
+                   return c == '\\' ? '/' : c;
+                 });
+  while (value.size() > 1 && value.back() == '/')
+    value.pop_back();
+  return value;
+}
+
+std::string resolveCurrentUnitPathForCallQuery(const std::string &uri) {
+  const std::string activeUnitPath = getActiveUnitPath();
+  const std::string currentPath = uriToPath(uri);
+  if (!currentPath.empty() && pathHasNsfExtensionCallQuery(currentPath))
+    return currentPath;
+  if (!activeUnitPath.empty())
+    return activeUnitPath;
+  if (currentPath.empty())
+    return std::string();
+
+  std::vector<std::string> candidateUnits;
+  workspaceSummaryRuntimeCollectIncludingUnits({uri}, candidateUnits, 2);
+  if (candidateUnits.size() == 1)
+    return candidateUnits.front();
+  return std::string();
+}
+
+void collectCurrentUnitClosureUrisForCallQuery(
+    const std::string &uri, std::vector<std::string> &outUris) {
+  outUris.clear();
+  const std::string currentUnitPath = resolveCurrentUnitPathForCallQuery(uri);
+  if (currentUnitPath.empty())
+    return;
+
+  std::unordered_set<std::string> seen;
+  auto appendPath = [&](const std::string &path) {
+    if (path.empty())
+      return;
+    const std::string normalizedPath =
+        std::filesystem::path(path).lexically_normal().string();
+    const std::string key = normalizeComparablePathCallQuery(normalizedPath);
+    if (key.empty() || !seen.insert(key).second)
+      return;
+    outUris.push_back(pathToUri(normalizedPath));
+  };
+
+  appendPath(currentUnitPath);
+  std::vector<std::string> includeClosurePaths;
+  workspaceSummaryRuntimeCollectIncludeClosureForUnit(currentUnitPath,
+                                                      includeClosurePaths, 1024);
+  for (const auto &path : includeClosurePaths)
+    appendPath(path);
 }
 
 std::string extractReturnTypeFromLabelCallQuery(const std::string &label,
@@ -288,6 +356,136 @@ TypeDesc inferArgumentTypeDescAtCursor(const std::string &uri,
 
 } // namespace
 
+bool resolveCurrentUnitFunctionTarget(const std::string &uri,
+                                      const std::string &functionName,
+                                      const ServerRequestContext &ctx,
+                                      CurrentUnitFunctionTarget &outTarget) {
+  outTarget = CurrentUnitFunctionTarget{};
+  std::vector<CurrentUnitFunctionTarget> targets;
+  if (!collectCurrentUnitFunctionTargets(uri, functionName, ctx, targets) ||
+      targets.size() != 1) {
+    return false;
+  }
+  outTarget = targets.front();
+  return outTarget.found;
+}
+
+bool collectCurrentUnitFunctionTargets(
+    const std::string &uri, const std::string &functionName,
+    const ServerRequestContext &ctx,
+    std::vector<CurrentUnitFunctionTarget> &outTargets) {
+  outTargets.clear();
+  if (functionName.empty())
+    return false;
+
+  std::vector<std::string> candidateUris;
+  collectCurrentUnitClosureUrisForCallQuery(uri, candidateUris);
+  if (candidateUris.empty())
+    return false;
+
+  std::unordered_set<std::string> seenTargets;
+  for (const auto &candidateUri : candidateUris) {
+    std::string candidateText;
+    if (!ctx.readDocumentText(candidateUri, candidateText))
+      continue;
+
+    if (normalizeComparablePathCallQuery(uriToPath(candidateUri)) ==
+        normalizeComparablePathCallQuery(uriToPath(uri))) {
+      uint64_t candidateEpoch = 0;
+      if (const Document *candidateDoc = ctx.findDocument(candidateUri))
+        candidateEpoch = candidateDoc->epoch;
+
+      std::vector<SemanticSnapshotFunctionOverloadInfo> overloads;
+      if (querySemanticSnapshotFunctionOverloads(
+              candidateUri, candidateText, candidateEpoch,
+              ctx.workspaceFolders, ctx.includePaths, ctx.shaderExtensions,
+              ctx.preprocessorDefines, functionName, overloads)) {
+        for (const auto &overload : overloads) {
+          CurrentUnitFunctionTarget target;
+          target.definition.uri = candidateUri;
+          target.definition.line = overload.line;
+          target.definition.start = overload.character;
+          target.definition.end =
+              overload.character + static_cast<int>(functionName.size());
+          target.label = overload.label.empty() ? (functionName + "(...)")
+                                                : overload.label;
+          target.parameters = overload.parameters;
+          target.returnType =
+              extractReturnTypeFromLabelCallQuery(target.label, functionName);
+          target.found = true;
+
+          const std::string key = target.definition.uri + "|" +
+                                  std::to_string(target.definition.line) + "|" +
+                                  std::to_string(target.definition.start) + "|" +
+                                  std::to_string(target.definition.end);
+          if (seenTargets.insert(key).second)
+            outTargets.push_back(std::move(target));
+        }
+        if (!outTargets.empty())
+          continue;
+      }
+    }
+
+    size_t searchFrom = 0;
+    while (searchFrom < candidateText.size()) {
+      const size_t found = candidateText.find(functionName, searchFrom);
+      if (found == std::string::npos)
+        break;
+      searchFrom = found + functionName.size();
+
+      size_t currentLineStart = found;
+      while (currentLineStart > 0 && candidateText[currentLineStart - 1] != '\n')
+        currentLineStart--;
+      int lineIndex = 0;
+      for (size_t i = 0; i < currentLineStart; i++) {
+        if (candidateText[i] == '\n')
+          lineIndex++;
+      }
+      const std::string lineText = getLineAt(candidateText, lineIndex);
+      const int nameCharacter = byteOffsetInLineToUtf16(
+          lineText, static_cast<int>(found - currentLineStart));
+
+      ParsedFunctionSignatureTextInfo signatureInfo;
+      if (!extractFunctionSignatureFromTextShared(candidateText, lineIndex,
+                                                  nameCharacter, functionName,
+                                                  signatureInfo) ||
+          !signatureInfo.hasBody) {
+        continue;
+      }
+
+      CurrentUnitFunctionTarget target;
+      target.definition.uri = candidateUri;
+      target.definition.line = lineIndex;
+      target.definition.start = nameCharacter;
+      target.definition.end = nameCharacter + static_cast<int>(functionName.size());
+      target.label =
+          signatureInfo.label.empty() ? (functionName + "(...)") : signatureInfo.label;
+      target.parameters = signatureInfo.parameters;
+      target.returnType =
+          extractReturnTypeFromLabelCallQuery(target.label, functionName);
+      target.found = true;
+
+      const std::string key = target.definition.uri + "|" +
+                              std::to_string(target.definition.line) + "|" +
+                              std::to_string(target.definition.start) + "|" +
+                              std::to_string(target.definition.end);
+      if (seenTargets.insert(key).second)
+        outTargets.push_back(std::move(target));
+      break;
+    }
+  }
+
+  std::sort(outTargets.begin(), outTargets.end(),
+            [](const auto &lhs, const auto &rhs) {
+              if (lhs.definition.uri != rhs.definition.uri)
+                return lhs.definition.uri < rhs.definition.uri;
+              if (lhs.definition.line != rhs.definition.line)
+                return lhs.definition.line < rhs.definition.line;
+              return lhs.definition.start < rhs.definition.start;
+            });
+  return !outTargets.empty();
+}
+
 std::string extractParameterName(const std::string &parameterDecl) {
   std::string value = trimCopyCallQuery(parameterDecl);
   if (value.empty() || value == "void") {
@@ -379,6 +577,16 @@ resolveSignatureHelpTarget(const std::string &uri,
         isHlslBuiltinRegistryAvailable()
             ? IndeterminateReason::SignatureHelpBuiltinUnmodeled
             : IndeterminateReason::SignatureHelpBuiltinRegistryUnavailable;
+    return result;
+  }
+
+  CurrentUnitFunctionTarget currentUnitTarget;
+  if (resolveCurrentUnitFunctionTarget(uri, functionName, ctx,
+                                       currentUnitTarget)) {
+    result.definition = currentUnitTarget.definition;
+    result.hasDefinition = true;
+    result.typeEval.type = "user_function";
+    result.typeEval.confidence = TypeEvalConfidence::L1;
     return result;
   }
 
@@ -648,28 +856,5 @@ bool collectFunctionOverloadCandidates(
     return true;
   }
 
-  if (!target.hasDefinition) {
-    return false;
-  }
-  std::string label;
-  std::vector<std::string> params;
-  if (!resolveFunctionParametersFromTarget(functionName, target, ctx, label,
-                                           params)) {
-    return false;
-  }
-  CandidateSignature fallback;
-  fallback.name = functionName;
-  fallback.displayLabel = label;
-  fallback.displayParams = params;
-  fallback.sourceUri = target.definition.uri;
-  fallback.sourceLine = target.definition.line;
-  fallback.visibilityCondition = "";
-  for (const auto &param : params) {
-    ParamDesc desc;
-    desc.name = extractParameterName(param);
-    desc.type = parseParamTypeDescFromDecl(param);
-    fallback.params.push_back(std::move(desc));
-  }
-  outCandidates.push_back(std::move(fallback));
-  return true;
+  return false;
 }

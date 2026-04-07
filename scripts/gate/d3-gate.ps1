@@ -23,7 +23,7 @@ function Invoke-GateStep {
 Invoke-GateStep "json validate" { npm run json:validate }
 Invoke-GateStep "compile" { npm run compile }
 Invoke-GateStep "build server_cpp" { cmake --build $serverBuildDir }
-Invoke-GateStep "hover smoke" { python "$repoRoot\server_cpp\tools\hover_smoke_test.py" }
+Invoke-GateStep "hover smoke" { py -3 "$repoRoot\server_cpp\tools\hover_smoke_test.py" }
 Invoke-GateStep "client all tests" { npm run test:client:all }
 
 Write-Host "[D3 Gate] passed"

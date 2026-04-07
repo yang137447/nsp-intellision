@@ -1,0 +1,26 @@
+Texture2D t_distort_tex2;
+SamplerState s_distort02;
+Texture2D t_mask02;
+SamplerState s_mask02;
+
+float2 UV_TC_OS_NOCLAMP(float2 UV, float4 OS, float4 TC) {
+  return UV + OS.xy + TC.xy;
+}
+
+float4 MainPS(float2 uv : TEXCOORD0) : SV_Target {
+  float2 mask02UV = uv;
+  float4 mask02_os = float4(0.1, 0.2, 0.3, 0.4);
+  float4 mask02_tc = float4(0.5, 0.6, 0.7, 0.8);
+  mask02UV = UV_TC_OS_NOCLAMP(mask02UV, mask02_os, mask02_tc);
+  float2 mask02_offset = 0.0;
+  float2 distortUV2 = uv;
+  float2 distort02_offset = t_distort_tex2.Sample(s_distort02, distortUV2).rg;
+  distort02_offset *= half2(0.25, 0.75);
+  distort02_offset *= 0.5;
+  //mask02 clamp
+  float2 addmaskdistort2UV = mask02UV + mask02_offset;
+  addmaskdistort2UV.x = lerp( addmaskdistort2UV.x, clamp(addmaskdistort2UV.x, 0.01, 0.99), 0.5);
+  addmaskdistort2UV.y = lerp( addmaskdistort2UV.y, clamp(addmaskdistort2UV.y, 0.01, 0.99), 0.5);
+  half4 mask02_rgba = t_mask02.Sample(s_mask02, addmaskdistort2UV).rgba;
+  return mask02_rgba;
+}

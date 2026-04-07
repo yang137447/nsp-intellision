@@ -1,0 +1,15 @@
+texture t_mask02
+<
+    string SasUiGroup = "Mask";
+    string SasUiLabel = "Mask 02";
+>;
+
+SamplerState s_mask02
+{
+    AddressU = WRAP;
+    AddressV = WRAP;
+};
+
+float4 TextureMetadataMemberEntry(float2 uv : TEXCOORD0) : SV_Target0 {
+    return t_mask02.Sample(s_mask02, uv);
+}

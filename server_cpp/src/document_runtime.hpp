@@ -78,6 +78,10 @@ struct ActiveUnitSnapshot {
   std::string path;
   int documentVersion = 0;
   uint64_t documentEpoch = 0;
+  // Active-line state for the active unit document when the current document
+  // is that same unit. Interactive current-doc queries reuse this instead of
+  // rebuilding one-off preprocessor views on every local edit.
+  std::vector<char> activeLineStates;
   std::vector<std::string> includeClosureUris;
   std::string includeClosureFingerprint;
   std::string activeBranchFingerprint;

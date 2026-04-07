@@ -1,0 +1,8 @@
+#define GET_TEX(x) (x)
+
+Texture2D gTex;
+SamplerState gSampler;
+
+float4 TextureMacroMemberEntry(float2 uv : TEXCOORD0) : SV_Target0 {
+  return GET_TEX(gTex).Sample(gSampler, uv);
+}

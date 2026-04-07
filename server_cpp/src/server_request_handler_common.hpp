@@ -32,14 +32,8 @@ bool pickBestWorkspaceDefinitionForCurrentContext(
     DefinitionLocation &outLocation);
 
 inline constexpr bool kEnableOverloadResolver = false;
-inline constexpr bool kEnableOverloadResolverShadowCompare = false;
 
 void emitSignatureHelpIndeterminateTrace(const std::string &functionName,
                                          const TypeEvalResult &typeEval);
-
-void emitSignatureHelpResolverShadowMismatch(
-    const std::string &uri, const std::string &functionName,
-    const std::string &resolverLabel, const std::string &legacyLabel,
-    const std::string &resolverStatus);
 
 void recordOverloadResolverResult(const ResolveCallResult &result);

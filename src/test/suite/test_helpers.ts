@@ -164,18 +164,11 @@ export async function withTemporaryIntellisionPath<T>(
 	const inspected = configuration.inspect<string[]>('intellisionPath');
 	const originalPaths = inspected?.workspaceValue ?? [];
 	await configuration.update('intellisionPath', paths, vscode.ConfigurationTarget.Workspace);
-	const commands = await vscode.commands.getCommands(true);
-	if (commands.includes('nsf.restartServer')) {
-		await vscode.commands.executeCommand('nsf.restartServer');
-	}
 	await waitForIndexingIdle('indexing idle after intellisionPath update');
 	try {
 		return await fn();
 	} finally {
 		await configuration.update('intellisionPath', originalPaths, vscode.ConfigurationTarget.Workspace);
-		if (commands.includes('nsf.restartServer')) {
-			await vscode.commands.executeCommand('nsf.restartServer');
-		}
 		await waitForIndexingIdle('indexing idle after intellisionPath restore');
 		await new Promise((resolve) => setTimeout(resolve, 150));
 	}

@@ -26,11 +26,13 @@ void documentOwnerDidOpen(const Document &document,
                           const ServerRequestContext &ctx);
 
 // Applies a didChange payload for one opened document, updates the runtime key,
-// and triggers current-doc interactive prewarm on the serialized owner path.
+// and triggers current-doc interactive prewarm on the serialized owner path
+// only when the edit needs a freshly published current snapshot.
 //
-// didChange still routes through owner-side interactive prewarm so current-doc
-// semantic state stays published for follow-up requests and runtime-debug
-// inspection after the text update.
+// Small syntax-only edits, and comment-only edits that do not affect semantic
+// state, may keep only last-good interactive state and let follow-up
+// interactive requests reuse that stale-eligible snapshot instead of
+// synchronously rebuilding a new current snapshot on every didChange.
 void documentOwnerDidChange(const Document &document,
                             const std::vector<ChangedRange> &changedRanges,
                             const DocumentRuntimeUpdateOptions &options,

@@ -11,6 +11,10 @@ Json inlayHintsRuntimeBuildFullDocument(const std::string &uri,
                                         const Document &doc,
                                         ServerRequestContext &ctx);
 
+Json inlayHintsRuntimeBuildRange(const std::string &uri, const Document &doc,
+                                 ServerRequestContext &ctx, int startLine,
+                                 int startChar, int endLine, int endChar);
+
 Json inlayHintsRuntimeBuildOrGetDeferredFull(const std::string &uri,
                                              const Document &doc,
                                              ServerRequestContext &ctx);

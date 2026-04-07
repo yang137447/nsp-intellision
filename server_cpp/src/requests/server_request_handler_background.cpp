@@ -7,6 +7,8 @@
 #include "text_utils.hpp"
 #include "workspace_summary_runtime.hpp"
 
+#include <chrono>
+
 namespace request_background_handlers {
 
 namespace {
@@ -78,13 +80,30 @@ bool handleInlayHintRequest(const std::string &method, const Json &id,
     writeResponse(id, makeArray());
     return true;
   }
-  Json fullHints = inlayHintsRuntimeBuildOrGetDeferredFull(uri, *doc, ctx);
-  if (isRequestCancelled(ctx)) {
-    writeError(id, -32800, "Request cancelled");
-    return true;
+  Json filtered = makeArray();
+  if (auto deferred = tryGetDeferredDocSnapshot(uri, *doc);
+      deferred && deferred->hasInlayHintsFull) {
+    recordInlayDeferredSnapshotHit();
+    const auto rangeFilterStart = std::chrono::steady_clock::now();
+    filtered = inlayHintsRuntimeFilterRange(deferred->inlayHintsFull, startLine,
+                                            startChar, endLine, endChar);
+    const double rangeFilterDurationMs =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - rangeFilterStart)
+            .count();
+    recordInlayRangeFilter(rangeFilterDurationMs);
+  } else {
+    recordInlayDeferredSnapshotMiss();
+    filtered = inlayHintsRuntimeBuildRange(uri, *doc, ctx, startLine,
+                                           startChar, endLine, endChar);
   }
-  writeResponse(id, inlayHintsRuntimeFilterRange(fullHints, startLine, startChar,
-                                                 endLine, endChar));
+  const auto responseWriteStart = std::chrono::steady_clock::now();
+  writeResponse(id, filtered);
+  const double responseWriteDurationMs =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                responseWriteStart)
+          .count();
+  recordInlayResponseWrite(responseWriteDurationMs);
   return true;
 }
 

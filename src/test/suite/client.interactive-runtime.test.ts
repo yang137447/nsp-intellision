@@ -2,12 +2,10 @@ import {
 	registerDefinitionProviderTests,
 	registerInteractiveRuntimeCoreTests,
 	registerInteractiveRuntimeSignatureTests,
-	registerInteractiveStructMemberCompletionTests,
-	registerInteractiveUiMetadataTests
+	registerInteractiveStructMemberCompletionTests
 } from './client.integration.groups';
 
 registerInteractiveRuntimeCoreTests();
 registerInteractiveRuntimeSignatureTests();
 registerInteractiveStructMemberCompletionTests();
 registerDefinitionProviderTests();
-registerInteractiveUiMetadataTests();

@@ -1,0 +1,9 @@
+struct BatchParamsPs {
+  float mask02_clamp;
+  float depth_bias;
+};
+
+float4 LocalDeclMemberEntry(float2 uv : TEXCOORD0) : SV_Target0 {
+  BatchParamsPs batch;
+  return batch.mask02_clamp;
+}
