@@ -42,6 +42,9 @@ public:
   bool querySymbols(const std::string &query,
                     std::vector<IndexedDefinition> &outDefs, size_t limit);
 
+  bool queryDefinitionsByPathOrUri(const std::string &pathOrUri,
+                                   std::vector<IndexedDefinition> &outDefs);
+
   bool getStructFields(const std::string &structName,
                        std::vector<std::string> &outFields);
 

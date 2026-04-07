@@ -72,6 +72,10 @@ bool workspaceIndexQuerySymbols(const std::string &query,
                                 std::vector<IndexedDefinition> &outDefs,
                                 size_t limit);
 
+// Returns indexed definitions for one normalized file path or URI.
+bool workspaceIndexQueryDefinitionsByPathOrUri(
+    const std::string &pathOrUri, std::vector<IndexedDefinition> &outDefs);
+
 // Struct-member listing from the indexed summary.
 bool workspaceIndexGetStructFields(const std::string &structName,
                                    std::vector<std::string> &outFields);

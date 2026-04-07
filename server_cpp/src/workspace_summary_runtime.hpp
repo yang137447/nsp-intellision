@@ -61,7 +61,8 @@ bool workspaceSummaryRuntimeQuerySymbols(
     const std::string &query, std::vector<IndexedDefinition> &outDefs,
     size_t limit);
 
-// Collects indexed definitions whose uri exactly matches `uri`.
+// Collects indexed definitions for one file path or URI via the workspace
+// index's normalized file-key lookup.
 void workspaceSummaryRuntimeQueryDefinitionsByUri(
     const std::string &uri, std::vector<IndexedDefinition> &out);
 

@@ -76,6 +76,14 @@ bool interactiveVisibilityRuntimeCollectFunctions(
   return !functionsOut.empty();
 }
 
+void interactiveVisibilityRuntimeInvalidateKey(
+    const InteractiveVisibilityKey &key) {
+  if (key.fullFingerprint.empty())
+    return;
+  std::lock_guard<std::mutex> lock(gInteractiveVisibilityMutex);
+  gInteractiveVisibilityShards.erase(key.fullFingerprint);
+}
+
 void interactiveVisibilityRuntimeInvalidateAll() {
   std::lock_guard<std::mutex> lock(gInteractiveVisibilityMutex);
   gInteractiveVisibilityShards.clear();

@@ -364,6 +364,27 @@ bool WorkspaceIndex::querySymbols(const std::string &query,
   return !outDefs.empty();
 }
 
+bool WorkspaceIndex::queryDefinitionsByPathOrUri(
+    const std::string &pathOrUri, std::vector<IndexedDefinition> &outDefs) {
+  outDefs.clear();
+  if (pathOrUri.empty())
+    return false;
+
+  std::string path = uriToPath(pathOrUri);
+  if (path.empty())
+    path = pathOrUri;
+  const std::string key = normalizePathForCompare(path);
+  if (key.empty())
+    return false;
+
+  std::lock_guard<std::mutex> lock(mutex);
+  auto it = store.filesByPath.find(key);
+  if (it == store.filesByPath.end())
+    return false;
+  outDefs = it->second.defs;
+  return !outDefs.empty();
+}
+
 bool WorkspaceIndex::getStructFields(const std::string &structName,
                                      std::vector<std::string> &outFields) {
   std::lock_guard<std::mutex> lock(mutex);
@@ -657,6 +678,11 @@ bool workspaceIndexQuerySymbols(const std::string &query,
                                 std::vector<IndexedDefinition> &outDefs,
                                 size_t limit) {
   return getIndex().querySymbols(query, outDefs, limit);
+}
+
+bool workspaceIndexQueryDefinitionsByPathOrUri(
+    const std::string &pathOrUri, std::vector<IndexedDefinition> &outDefs) {
+  return getIndex().queryDefinitionsByPathOrUri(pathOrUri, outDefs);
 }
 
 bool workspaceIndexGetStructFields(const std::string &structName,

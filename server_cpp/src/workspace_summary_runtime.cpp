@@ -51,15 +51,7 @@ bool workspaceSummaryRuntimeQuerySymbols(
 
 void workspaceSummaryRuntimeQueryDefinitionsByUri(
     const std::string &uri, std::vector<IndexedDefinition> &out) {
-  out.clear();
-  if (uri.empty())
-    return;
-  std::vector<IndexedDefinition> allDefs;
-  workspaceSummaryRuntimeQuerySymbols("", allDefs, 4096);
-  for (const auto &def : allDefs) {
-    if (def.uri == uri)
-      out.push_back(def);
-  }
+  workspaceIndexQueryDefinitionsByPathOrUri(uri, out);
 }
 
 bool workspaceSummaryRuntimeGetStructFields(const std::string &structName,

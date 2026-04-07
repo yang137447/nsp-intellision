@@ -1021,9 +1021,6 @@ void interactiveCollectCompletionItems(
         addedSharedVisible = addedSharedVisible || outItems.size() > before;
       }
       if (addedSharedVisible) {
-        recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
-          state.mergeWorkspaceSummaryHits++;
-        });
         if (!recordedResolvedLayer) {
           recordInteractiveRuntimeDebug(uri, "completion", "shared-visible",
                                         prefix);

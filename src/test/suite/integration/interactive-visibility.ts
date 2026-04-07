@@ -11,6 +11,7 @@ import {
 	positionOf,
 	repoDescribe,
 	withTemporaryIntellisionPath,
+	waitForCompletionLabels,
 	waitForClientReady,
 	waitFor
 } from '../test_helpers';
@@ -56,6 +57,7 @@ export function registerInteractiveVisibilityTests(): void {
 		it('prewarms current-context-visible cross-file function symbols from the active unit include closure', async function () {
 			this.timeout(120000);
 
+			await waitForClientReady();
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 				const root = await openFixture('visibility_root.nsf');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
@@ -74,6 +76,42 @@ export function registerInteractiveVisibilityTests(): void {
 
 				assert.ok(getCompletionItems(items).some((item) => item.label.toString() === 'VisibleIncludeHelper'));
 				const debug = await getInteractiveRuntimeDebug(root.uri.toString());
+				assert.strictEqual(debug.lastResolvedLayer, 'shared-visible');
+			});
+		});
+
+		it('keeps the shared-visible shard after closing an unrelated document', async function () {
+			this.timeout(120000);
+
+			await waitForClientReady();
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+				const root = await openFixture('visibility_root.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+
+				const position = positionOf(root, 'VisibleInc', 1, 'VisibleInc'.length);
+				await waitForCompletionLabels(
+					root,
+					position,
+					['VisibleIncludeHelper'],
+					'initial shared-visible completion'
+				);
+
+				let debug = await getInteractiveRuntimeDebug(root.uri.toString());
+				assert.strictEqual(debug.lastResolvedLayer, 'shared-visible');
+
+				await openFixture('module_completion_current_doc.nsf');
+				await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+				await vscode.window.showTextDocument(root, { preview: false });
+
+				const items = await waitForCompletionLabels(
+					root,
+					position,
+					['VisibleIncludeHelper'],
+					'shared-visible completion after unrelated close'
+				);
+
+				assert.ok(getCompletionItems(items).some((item) => item.label.toString() === 'VisibleIncludeHelper'));
+				debug = await getInteractiveRuntimeDebug(root.uri.toString());
 				assert.strictEqual(debug.lastResolvedLayer, 'shared-visible');
 			});
 		});

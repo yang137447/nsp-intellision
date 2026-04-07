@@ -82,16 +82,23 @@ void documentOwnerDidChange(const Document &document,
 }
 
 void documentOwnerDidClose(const std::string &uri) {
+  InteractiveVisibilityKey visibilityKey;
   auto owner = findOwnerState(uri);
   if (owner) {
     std::lock_guard<std::mutex> ownerLock(owner->mutex);
+    DocumentRuntime runtime;
+    if (documentRuntimeGet(uri, runtime))
+      visibilityKey = runtime.interactiveVisibilityKey;
     documentRuntimeErase(uri);
   } else {
+    DocumentRuntime runtime;
+    if (documentRuntimeGet(uri, runtime))
+      visibilityKey = runtime.interactiveVisibilityKey;
     documentRuntimeErase(uri);
   }
   std::lock_guard<std::mutex> lock(gDocumentOwnerMapMutex);
   gDocumentOwners.erase(uri);
-  interactiveVisibilityRuntimeInvalidateAll();
+  interactiveVisibilityRuntimeInvalidateKey(visibilityKey);
 }
 
 void documentOwnerRefreshAnalysisContext(
