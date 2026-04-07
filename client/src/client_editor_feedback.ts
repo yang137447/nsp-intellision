@@ -19,6 +19,7 @@ import {
 import type { LanguageClient } from 'vscode-languageclient/node';
 
 import { buildRuntimeSettings, normalizeIncludePaths } from './client_config_sync';
+import { resolveIncludeCandidatesForPath } from './include_underline_support';
 import { LSP_METHOD_KEYS } from './lsp_method_keys';
 import {
 	formatIndexingProgress,
@@ -169,67 +170,6 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 		return normalized;
 	};
 
-	const resolveIncludeCandidatesForDocument = (document: TextDocument, includePath: string): string[] => {
-		const isAbsolutePath = (value: string): boolean => {
-			if (path.isAbsolute(value)) {
-				return true;
-			}
-			return /^[a-zA-Z]:[\\/]/.test(value);
-		};
-		const workspaceFolders = (workspace.workspaceFolders ?? []).map((item) => item.uri.fsPath);
-		const includePaths = workspace.getConfiguration('nsf').get<string[]>('intellisionPath', []);
-		const candidates: string[] = [];
-		if (isAbsolutePath(includePath)) {
-			candidates.push(includePath);
-		} else {
-			candidates.push(path.join(path.dirname(document.uri.fsPath), includePath));
-			for (const inc of includePaths) {
-				const trimmed = inc.trim();
-				if (!trimmed) {
-					continue;
-				}
-				if (isAbsolutePath(trimmed)) {
-					candidates.push(path.join(trimmed, includePath));
-				}
-			}
-			for (const folder of workspaceFolders) {
-				for (const inc of includePaths) {
-					const trimmed = inc.trim();
-					if (!trimmed) {
-						continue;
-					}
-					const base = isAbsolutePath(trimmed) ? trimmed : path.join(folder, trimmed);
-					candidates.push(path.join(base, includePath));
-				}
-			}
-		}
-		const hasExtension = path.extname(includePath).length > 0;
-		const extensions = getConfiguredShaderExtensions();
-		const expanded: string[] = [];
-		const seen = new Set<string>();
-		for (const candidate of candidates) {
-			if (hasExtension) {
-				const key = path.normalize(candidate).toLowerCase();
-				if (seen.has(key)) {
-					continue;
-				}
-				seen.add(key);
-				expanded.push(candidate);
-				continue;
-			}
-			for (const ext of extensions) {
-				const withExt = `${candidate}${ext}`;
-				const key = path.normalize(withExt).toLowerCase();
-				if (seen.has(key)) {
-					continue;
-				}
-				seen.add(key);
-				expanded.push(withExt);
-			}
-		}
-		return expanded;
-	};
-
 	const computeValidIncludeRanges = (document: TextDocument): Range[] => {
 		const ranges: Range[] = [];
 		const lines = document.getText().split(/\r?\n/);
@@ -247,7 +187,13 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 			}
 			const start = (matched.index ?? 0) + relativeStart;
 			const end = start + includePath.length;
-			const candidates = resolveIncludeCandidatesForDocument(document, includePath);
+			const candidates = resolveIncludeCandidatesForPath({
+				documentFsPath: document.uri.fsPath,
+				includePath,
+				workspaceFolders: (workspace.workspaceFolders ?? []).map((item) => item.uri.fsPath),
+				includePaths: workspace.getConfiguration('nsf').get<string[]>('intellisionPath', []),
+				shaderExtensions: getConfiguredShaderExtensions()
+			});
 			const found = candidates.some((candidate) => {
 				try {
 					return fs.existsSync(candidate);
