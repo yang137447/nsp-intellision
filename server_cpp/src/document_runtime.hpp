@@ -107,6 +107,8 @@ struct InteractiveVisibilityKey {
   std::string activeBranchFingerprint;
   std::string definesFingerprint;
   uint64_t workspaceSummaryVersion = 0;
+  // Task-2 skeleton identity/debug string only; not yet a durable cache-key
+  // contract for long-term persistence or cross-version compatibility.
   std::string fullFingerprint;
 };
 

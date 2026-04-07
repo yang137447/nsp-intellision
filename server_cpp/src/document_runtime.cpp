@@ -380,7 +380,7 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
   return snapshot;
 }
 
-InteractiveVisibilityKey buildInteractiveVisibilityKey(
+static InteractiveVisibilityKey buildInteractiveVisibilityKey(
     const ActiveUnitSnapshot &activeUnitSnapshot) {
   InteractiveVisibilityKey key;
   key.activeUnitPath = activeUnitSnapshot.path;

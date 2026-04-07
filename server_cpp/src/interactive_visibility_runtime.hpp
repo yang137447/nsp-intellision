@@ -9,6 +9,8 @@
 //
 // This module is the runtime boundary for cross-file symbols that are visible
 // under one InteractiveVisibilityKey.
+// The current Task-2 implementation uses a process-global, mutex-protected
+// skeleton cache that will later host shared-visible prewarmed shards.
 //
 // Task-2 scope:
 // - define shard shape and lookup/invalidation APIs
