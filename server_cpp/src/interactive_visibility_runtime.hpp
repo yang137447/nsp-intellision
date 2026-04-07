@@ -9,8 +9,15 @@
 //
 // This module is the runtime boundary for cross-file symbols that are visible
 // under one InteractiveVisibilityKey.
-// The current Task-2 implementation uses a process-global, mutex-protected
-// skeleton cache that will later host shared-visible prewarmed shards.
+//
+// Task-2 contract:
+// - runtime state is a best-effort skeleton cache
+// - interactiveVisibilityRuntimeGet(...) lookup is keyed by
+//   InteractiveVisibilityKey::fullFingerprint and requires a non-empty key
+// - interactiveVisibilityRuntimeGet(...) may miss before Task 3, and those
+//   misses are expected
+// - cache lifetime is process-global (guarded by an internal mutex)
+// - interactiveVisibilityRuntimeInvalidateAll() clears the whole skeleton cache
 //
 // Task-2 scope:
 // - define shard shape and lookup/invalidation APIs
