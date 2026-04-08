@@ -29,6 +29,7 @@ import {
 import { computeSingleFileIncludePaths } from './single_file_config';
 import {
 	createClearActiveUnitHandler,
+	type InteractiveRuntimeDebugResponse,
 	type LastCompletionDebugResponse,
 	createRuntimeDebugHandler,
 	createSetActiveUnitHandler,
@@ -600,6 +601,16 @@ export function activate(context: ExtensionContext) {
 		getLatestMetrics: () => metricsTracker.getLatestSnapshot(),
 		getMetricsHistory: (sinceRevision) => metricsTracker.getHistory(sinceRevision),
 		getDocumentRuntimeDebug: runtimeDebugHandler,
+		getInteractiveRuntimeDebug: async (payload) => {
+			await ensureClientStarted(false);
+			if (!client) {
+				throw new Error('Language client is not ready yet');
+			}
+			return client.sendRequest<InteractiveRuntimeDebugResponse>(
+				'nsf/_getInteractiveRuntimeDebug',
+				payload ?? {}
+			);
+		},
 		sendServerRequest: async (method, params) => {
 			await ensureClientStarted(false);
 			if (!client) {

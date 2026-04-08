@@ -1,0 +1,8 @@
+#include "visibility_member_types.hlsli"
+
+float4 main_ps() : SV_Target
+{
+    SharedVisibleStruct visibleStruct;
+    visibleStruct.
+    return SharedVisibleHelper(float4(1, 1, 1, 1), 0.5);
+}

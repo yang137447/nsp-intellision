@@ -1,4 +1,5 @@
 #include "document_owner.hpp"
+#include "interactive_visibility_runtime.hpp"
 #include "interactive_semantic_runtime.hpp"
 #include "main_did_change_classification.hpp"
 #include "server_request_handlers.hpp"
@@ -7,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -48,6 +50,9 @@ void documentOwnerDidOpen(const Document &document,
   std::lock_guard<std::mutex> ownerLock(owner->mutex);
   documentRuntimeUpsert(document, {}, options);
   interactiveSemanticRuntimePrewarm(document.uri, document, ctx);
+  DocumentRuntime runtime;
+  if (documentRuntimeGet(document.uri, runtime))
+    interactiveVisibilityRuntimePrewarm(runtime);
 }
 
 void documentOwnerDidChange(const Document &document,
@@ -69,6 +74,8 @@ void documentOwnerDidChange(const Document &document,
   }
   if (shouldPrewarm)
     interactiveSemanticRuntimePrewarm(document.uri, document, ctx);
+  if (documentRuntimeGet(document.uri, runtime))
+    interactiveVisibilityRuntimePrewarm(runtime);
   recordInteractiveOwnerDidChange(
       std::chrono::duration<double, std::milli>(
           std::chrono::steady_clock::now() - startedAt)
@@ -76,25 +83,43 @@ void documentOwnerDidChange(const Document &document,
 }
 
 void documentOwnerDidClose(const std::string &uri) {
+  InteractiveVisibilityKey visibilityKey;
   auto owner = findOwnerState(uri);
   if (owner) {
     std::lock_guard<std::mutex> ownerLock(owner->mutex);
+    DocumentRuntime runtime;
+    if (documentRuntimeGet(uri, runtime))
+      visibilityKey = runtime.interactiveVisibilityKey;
     documentRuntimeErase(uri);
   } else {
+    DocumentRuntime runtime;
+    if (documentRuntimeGet(uri, runtime))
+      visibilityKey = runtime.interactiveVisibilityKey;
     documentRuntimeErase(uri);
   }
-  std::lock_guard<std::mutex> lock(gDocumentOwnerMapMutex);
-  gDocumentOwners.erase(uri);
+  {
+    std::lock_guard<std::mutex> lock(gDocumentOwnerMapMutex);
+    gDocumentOwners.erase(uri);
+  }
+  if (!visibilityKey.fullFingerprint.empty() &&
+      !documentRuntimeAnyUsesInteractiveVisibilityFingerprint(
+          visibilityKey.fullFingerprint)) {
+    interactiveVisibilityRuntimeInvalidateKey(visibilityKey);
+  }
 }
 
 void documentOwnerRefreshAnalysisContext(
     const DocumentRuntimeUpdateOptions &options,
     const ServerRequestContext &ctx) {
+  interactiveVisibilityRuntimeInvalidateAll();
   documentRuntimeRefreshAnalysisKeys(options);
   for (const auto &entry : ctx.documents) {
     auto owner = getOrCreateOwnerState(entry.first);
     std::lock_guard<std::mutex> ownerLock(owner->mutex);
     interactiveSemanticRuntimePrewarm(entry.first, entry.second, ctx);
+    DocumentRuntime runtime;
+    if (documentRuntimeGet(entry.first, runtime))
+      interactiveVisibilityRuntimePrewarm(runtime);
   }
 }
 
@@ -102,7 +127,25 @@ void documentOwnerRefreshAnalysisContextForUris(
     const std::vector<std::string> &uris,
     const DocumentRuntimeUpdateOptions &options,
     const ServerRequestContext &ctx) {
+  std::vector<InteractiveVisibilityKey> staleVisibilityKeys;
+  staleVisibilityKeys.reserve(uris.size());
+  std::unordered_set<std::string> staleFingerprints;
+  staleFingerprints.reserve(uris.size());
+  for (const auto &uri : uris) {
+    DocumentRuntime runtime;
+    if (!documentRuntimeGet(uri, runtime))
+      continue;
+    const std::string &fingerprint =
+        runtime.interactiveVisibilityKey.fullFingerprint;
+    if (fingerprint.empty() || !staleFingerprints.insert(fingerprint).second)
+      continue;
+    staleVisibilityKeys.push_back(runtime.interactiveVisibilityKey);
+  }
+
   documentRuntimeRefreshAnalysisKeysForUris(uris, options);
+  for (const auto &key : staleVisibilityKeys)
+    interactiveVisibilityRuntimeInvalidateKey(key);
+
   for (const auto &uri : uris) {
     auto it = ctx.documents.find(uri);
     if (it == ctx.documents.end())
@@ -110,6 +153,9 @@ void documentOwnerRefreshAnalysisContextForUris(
     auto owner = getOrCreateOwnerState(uri);
     std::lock_guard<std::mutex> ownerLock(owner->mutex);
     interactiveSemanticRuntimePrewarm(uri, it->second, ctx);
+    DocumentRuntime runtime;
+    if (documentRuntimeGet(uri, runtime))
+      interactiveVisibilityRuntimePrewarm(runtime);
   }
 }
 

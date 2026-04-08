@@ -153,6 +153,8 @@ bool request_signature_handlers::handleSignatureHelpRequest(const std::string &m
     result.o["signatures"] = signatures;
     result.o["activeSignature"] = makeNumber(0);
     result.o["activeParameter"] = makeNumber(clampedActive);
+    recordInteractiveRuntimeDebug(uri, "signature-help", "current",
+                                  functionName);
     writeSignatureHelpResponse(result);
     return true;
   }

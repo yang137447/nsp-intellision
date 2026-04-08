@@ -96,6 +96,22 @@ struct ActiveUnitSnapshot {
   uint64_t workspaceSummaryVersion = 0;
 };
 
+// Shared key that scopes cross-file interactive visibility shards.
+//
+// This key is derived from the active-unit/include/branch/defines/workspace
+// summary context that determines which cross-file symbols are visible to the
+// current document.
+struct InteractiveVisibilityKey {
+  std::string activeUnitPath;
+  std::string includeClosureFingerprint;
+  std::string activeBranchFingerprint;
+  std::string definesFingerprint;
+  uint64_t workspaceSummaryVersion = 0;
+  // Task-2 skeleton identity/debug string only; not yet a durable cache-key
+  // contract for long-term persistence or cross-version compatibility.
+  std::string fullFingerprint;
+};
+
 // Latest immediate-syntax result published for the current document version.
 struct ImmediateSyntaxSnapshot {
   uint64_t documentEpoch = 0;
@@ -177,6 +193,7 @@ struct DocumentRuntime {
   int version = 0;
   uint64_t epoch = 0;
   AnalysisSnapshotKey analysisSnapshotKey;
+  InteractiveVisibilityKey interactiveVisibilityKey;
   ActiveUnitSnapshot activeUnitSnapshot;
   std::vector<ChangedRange> changedRanges;
   bool semanticNeutralEditHint = false;
@@ -209,6 +226,11 @@ void documentRuntimeUpsert(const Document &document,
 
 // Returns a copy of the stored runtime for one uri.
 bool documentRuntimeGet(const std::string &uri, DocumentRuntime &runtimeOut);
+
+// Returns whether any currently open runtime still uses this interactive
+// visibility key fingerprint.
+bool documentRuntimeAnyUsesInteractiveVisibilityFingerprint(
+    const std::string &fullFingerprint);
 
 // Removes one document runtime entry.
 void documentRuntimeErase(const std::string &uri);

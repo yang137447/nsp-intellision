@@ -49,6 +49,11 @@ bool workspaceSummaryRuntimeQuerySymbols(
   return workspaceIndexQuerySymbols(query, outDefs, limit);
 }
 
+void workspaceSummaryRuntimeQueryDefinitionsByUri(
+    const std::string &uri, std::vector<IndexedDefinition> &out) {
+  workspaceIndexQueryDefinitionsByPathOrUri(uri, out);
+}
+
 bool workspaceSummaryRuntimeGetStructFields(const std::string &structName,
                                             std::vector<std::string> &outFields) {
   return workspaceIndexGetStructFields(structName, outFields);

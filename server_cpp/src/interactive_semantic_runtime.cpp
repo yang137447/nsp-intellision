@@ -5,6 +5,7 @@
 #include "document_runtime.hpp"
 #include "hlsl_builtin_docs.hpp"
 #include "hover_markdown.hpp"
+#include "interactive_visibility_runtime.hpp"
 #include "main_occurrence_helpers.hpp"
 #include "nsf_lexer.hpp"
 #include "preprocessor_view.hpp"
@@ -19,6 +20,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -35,6 +37,15 @@ uint64_t currentTimeMs() {
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now().time_since_epoch())
           .count());
+}
+
+std::string normalizeInteractiveRuntimeDebugUriKey(const std::string &uri) {
+  std::string normalized = uri;
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                 [](unsigned char ch) {
+                   return static_cast<char>(std::tolower(ch));
+                 });
+  return normalized;
 }
 
 int lineIndexForOffset(const std::string &text, size_t offset) {
@@ -160,9 +171,11 @@ struct InteractiveRuntimeMetricState {
 
 std::mutex gInteractiveMetricsMutex;
 InteractiveRuntimeMetricState gInteractiveMetrics;
-std::mutex gInteractiveResolutionDebugMutex;
-std::unordered_map<std::string, InteractiveResolutionDebugSnapshot>
-    gInteractiveResolutionDebugByUri;
+std::mutex gInteractiveRuntimeDebugMutex;
+constexpr size_t kInteractiveRuntimeDebugMaxEntries = 256;
+std::unordered_map<std::string, InteractiveRuntimeDebugSnapshot>
+    gInteractiveRuntimeDebugByUri;
+std::deque<std::string> gInteractiveRuntimeDebugInsertionOrder;
 
 void recordDurationSample(uint64_t &samples, double &totalMs, double &maxMs,
                           double sampleMs) {
@@ -443,6 +456,202 @@ bool appendWorkspaceSummaryOverloads(
     }
   }
   return overloadsOut.size() > before;
+}
+
+std::string formatIndexedFunctionFallbackLabel(const IndexedDefinition &def) {
+  std::string label;
+  if (!def.type.empty()) {
+    label += def.type;
+    label += " ";
+  }
+  label += def.name;
+  label += "(...)";
+  return label;
+}
+
+bool lookupSharedVisibleSymbolType(const InteractiveVisibilityKey &key,
+                                   const std::string &symbol,
+                                   std::string &typeOut) {
+  typeOut.clear();
+  if (symbol.empty())
+    return false;
+  InteractiveVisibleSymbolShard shard;
+  if (!interactiveVisibilityRuntimeGet(key, shard))
+    return false;
+  for (const auto &def : shard.globals) {
+    if (def.name == symbol && !def.type.empty()) {
+      typeOut = def.type;
+      return true;
+    }
+  }
+  for (const auto &def : shard.functions) {
+    if (def.name == symbol && !def.type.empty()) {
+      typeOut = def.type;
+      return true;
+    }
+  }
+  for (const auto &def : shard.types) {
+    if (def.name == symbol) {
+      typeOut = def.name;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool resolveFunctionSignatureFromSharedVisible(
+    const InteractiveVisibilityKey &key, const std::string &name,
+    int lineIndexHint, int nameCharacterHint, const ServerRequestContext &ctx,
+    std::string &labelOut, std::vector<std::string> &parametersOut) {
+  InteractiveVisibleSymbolShard shard;
+  if (!interactiveVisibilityRuntimeGet(key, shard) || shard.functions.empty())
+    return false;
+
+  std::vector<const IndexedDefinition *> matches;
+  std::vector<const IndexedDefinition *> locationMatches;
+  for (const auto &def : shard.functions) {
+    if (def.kind != 12 || def.name != name) {
+      continue;
+    }
+    matches.push_back(&def);
+    if (lineIndexHint >= 0 && def.line == lineIndexHint &&
+        (nameCharacterHint < 0 || def.start == nameCharacterHint)) {
+      locationMatches.push_back(&def);
+    }
+  }
+  if (matches.empty()) {
+    return false;
+  }
+
+  const IndexedDefinition *selected = nullptr;
+  if (matches.size() == 1) {
+    selected = matches.front();
+  } else if (locationMatches.size() == 1) {
+    selected = locationMatches.front();
+  } else {
+    // Conservative by design: avoid silently picking one shared-visible
+    // candidate when the location hints cannot disambiguate.
+    return false;
+  }
+
+  std::string candidateText;
+  if (!selected->uri.empty() && ctx.readDocumentText(selected->uri, candidateText)) {
+    uint64_t candidateEpoch = 0;
+    if (const Document *candidateDoc = ctx.findDocument(selected->uri))
+      candidateEpoch = candidateDoc->epoch;
+    if (querySemanticSnapshotFunctionSignature(
+            selected->uri, candidateText, candidateEpoch, ctx.workspaceFolders,
+            ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines, name,
+            selected->line, selected->start, labelOut, parametersOut) &&
+        !labelOut.empty()) {
+      return true;
+    }
+  }
+  labelOut = formatIndexedFunctionFallbackLabel(*selected);
+  parametersOut.clear();
+  return true;
+}
+
+bool appendOverloadsFromSharedVisible(
+    const InteractiveVisibilityKey &key, const std::string &name,
+    const ServerRequestContext &ctx,
+    std::vector<SemanticSnapshotFunctionOverloadInfo> &overloadsOut) {
+  InteractiveVisibleSymbolShard shard;
+  if (!interactiveVisibilityRuntimeGet(key, shard) || shard.functions.empty())
+    return false;
+
+  std::unordered_set<std::string> seen;
+  seen.reserve(overloadsOut.size() * 2 + 8);
+  for (const auto &overload : overloadsOut) {
+    const std::string keyStr =
+        overload.label + "|" + std::to_string(overload.line) + "|" +
+        std::to_string(overload.character);
+    seen.insert(keyStr);
+  }
+
+  const size_t before = overloadsOut.size();
+  for (const auto &def : shard.functions) {
+    if (def.kind != 12 || def.name != name)
+      continue;
+
+    bool appendedFromSnapshot = false;
+    std::string candidateText;
+    if (!def.uri.empty() && ctx.readDocumentText(def.uri, candidateText)) {
+      uint64_t candidateEpoch = 0;
+      if (const Document *candidateDoc = ctx.findDocument(def.uri))
+        candidateEpoch = candidateDoc->epoch;
+      std::vector<SemanticSnapshotFunctionOverloadInfo> localOverloads;
+      if (querySemanticSnapshotFunctionOverloads(
+              def.uri, candidateText, candidateEpoch, ctx.workspaceFolders,
+              ctx.includePaths, ctx.shaderExtensions, ctx.preprocessorDefines,
+              name, localOverloads)) {
+        for (const auto &overload : localOverloads) {
+          const std::string keyStr =
+              overload.label + "|" + std::to_string(overload.line) + "|" +
+              std::to_string(overload.character);
+          if (!seen.insert(keyStr).second)
+            continue;
+          overloadsOut.push_back(overload);
+          appendedFromSnapshot = true;
+        }
+      }
+    }
+    if (appendedFromSnapshot)
+      continue;
+
+    SemanticSnapshotFunctionOverloadInfo fallback;
+    fallback.label = formatIndexedFunctionFallbackLabel(def);
+    fallback.returnType = def.type;
+    fallback.line = def.line;
+    fallback.character = def.start;
+    fallback.hasBody = false;
+    const std::string keyStr =
+        fallback.label + "|" + std::to_string(fallback.line) + "|" +
+        std::to_string(fallback.character);
+    if (!seen.insert(keyStr).second)
+      continue;
+    overloadsOut.push_back(std::move(fallback));
+  }
+  return overloadsOut.size() > before;
+}
+
+bool lookupStructFieldInfosFromSharedVisible(
+    const InteractiveVisibilityKey &key, const std::string &ownerType,
+    std::vector<MemberCompletionField> &fieldsOut) {
+  if (ownerType.empty())
+    return false;
+  std::vector<IndexedDefinition> visibleTypes;
+  if (!interactiveVisibilityRuntimeCollectTypes(key, visibleTypes) ||
+      visibleTypes.empty()) {
+    return false;
+  }
+
+  bool typeVisible = false;
+  for (const auto &typeDef : visibleTypes) {
+    if (typeDef.name == ownerType) {
+      typeVisible = true;
+      break;
+    }
+  }
+  if (!typeVisible)
+    return false;
+
+  std::vector<std::string> fieldNames;
+  if (!workspaceSummaryRuntimeGetStructFields(ownerType, fieldNames) ||
+      fieldNames.empty()) {
+    return false;
+  }
+  // Shared-visible shard decides visibility scope; field payload still comes
+  // from workspace summary's struct/member index.
+  fieldsOut.clear();
+  fieldsOut.reserve(fieldNames.size());
+  for (const auto &fieldName : fieldNames) {
+    MemberCompletionField item;
+    item.name = fieldName;
+    workspaceSummaryRuntimeGetStructMemberType(ownerType, fieldName, item.type);
+    fieldsOut.push_back(std::move(item));
+  }
+  return !fieldsOut.empty();
 }
 
 bool lookupStructFieldInfosFromSnapshot(const SemanticSnapshot &snapshot,
@@ -768,6 +977,19 @@ int completionKindForWorkspaceDefinition(const IndexedDefinition &def) {
   return 6;
 }
 
+bool appendCompletionItemsFromSharedVisibleShard(
+    const std::vector<IndexedDefinition> &defs, const std::string &prefix,
+    std::vector<InteractiveCompletionItem> &outItems,
+    std::unordered_set<std::string> &seen) {
+  const size_t beforeCount = outItems.size();
+  for (const auto &def : defs) {
+    appendInteractiveCompletionCandidate(
+        outItems, seen, def.name, completionKindForWorkspaceDefinition(def),
+        def.type, prefix);
+  }
+  return outItems.size() > beforeCount;
+}
+
 std::shared_ptr<const InteractiveSnapshot>
 buildCurrentInteractiveSnapshot(const std::string &uri, const Document &doc,
                                 const ServerRequestContext &ctx,
@@ -959,38 +1181,62 @@ void interactiveCollectCompletionItems(
     lastGood.reset();
   }
 
-  bool recordedLayer = false;
-  auto recordLayer = [&](const char *layer) {
-    if (recordedLayer)
-      return;
-    recordInteractiveResolutionDebug(uri, "completion", layer, prefix);
-    recordedLayer = true;
-  };
-
   std::unordered_set<std::string> seen;
+  bool recordedResolvedLayer = false;
   if (current && current->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*current->semanticSnapshot, doc.text,
-                                       cursorOffset, prefix, outItems, seen)) {
+                                        cursorOffset, prefix, outItems, seen)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
-    recordInteractiveResolutionDebug(uri, "completion", "current", prefix);
+    if (!recordedResolvedLayer) {
+      recordInteractiveRuntimeDebug(uri, "completion", "current", prefix);
+      recordedResolvedLayer = true;
+    }
   }
   if (lastGood && lastGood->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*lastGood->semanticSnapshot, doc.text,
-                                       cursorOffset, prefix, outItems, seen)) {
+                                        cursorOffset, prefix, outItems, seen)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeLastGoodHits++;
     });
-    recordInteractiveResolutionDebug(uri, "completion", "last-good", prefix);
+    if (!recordedResolvedLayer) {
+      recordInteractiveRuntimeDebug(uri, "completion", "last-good", prefix);
+      recordedResolvedLayer = true;
+    }
   }
+
+  if (!prefix.empty() && hasRuntime) {
+    InteractiveVisibleSymbolShard shard;
+    if (interactiveVisibilityRuntimeGet(runtime.interactiveVisibilityKey,
+                                        shard)) {
+      bool addedSharedVisible = false;
+      addedSharedVisible = appendCompletionItemsFromSharedVisibleShard(
+                               shard.functions, prefix, outItems, seen) ||
+                           addedSharedVisible;
+      addedSharedVisible = appendCompletionItemsFromSharedVisibleShard(
+                               shard.globals, prefix, outItems, seen) ||
+                           addedSharedVisible;
+      if (addedSharedVisible) {
+        if (!recordedResolvedLayer) {
+          recordInteractiveRuntimeDebug(uri, "completion", "shared-visible",
+                                        prefix);
+          recordedResolvedLayer = true;
+        }
+      }
+    }
+  }
+
   if (deferred && deferred->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*deferred->semanticSnapshot, doc.text,
-                                       cursorOffset, prefix, outItems, seen)) {
+                                        cursorOffset, prefix, outItems, seen)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeDeferredDocHits++;
     });
-    recordInteractiveResolutionDebug(uri, "completion", "deferred", prefix);
+    if (!recordedResolvedLayer) {
+      recordInteractiveRuntimeDebug(uri, "completion", "deferred", prefix);
+      recordedResolvedLayer = true;
+    }
   }
 
   if (!prefix.empty()) {
@@ -1015,6 +1261,10 @@ void interactiveCollectCompletionItems(
         recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
           state.mergeWorkspaceSummaryHits++;
         });
+        if (!recordedResolvedLayer) {
+          recordInteractiveRuntimeDebug(uri, "completion", "workspace", prefix);
+          recordedResolvedLayer = true;
+        }
       }
     }
   }
@@ -1154,6 +1404,16 @@ TypeEvalResult interactiveResolveHoverTypeAtDeclaration(
     return result;
   }
 
+  if (hasRuntime && lookupSharedVisibleSymbolType(runtime.interactiveVisibilityKey,
+                                                  symbol, typeName)) {
+    isParamOut = false;
+    result.type = typeName;
+    result.confidence = TypeEvalConfidence::L2;
+    result.reasonCode = "shared_visible_shard";
+    recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", symbol);
+    return result;
+  }
+
   bool deferredIsParam = false;
   if (deferred && deferred->semanticSnapshot &&
       lookupTypeAtOffsetInSnapshot(*deferred->semanticSnapshot, doc.text, symbol,
@@ -1253,6 +1513,15 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeDeferredDocHits++;
       });
+      return result;
+    }
+    if (lookupSharedVisibleSymbolType(runtime.interactiveVisibilityKey, base,
+                                      publishedType) &&
+        !publishedType.empty()) {
+      result.typeName = publishedType;
+      result.resolutionPath = "shared_visible_shard";
+      result.resolved = true;
+      recordInteractiveRuntimeDebug(uri, "member-base", "shared-visible", base);
       return result;
     }
   }
@@ -1436,6 +1705,12 @@ bool interactiveResolveFunctionSignature(
     });
     return true;
   }
+  if (hasRuntime && resolveFunctionSignatureFromSharedVisible(
+                        runtime.interactiveVisibilityKey, name, lineIndex,
+                        nameCharacter, ctx, labelOut, parametersOut)) {
+    recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", name);
+    return true;
+  }
   if (deferred && deferred->semanticSnapshot &&
       trySnapshot(*deferred->semanticSnapshot)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
@@ -1482,6 +1757,7 @@ bool interactiveResolveFunctionOverloads(
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
+    recordInteractiveRuntimeDebug(uri, "signature-help", "current", name);
     return true;
   }
   if (lastGood && lastGood->semanticSnapshot &&
@@ -1490,6 +1766,13 @@ bool interactiveResolveFunctionOverloads(
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeLastGoodHits++;
     });
+    recordInteractiveRuntimeDebug(uri, "signature-help", "last-good", name);
+    return true;
+  }
+  if (hasRuntime && appendOverloadsFromSharedVisible(
+                        runtime.interactiveVisibilityKey, name, ctx,
+                        overloadsOut)) {
+    recordInteractiveRuntimeDebug(uri, "signature-help", "shared-visible", name);
     return true;
   }
   if (deferred && deferred->semanticSnapshot &&
@@ -1498,12 +1781,14 @@ bool interactiveResolveFunctionOverloads(
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeDeferredDocHits++;
     });
+    recordInteractiveRuntimeDebug(uri, "signature-help", "deferred", name);
     return true;
   }
   if (appendWorkspaceSummaryOverloads(name, ctx, overloadsOut)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeWorkspaceSummaryHits++;
     });
+    recordInteractiveRuntimeDebug(uri, "signature-help", "workspace", name);
     return true;
   }
   recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
@@ -1555,6 +1840,13 @@ bool interactiveCollectMemberCompletionQuery(const std::string &uri,
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeLastGoodHits++;
     });
+    return true;
+  }
+  if (hasRuntime && lookupStructFieldInfosFromSharedVisible(
+                        runtime.interactiveVisibilityKey, ownerType,
+                        out.fields)) {
+    recordInteractiveRuntimeDebug(uri, "completion", "shared-visible",
+                                  ownerType);
     return true;
   }
   if (deferred && deferred->semanticSnapshot &&
@@ -1630,20 +1922,33 @@ InteractiveRuntimeMetricsSnapshot takeInteractiveRuntimeMetricsSnapshot() {
   return snapshot;
 }
 
-void recordInteractiveResolutionDebug(const std::string &uri,
-                                      const std::string &queryKind,
-                                      const std::string &layer,
-                                      const std::string &symbol) {
-  std::lock_guard<std::mutex> lock(gInteractiveResolutionDebugMutex);
-  gInteractiveResolutionDebugByUri[uri] =
-      InteractiveResolutionDebugSnapshot{uri, queryKind, layer, symbol};
+void recordInteractiveRuntimeDebug(const std::string &uri,
+                                   const std::string &queryKind,
+                                   const std::string &layer,
+                                   const std::string &symbol) {
+  std::lock_guard<std::mutex> lock(gInteractiveRuntimeDebugMutex);
+  const std::string key = normalizeInteractiveRuntimeDebugUriKey(uri);
+  if (gInteractiveRuntimeDebugByUri.find(key) ==
+      gInteractiveRuntimeDebugByUri.end()) {
+    gInteractiveRuntimeDebugInsertionOrder.push_back(key);
+    while (gInteractiveRuntimeDebugInsertionOrder.size() >
+           kInteractiveRuntimeDebugMaxEntries) {
+      const std::string evictKey =
+          gInteractiveRuntimeDebugInsertionOrder.front();
+      gInteractiveRuntimeDebugInsertionOrder.pop_front();
+      gInteractiveRuntimeDebugByUri.erase(evictKey);
+    }
+  }
+  gInteractiveRuntimeDebugByUri[key] =
+      InteractiveRuntimeDebugSnapshot{uri, queryKind, layer, symbol};
 }
 
-InteractiveResolutionDebugSnapshot
-getInteractiveResolutionDebugSnapshot(const std::string &uri) {
-  std::lock_guard<std::mutex> lock(gInteractiveResolutionDebugMutex);
-  auto it = gInteractiveResolutionDebugByUri.find(uri);
-  return it == gInteractiveResolutionDebugByUri.end()
-             ? InteractiveResolutionDebugSnapshot{}
-             : it->second;
+InteractiveRuntimeDebugSnapshot
+getInteractiveRuntimeDebugSnapshot(const std::string &uri) {
+  std::lock_guard<std::mutex> lock(gInteractiveRuntimeDebugMutex);
+  const std::string key = normalizeInteractiveRuntimeDebugUriKey(uri);
+  auto it = gInteractiveRuntimeDebugByUri.find(key);
+  if (it == gInteractiveRuntimeDebugByUri.end())
+    return InteractiveRuntimeDebugSnapshot{};
+  return it->second;
 }

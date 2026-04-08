@@ -93,7 +93,11 @@ export function registerDeferredDocSemanticTokenTests(): void {
 				'semantic tokens for deferred debug surface'
 			);
 
-			const [runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+			const [runtime] = await waitFor(
+				() => getDocumentRuntimeDebug([document.uri.toString()]),
+				(entries) => Boolean(entries[0]?.hasDeferredDocSnapshot),
+				'deferred snapshot in runtime debug after full semantic tokens'
+			);
 			assert.ok(runtime?.hasDeferredDocSnapshot, 'Expected a deferred snapshot to exist.');
 			assert.strictEqual(typeof runtime?.deferredHasSemanticSnapshot, 'boolean');
 			assert.strictEqual(typeof runtime?.deferredHasSemanticTokensFull, 'boolean');

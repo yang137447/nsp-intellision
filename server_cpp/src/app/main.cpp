@@ -1901,6 +1901,8 @@ int main(int argc, char **argv) {
             makeString(runtime.activeUnitSnapshot.includeClosureFingerprint);
         item.o["activeUnitBranchFingerprint"] =
             makeString(runtime.activeUnitSnapshot.activeBranchFingerprint);
+        item.o["interactiveVisibilityFingerprint"] =
+            makeString(runtime.interactiveVisibilityKey.fullFingerprint);
         item.o["activeUnitWorkspaceSummaryVersion"] = makeNumber(
             static_cast<double>(runtime.activeUnitSnapshot.workspaceSummaryVersion));
         item.o["hasInteractiveSnapshot"] =
@@ -1946,6 +1948,24 @@ int main(int argc, char **argv) {
         documents.a.push_back(std::move(item));
       }
       result.o["documents"] = std::move(documents);
+      if (id.type != Json::Type::Null)
+        writeResponse(id, result);
+      continue;
+    }
+
+    if (method == "nsf/_getInteractiveRuntimeDebug") {
+      Json result = makeObject();
+      if (params) {
+        const Json *uriValue = getObjectValue(*params, "uri");
+        if (uriValue && uriValue->type == Json::Type::String) {
+          const InteractiveRuntimeDebugSnapshot snapshot =
+              getInteractiveRuntimeDebugSnapshot(uriValue->s);
+          result.o["uri"] = makeString(snapshot.uri);
+          result.o["lastQueryKind"] = makeString(snapshot.lastQueryKind);
+          result.o["lastResolvedLayer"] = makeString(snapshot.lastResolvedLayer);
+          result.o["lastSymbol"] = makeString(snapshot.lastSymbol);
+        }
+      }
       if (id.type != Json::Type::Null)
         writeResponse(id, result);
       continue;
@@ -2094,7 +2114,7 @@ int main(int argc, char **argv) {
         const Json *uriValue = getObjectValue(*params, "uri");
         if (uriValue && uriValue->type == Json::Type::String) {
           const auto snapshot =
-              getInteractiveResolutionDebugSnapshot(uriValue->s);
+              getInteractiveRuntimeDebugSnapshot(uriValue->s);
           result.o["uri"] = makeString(snapshot.uri);
           result.o["lastQueryKind"] = makeString(snapshot.lastQueryKind);
           result.o["lastResolvedLayer"] = makeString(snapshot.lastResolvedLayer);

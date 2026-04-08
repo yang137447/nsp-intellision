@@ -61,6 +61,11 @@ bool workspaceSummaryRuntimeQuerySymbols(
     const std::string &query, std::vector<IndexedDefinition> &outDefs,
     size_t limit);
 
+// Collects indexed definitions for one file path or URI via the workspace
+// index's normalized file-key lookup.
+void workspaceSummaryRuntimeQueryDefinitionsByUri(
+    const std::string &uri, std::vector<IndexedDefinition> &out);
+
 // Summary-backed struct member name lookup.
 bool workspaceSummaryRuntimeGetStructFields(const std::string &structName,
                                             std::vector<std::string> &outFields);

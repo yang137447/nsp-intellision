@@ -54,7 +54,8 @@ static bool queryFunctionSignatureWithSemanticFallback(
     const std::string &uri, const std::string &text, uint64_t epoch,
     const std::string &name, int lineIndex, int nameCharacter,
     ServerRequestContext &ctx, std::string &labelOut,
-    std::vector<std::string> &parametersOut);
+    std::vector<std::string> &parametersOut,
+    const std::string &requestUriForDebug);
 static bool findLocalFunctionDeclarationUpTo(const std::string &text,
                                              const std::string &word,
                                              size_t maxOffset, int &lineOut,
@@ -696,7 +697,7 @@ static void appendIncludeContextDefinitionListItems(
         dEpoch = dDoc->epoch;
       const bool fastSig = queryFunctionSignatureWithSemanticFallback(
           group.location.uri, defText, dEpoch, word, group.location.line,
-          group.location.start, ctx, label, paramsOut);
+          group.location.start, ctx, label, paramsOut, uri);
       if (fastSig && !label.empty()) {
         item.label = label;
       }
@@ -718,18 +719,74 @@ static bool queryFunctionSignatureWithSemanticFallback(
     const std::string &uri, const std::string &text, uint64_t epoch,
     const std::string &name, int lineIndex, int nameCharacter,
     ServerRequestContext &ctx, std::string &labelOut,
-    std::vector<std::string> &parametersOut) {
+    std::vector<std::string> &parametersOut,
+    const std::string &requestUriForDebug) {
   const Document *doc = ctx.findDocument(uri);
+  std::string interactiveUri = uri;
+  bool injectedActiveUnitDoc = false;
+  bool targetInActiveClosure = false;
+  const bool crossFileTarget =
+      !requestUriForDebug.empty() &&
+      !sameDocumentIdentity(requestUriForDebug, uri);
+  const std::string activeUnitPath = getActiveUnitPath();
+  if (crossFileTarget && !activeUnitPath.empty()) {
+    const std::string activeUnitUri = pathToUri(activeUnitPath);
+    if (!activeUnitUri.empty()) {
+      targetInActiveClosure = sameDocumentIdentity(activeUnitUri, uri);
+      if (!targetInActiveClosure) {
+        std::vector<std::string> includeClosurePaths;
+        workspaceSummaryRuntimeCollectIncludeClosureForUnit(activeUnitPath,
+                                                            includeClosurePaths,
+                                                            512);
+        for (const auto &candidatePath : includeClosurePaths) {
+          if (sameDocumentIdentity(candidatePath, uri)) {
+            targetInActiveClosure = true;
+            break;
+          }
+        }
+      }
+      if (!doc) {
+        const Document *activeDoc = ctx.findDocument(activeUnitUri);
+        if (activeDoc && targetInActiveClosure) {
+          doc = activeDoc;
+          interactiveUri = activeUnitUri;
+          injectedActiveUnitDoc = !sameDocumentIdentity(interactiveUri, uri);
+        }
+      }
+    }
+  }
+  if (doc && injectedActiveUnitDoc && (lineIndex < 0 || nameCharacter < 0)) {
+    // Tight guard: when we borrow the active-unit document for an include
+    // target, we require concrete location hints from the target file.
+    // Otherwise the mixed-document interactive lookup is skipped.
+    doc = nullptr;
+  }
   if (doc &&
-      interactiveResolveFunctionSignature(uri, *doc, name, lineIndex,
+      // When we inject the active-unit document for an include target, the
+      // location hints still belong to the target uri. This remains valid here
+      // because we only allow injected docs whose target is inside that active
+      // include-closure context, and semantic-snapshot fallback below still
+      // resolves directly from the target file text.
+      interactiveResolveFunctionSignature(interactiveUri, *doc, name, lineIndex,
                                           nameCharacter, ctx, labelOut,
                                           parametersOut)) {
+    if (targetInActiveClosure) {
+      const std::string &debugUri =
+          requestUriForDebug.empty() ? interactiveUri : requestUriForDebug;
+      recordInteractiveRuntimeDebug(debugUri, "hover", "shared-visible", name);
+    }
     return true;
   }
-  return querySemanticSnapshotFunctionSignature(
+  const bool semanticFallback = querySemanticSnapshotFunctionSignature(
       uri, text, epoch, ctx.workspaceFolders, ctx.includePaths,
       ctx.shaderExtensions, ctx.preprocessorDefines, name, lineIndex,
       nameCharacter, labelOut, parametersOut);
+  if (semanticFallback && targetInActiveClosure) {
+    const std::string &debugUri =
+        requestUriForDebug.empty() ? interactiveUri : requestUriForDebug;
+    recordInteractiveRuntimeDebug(debugUri, "hover", "shared-visible", name);
+  }
+  return semanticFallback;
 }
 
 static void appendStructFieldMarkdown(
@@ -782,7 +839,7 @@ static bool writeIncludeContextHoverResponse(
     locEpoch = locDoc->epoch;
   const bool fastSig = queryFunctionSignatureWithSemanticFallback(
       primary.uri, defText, locEpoch, word, primary.line, primary.start, ctx,
-      label, paramsOut);
+      label, paramsOut, uri);
   if (!fastSig || label.empty()) {
     return false;
   }
@@ -1583,7 +1640,7 @@ bool request_hover_handlers::handleHoverRequest(
       std::vector<std::string> paramsOut;
       const bool fastSig = queryFunctionSignatureWithSemanticFallback(
           uri, doc->text, doc->epoch, word, localDeclLine, localDeclChar, ctx,
-          label, paramsOut);
+          label, paramsOut, uri);
       if (fastSig && !label.empty()) {
         HoverFunctionMarkdownInput functionInput;
         functionInput.code = label;
@@ -1616,6 +1673,11 @@ bool request_hover_handlers::handleHoverRequest(
     if (collectCurrentUnitFunctionTargets(uri, word, ctx,
                                           currentUnitTargets) &&
         !currentUnitTargets.empty()) {
+      const bool hasCrossFileCurrentUnitTarget = std::any_of(
+          currentUnitTargets.begin(), currentUnitTargets.end(),
+          [&](const CurrentUnitFunctionTarget &target) {
+            return !sameDocumentIdentity(target.definition.uri, uri);
+          });
       if (currentUnitTargets.size() > 1) {
         HoverFunctionMarkdownInput functionInput;
         functionInput.code = currentUnitTargets.front().label.empty()
@@ -1640,6 +1702,9 @@ bool request_hover_handlers::handleHoverRequest(
         });
         Json hover = makeObject();
         hover.o["contents"] = makeMarkup(md);
+        if (hasCrossFileCurrentUnitTarget) {
+          recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", word);
+        }
         writeMeasuredHoverResponse(hover);
         return true;
       }
@@ -1675,6 +1740,9 @@ bool request_hover_handlers::handleHoverRequest(
       });
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
+      if (!sameDocumentIdentity(currentUnitTarget.definition.uri, uri)) {
+        recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", word);
+      }
       writeResponse(id, hover);
       return true;
       }
@@ -2033,7 +2101,7 @@ bool request_hover_handlers::handleHoverRequest(
         std::vector<std::string> functionParams;
         const bool fastSig = queryFunctionSignatureWithSemanticFallback(
             uri, doc->text, doc->epoch, word, decl.line, nameChar, ctx,
-            functionLabel, functionParams);
+            functionLabel, functionParams, uri);
         if (fastSig && !functionLabel.empty()) {
           HoverFunctionMarkdownInput functionInput;
           functionInput.code = functionLabel;
@@ -2111,7 +2179,7 @@ bool request_hover_handlers::handleHoverRequest(
       std::vector<std::string> paramsOut;
       if (queryFunctionSignatureWithSemanticFallback(
               uri, doc->text, doc->epoch, word, interactiveDefinition.line,
-              interactiveDefinition.start, ctx, label, paramsOut) &&
+              interactiveDefinition.start, ctx, label, paramsOut, uri) &&
           !label.empty()) {
         HoverFunctionMarkdownInput functionInput;
         functionInput.code = label;
@@ -2203,6 +2271,10 @@ bool request_hover_handlers::handleHoverRequest(
       std::string typeName;
       workspaceSummaryRuntimeGetSymbolType(word, typeName);
       const DefinitionLocation &loc = resolvedTarget.location;
+      const IncludeContextResolutionSummary includeSummary =
+          getIncludeContextSummary();
+      const bool includeContextVisible =
+          shouldAttachIncludeContextHoverSummary(includeSummary, uri, loc.uri);
       if (writeMacroHoverResponse(id, uri, loc.uri, loc.line, word, ctx)) {
         return true;
       }
@@ -2217,7 +2289,7 @@ bool request_hover_handlers::handleHoverRequest(
         }
         const bool fastSig = queryFunctionSignatureWithSemanticFallback(
             loc.uri, defText, locEpoch, word, loc.line, loc.start, ctx, label,
-            paramsOut);
+            paramsOut, uri);
         if (fastSig && !label.empty()) {
           HoverFunctionMarkdownInput functionInput;
           functionInput.code = label;
@@ -2232,12 +2304,15 @@ bool request_hover_handlers::handleHoverRequest(
           functionInput.inlineDoc =
               extractTrailingInlineCommentAtLine(defText, loc.line, loc.end);
           appendIncludeContextFunctionSummaryIfNeeded(
-              uri, loc.uri, word, getIncludeContextSummary(), ctx, functionInput);
+              uri, loc.uri, word, includeSummary, ctx, functionInput);
           std::string md = renderMeasuredHoverMarkdown([&]() {
             return renderHoverFunctionMarkdown(functionInput);
           });
           Json hover = makeObject();
           hover.o["contents"] = makeMarkup(md);
+          if (includeContextVisible) {
+            recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", word);
+          }
           writeResponse(id, hover);
           return true;
         }
@@ -2255,13 +2330,16 @@ bool request_hover_handlers::handleHoverRequest(
             extractTrailingInlineCommentAtLine(defText, loc.line, loc.end);
         appendKnownUiMetadataHoverItems(defText, loc.line, symbolInput);
       }
-      appendIncludeContextSymbolNoteIfNeeded(uri, loc.uri, getIncludeContextSummary(),
+      appendIncludeContextSymbolNoteIfNeeded(uri, loc.uri, includeSummary,
                                              symbolInput);
       std::string md = renderMeasuredHoverMarkdown([&]() {
         return renderHoverSymbolMarkdown(symbolInput);
       });
       Json hover = makeObject();
       hover.o["contents"] = makeMarkup(md);
+      if (includeContextVisible) {
+        recordInteractiveRuntimeDebug(uri, "hover", "shared-visible", word);
+      }
       writeResponse(id, hover);
       return true;
     }
