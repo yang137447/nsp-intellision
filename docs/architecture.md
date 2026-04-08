@@ -190,6 +190,7 @@
 - `document_owner.*`: 单文档 owner 编排入口
 - `document_runtime.*`: current-doc runtime、analysis key 与 last-good snapshot 的统一所有者
 - `deferred_doc_runtime.*`: deferred doc snapshot、semantic tokens/document symbols/full diagnostics/full-document inlay hints cache 的统一入口
+- `deferred_doc_runtime.*` 现在明确区分 semantic core（`astDocument` + `semanticSnapshot`）与 lazy artifacts（`semanticTokens`/`inlayHints` range/full、`documentSymbols`、`fullDiagnostics`）；range cache 只有在和 changed window 相交时才被清除，full-artifact rebuild 仍旧依赖 latest-only background work。
 - `inlay_hints_runtime.*`: inlay hints full-document 构建、慢路径补参与 deferred full-cache 复用入口
 - `immediate_syntax_diagnostics.*`: fast syntax diagnostics 共享入口
 - `interactive_semantic_runtime.*`: current-doc interactive semantic 查询入口

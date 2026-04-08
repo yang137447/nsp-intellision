@@ -1,4 +1,5 @@
 import {
+	commands,
 	type ExtensionContext,
 	type TextDocument,
 	type TextEditor,
@@ -28,6 +29,12 @@ const isTrackedShaderDocument = (document: TextDocument | undefined): document i
 	}
 	return document.languageId === 'hlsl' || document.languageId === 'nsf';
 };
+
+const isIdentifierSuggestCharacter = (text: string): boolean =>
+	text.length === 1 && /[A-Za-z0-9_]/.test(text);
+
+const isParameterHintsTriggerCharacter = (text: string): boolean =>
+	text === '(' || text === ',';
 
 export function registerClientEditorEvents(context: ExtensionContext, options: EditorEventsOptions): void {
 	context.subscriptions.push(workspace.onDidOpenTextDocument((document) => {
@@ -88,6 +95,39 @@ export function registerClientEditorEvents(context: ExtensionContext, options: E
 			return;
 		}
 		options.scheduleIncludeUnderlineRefresh();
+		if (event.contentChanges.length !== 1) {
+			return;
+		}
+		const activeEditor = window.activeTextEditor;
+		if (!activeEditor || activeEditor.document.uri.toString() !== event.document.uri.toString()) {
+			return;
+		}
+		const changedText = event.contentChanges[0].text;
+		let commandId = '';
+		let errorSource = '';
+		if (isIdentifierSuggestCharacter(changedText)) {
+			commandId = 'editor.action.triggerSuggest';
+			errorSource = 'identifierSuggestFallback';
+		} else if (isParameterHintsTriggerCharacter(changedText)) {
+			commandId = 'editor.action.triggerParameterHints';
+			errorSource = 'parameterHintsFallback';
+		}
+		if (!commandId) {
+			return;
+		}
+		setTimeout(() => {
+			const currentEditor = window.activeTextEditor;
+			if (!currentEditor || currentEditor.document.uri.toString() !== event.document.uri.toString()) {
+				return;
+			}
+			void Promise.resolve(commands.executeCommand('workbench.action.focusActiveEditorGroup'))
+				.then(() => commands.executeCommand(commandId))
+				.catch((error) => {
+				options.appendClientTrace(`editor fallback ${commandId} failed ${(error as Error).message ?? String(error)}`);
+				options.logClient(`editor fallback ${commandId} failed ${(error as Error).message ?? String(error)}`);
+				options.pushRecentClientError(errorSource, error);
+				});
+		}, 75);
 	}));
 
 	context.subscriptions.push(workspace.onDidSaveTextDocument((document) => {

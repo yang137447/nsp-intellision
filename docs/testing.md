@@ -248,6 +248,8 @@
 
 其中如果改动涉及 deferred/current-doc cache、full diagnostics 预热/发布链路、inlay hints full-cache/慢路径失效，`npm run test:client:repo` 视为最小必跑项。
 
+- 修改 deferred range cache（semantic tokens 与 inlay hints range cache）相关逻辑时，除了跑 `npm run test:client:repo`，还要在 `client.deferred-doc-runtime.test.ts` 里新增或更新 integration 用例，利用 `getDocumentRuntimeDebug(...)` 明确验证“非重叠 edit 保留 cache、重叠 edit 清空 cache”。
+
 如果改动直接涉及这些模块的性能、调度优先级、latest-only / cancellation、metrics 采集或 current-doc cache 命中路径，还应补跑：
 
 - `npm run test:client:perf`

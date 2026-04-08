@@ -1,0 +1,19 @@
+// comment token
+#define SUITE_MACRO 1
+
+struct SuiteType {
+    float4 color;
+};
+
+float4 SuiteFunc(float2 uv) : SV_Target0
+{
+    float value = 1.0f;
+    return saturate(value) + SuiteType().color.x;
+}
+
+float4 SuiteString() : SV_Target0
+{
+    float4 c = float4(1, 0, 0, 1);
+    const char* label = "SuiteString";
+    return c;
+}

@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -7,11 +8,14 @@ import {
 	type SymbolLike,
 	flattenSymbolNames,
 	getWorkspaceRoot,
+	getDocumentRuntimeDebug,
 	hoverToText,
 	openFixture,
 	positionOf,
 	repoDescribe,
 	waitFor,
+	waitForClientQuiescent,
+	waitForIndexingIdle,
 	waitForHoverText
 } from '../test_helpers';
 
@@ -72,6 +76,59 @@ export function registerDeferredDocSemanticTokenTests(): void {
 			);
 			assert.strictEqual(rangeTokens.data.length % 5, 0);
 			assert.ok(rangeTokens.data.length <= fullTokens.data.length);
+		});
+
+		it('reports deferred artifact state in document runtime debug', async function () {
+			this.timeout(120000);
+			await vscode.commands.executeCommand('nsf.restartServer');
+			const document = await openFixture('module_semantic_tokens.nsf');
+
+			await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.SemanticTokens>(
+						'vscode.provideDocumentSemanticTokens',
+						document.uri
+					),
+				(value) => Boolean(value) && (value?.data.length ?? 0) > 0,
+				'semantic tokens for deferred debug surface'
+			);
+
+			const [runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+			assert.ok(runtime?.hasDeferredDocSnapshot, 'Expected a deferred snapshot to exist.');
+			assert.strictEqual(typeof runtime?.deferredHasSemanticSnapshot, 'boolean');
+			assert.strictEqual(typeof runtime?.deferredHasSemanticTokensFull, 'boolean');
+			assert.strictEqual(typeof runtime?.deferredHasDocumentSymbols, 'boolean');
+			assert.strictEqual(typeof runtime?.deferredHasFullDiagnostics, 'boolean');
+			assert.strictEqual(typeof runtime?.deferredHasInlayHintsFull, 'boolean');
+			assert.strictEqual(typeof runtime?.deferredSemanticTokensRangeCacheCount, 'number');
+			assert.strictEqual(typeof runtime?.deferredInlayRangeCacheCount, 'number');
+		});
+
+		it('keeps range semantic token requests lazy and avoids eager full deferred artifacts', async function () {
+			this.timeout(120000);
+			await vscode.commands.executeCommand('nsf.restartServer');
+			const absolutePath = path.join(getWorkspaceRoot(), 'test_files', 'module_semantic_tokens.nsf');
+			const document = await vscode.workspace.openTextDocument(absolutePath);
+			const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(6, 0));
+
+			await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.SemanticTokens>(
+						'vscode.provideDocumentRangeSemanticTokens',
+						document.uri,
+						range
+					),
+				(value) => Boolean(value) && (value?.data.length ?? 0) > 0,
+				'range semantic tokens without eager deferred full build'
+			);
+
+			const [runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+			assert.ok(runtime?.hasDeferredDocSnapshot, 'Expected deferred snapshot after range request.');
+			assert.strictEqual(runtime?.deferredHasSemanticSnapshot, true);
+			assert.ok(
+				(runtime?.deferredSemanticTokensRangeCacheCount ?? 0) > 0,
+				'Expected range cache to store at least one entry.'
+			);
 		});
 
 		it('highlights HLSL attributes as keywords in semantic tokens', async () => {
@@ -157,6 +214,119 @@ export function registerDeferredDocSemanticTokenTests(): void {
 			assert.ok(found, 'Expected semantic token for discard keyword.');
 			assert.strictEqual(found!.tokenType, keywordIndex);
 		});
+
+		it('retains non-overlapping semantic token range caches and drops overlapping ones on edit', async function () {
+			this.timeout(120000);
+			await waitForIndexingIdle('indexing idle before semantic token range cache isolation');
+			const workspaceRoot = getWorkspaceRoot();
+			const sourcePath = path.join(workspaceRoot, 'test_files', 'module_perf_large_current_doc.nsf');
+			const tempPath = path.join(os.tmpdir(), `tmp_semantic_range_cache_${Date.now()}_${Math.random().toString(16).slice(2)}.nsf`);
+			fs.writeFileSync(tempPath, fs.readFileSync(sourcePath, 'utf8'), 'utf8');
+			try {
+				let document = await vscode.workspace.openTextDocument(tempPath);
+				await vscode.window.showTextDocument(document, { preview: false });
+				const range = new vscode.Range(new vscode.Position(40, 0), new vscode.Position(70, 0));
+
+				await waitFor(
+					() =>
+						vscode.commands.executeCommand<vscode.SemanticTokens>(
+							'vscode.provideDocumentRangeSemanticTokens',
+							document.uri,
+							range
+						),
+					(value) => Boolean(value) && (value?.data.length ?? 0) > 0,
+					'seed semantic token range cache'
+				);
+
+				const seededEntries = await waitFor(
+					() => getDocumentRuntimeDebug([document.uri.toString()]),
+					(entries) => (entries[0]?.deferredSemanticTokensRangeCacheCount ?? 0) >= 1,
+					'seeded semantic token range cache entry'
+				);
+				let runtime = seededEntries[0];
+				const seededSemanticRangeCount = runtime?.deferredSemanticTokensRangeCacheCount ?? 0;
+				assert.ok(seededSemanticRangeCount >= 1, 'Expected at least one seeded semantic token range cache entry.');
+
+				const nearInsert = new vscode.WorkspaceEdit();
+				nearInsert.insert(document.uri, new vscode.Position(50, 0), " \n");
+				assert.ok(await vscode.workspace.applyEdit(nearInsert));
+				document = await vscode.workspace.openTextDocument(document.uri);
+
+				[runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+				assert.ok(
+					(runtime?.deferredSemanticTokensRangeCacheCount ?? 0) < seededSemanticRangeCount,
+					'Overlapping edit should clear at least one semantic token range cache entry.'
+				);
+			} finally {
+				if (fs.existsSync(tempPath)) {
+					fs.unlinkSync(tempPath);
+				}
+			}
+		});
+
+		it('materializes full deferred artifacts on demand without discarding range caches', async function () {
+			this.timeout(120000);
+			await waitForIndexingIdle('indexing idle before deferred full artifact isolation');
+			const document = await openFixture('module_semantic_tokens_fresh.nsf');
+			const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(6, 0));
+
+			await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.SemanticTokens>(
+						'vscode.provideDocumentRangeSemanticTokens',
+						document.uri,
+						range
+					),
+				(value) => Boolean(value) && (value?.data.length ?? 0) > 0,
+				'seed semantic token range cache before full artifact build'
+			);
+
+			const seededEntries = await waitFor(
+				() => getDocumentRuntimeDebug([document.uri.toString()]),
+				(entries) => (entries[0]?.deferredSemanticTokensRangeCacheCount ?? 0) >= 1,
+				'semantic token range cache visible in runtime debug'
+			);
+			let runtime = seededEntries[0];
+			const seededSemanticRangeCount = runtime?.deferredSemanticTokensRangeCacheCount ?? 0;
+			assert.ok(seededSemanticRangeCount >= 1, 'Expected range cache to start with at least one entry.');
+
+			await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.SemanticTokens>(
+						'vscode.provideDocumentSemanticTokens',
+						document.uri
+					),
+				(value) => Boolean(value) && (value?.data.length ?? 0) > 0,
+				'full semantic tokens after range cache seed'
+			);
+			await waitForClientQuiescent(
+				'client quiescent before document symbols after range cache seed'
+			);
+			await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+						'nsf._sendServerRequest',
+						{
+							method: 'textDocument/documentSymbol',
+							params: {
+								textDocument: { uri: document.uri.toString() }
+							}
+						}
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'document symbols after range cache seed'
+			);
+			await waitFor(
+				() => getDocumentRuntimeDebug([document.uri.toString()]),
+				(entries) => entries[0]?.deferredHasDocumentSymbols === true,
+				'document symbols reflected in runtime debug after range cache seed'
+			);
+
+			[runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+			assert.strictEqual(runtime?.deferredHasSemanticTokensFull, true);
+			assert.strictEqual(runtime?.deferredHasDocumentSymbols, true);
+			assert.strictEqual(runtime?.deferredSemanticTokensRangeCacheCount, seededSemanticRangeCount);
+		});
 	});
 }
 
@@ -195,6 +365,39 @@ export function registerDeferredDocInlayTests(): void {
 			assert.ok(labels.includes('x:'), 'Expected built-in parameter hint x:.');
 			assert.ok(labels.includes('y:'), 'Expected built-in parameter hint y:.');
 			assert.ok(labels.includes('s:'), 'Expected built-in parameter hint s:.');
+		});
+
+		it('retains non-overlapping inlay range caches and clears them on overlapping edits', async function () {
+			this.timeout(120000);
+			await vscode.commands.executeCommand('nsf.restartServer');
+			let document = await openFixture('main.nsf');
+			const range = new vscode.Range(new vscode.Position(168, 0), new vscode.Position(214, 0));
+
+			await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.InlayHint[]>(
+						'vscode.executeInlayHintProvider',
+						document.uri,
+						range
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'seed inlay range cache'
+			);
+
+			let [runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+			const seededInlayRangeCount = runtime?.deferredInlayRangeCacheCount ?? 0;
+			assert.ok(seededInlayRangeCount >= 1, 'Expected at least one seeded inlay range cache entry.');
+
+			const nearInsert = new vscode.WorkspaceEdit();
+			nearInsert.insert(document.uri, new vscode.Position(171, 0), "// near edit\n");
+			assert.ok(await vscode.workspace.applyEdit(nearInsert));
+			document = await vscode.workspace.openTextDocument(document.uri);
+
+			[runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+			assert.ok(
+				(runtime?.deferredInlayRangeCacheCount ?? 0) < seededInlayRangeCount,
+				'Overlapping edit should clear at least one inlay range cache entry.'
+			);
 		});
 
 		it('provides nested builtin inlay hints for member-access arguments', async () => {

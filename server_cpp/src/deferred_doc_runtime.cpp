@@ -135,6 +135,28 @@ Json makeRangeSpan(int startLine, int startChar, int endLine, int endChar) {
   return range;
 }
 
+bool tryFindRangeCacheEntry(const std::vector<DeferredRangeCacheEntry> &entries,
+                            int startLine, int endLine, Json &valueOut) {
+  for (const auto &entry : entries) {
+    if (entry.startLine == startLine && entry.endLine == endLine) {
+      valueOut = entry.value;
+      return true;
+    }
+  }
+  return false;
+}
+
+void storeRangeCacheEntry(std::vector<DeferredRangeCacheEntry> &entries,
+                          int startLine, int endLine, const Json &value) {
+  for (auto &entry : entries) {
+    if (entry.startLine == startLine && entry.endLine == endLine) {
+      entry.value = value;
+      return;
+    }
+  }
+  entries.emplace_back(DeferredRangeCacheEntry{startLine, endLine, value});
+}
+
 bool findSymbolRangeOnLine(const std::string &lineText, const std::string &symbol,
                            int &startOut, int &endOut) {
   startOut = 0;
@@ -406,7 +428,7 @@ Json buildDocumentSymbolsFromAst(const std::string &text,
   return symbols;
 }
 
-std::shared_ptr<const DeferredDocSnapshot> buildDeferredSnapshotFromInputs(
+static std::shared_ptr<DeferredDocSnapshot> buildDeferredSemanticCoreFromInputs(
     const Document &doc, const DeferredDocBuildContext &context,
     const AnalysisSnapshotKey &analysisKey) {
   auto deferred = std::make_shared<DeferredDocSnapshot>();
@@ -419,40 +441,6 @@ std::shared_ptr<const DeferredDocSnapshot> buildDeferredSnapshotFromInputs(
   deferred->semanticSnapshot = getSemanticSnapshotView(
       doc.uri, doc.text, doc.epoch, context.workspaceFolders,
       context.includePaths, context.shaderExtensions, context.defines);
-  deferred->semanticTokensFull =
-      buildSemanticTokensFull(doc.text, context.semanticLegend);
-  deferred->hasSemanticTokensFull = true;
-  deferred->documentSymbols =
-      buildDocumentSymbolsFromAst(doc.text, deferred->astDocument.get(),
-                                  deferred->semanticSnapshot.get());
-  deferred->hasDocumentSymbols = true;
-  if (context.prewarmFullDiagnostics) {
-    DiagnosticsBuildOptions diagnosticsOptions = context.diagnosticsOptions;
-    diagnosticsOptions.documentEpoch = doc.epoch;
-    DiagnosticsBuildResult diagnostics = buildDiagnosticsWithOptions(
-        doc.uri, doc.text, context.workspaceFolders, context.includePaths,
-        context.shaderExtensions, context.defines, diagnosticsOptions);
-    deferred->fullDiagnostics = diagnostics.diagnostics;
-    deferred->hasFullDiagnostics = true;
-    deferred->fullDiagnosticsFingerprint =
-        buildDiagnosticsFingerprint(diagnosticsOptions);
-  }
-  if (context.prewarmInlayHints && context.inlayHintsEnabled &&
-      context.inlayHintsParameterNamesEnabled) {
-    ServerRequestContext requestContext;
-    requestContext.documents = context.documents;
-    requestContext.workspaceFolders = context.workspaceFolders;
-    requestContext.includePaths = context.includePaths;
-    requestContext.shaderExtensions = context.shaderExtensions;
-    requestContext.semanticLegend = context.semanticLegend;
-    requestContext.preprocessorDefines = context.defines;
-    requestContext.inlayHintsEnabled = context.inlayHintsEnabled;
-    requestContext.inlayHintsParameterNamesEnabled =
-        context.inlayHintsParameterNamesEnabled;
-    deferred->inlayHintsFull =
-        inlayHintsRuntimeBuildFullDocument(doc.uri, doc, requestContext);
-    deferred->hasInlayHintsFull = true;
-  }
   deferred->builtAtMs = currentTimeMs();
   return deferred;
 }
@@ -524,9 +512,38 @@ void runDeferredDocWorker() {
     const auto buildStartedAt = std::chrono::steady_clock::now();
     DeferredDocBuildContext effectiveContext =
         makeDeferredContextFromRuntime(runtime, job.context);
-    auto deferred =
-        buildDeferredSnapshotFromInputs(job.document, effectiveContext,
-                                        runtime.analysisSnapshotKey);
+    auto deferred = buildDeferredSemanticCoreFromInputs(
+        job.document, effectiveContext, runtime.analysisSnapshotKey);
+    if (effectiveContext.prewarmFullDiagnostics) {
+      DiagnosticsBuildOptions diagnosticsOptions =
+          effectiveContext.diagnosticsOptions;
+      diagnosticsOptions.documentEpoch = job.document.epoch;
+      DiagnosticsBuildResult diagnostics = buildDiagnosticsWithOptions(
+          job.document.uri, job.document.text, effectiveContext.workspaceFolders,
+          effectiveContext.includePaths, effectiveContext.shaderExtensions,
+          effectiveContext.defines, diagnosticsOptions);
+      deferred->fullDiagnostics = diagnostics.diagnostics;
+      deferred->hasFullDiagnostics = true;
+      deferred->fullDiagnosticsFingerprint =
+          buildDiagnosticsFingerprint(diagnosticsOptions);
+    }
+    if (effectiveContext.prewarmInlayHints && effectiveContext.inlayHintsEnabled &&
+        effectiveContext.inlayHintsParameterNamesEnabled) {
+      ServerRequestContext requestContext;
+      requestContext.documents = effectiveContext.documents;
+      requestContext.workspaceFolders = effectiveContext.workspaceFolders;
+      requestContext.includePaths = effectiveContext.includePaths;
+      requestContext.shaderExtensions = effectiveContext.shaderExtensions;
+      requestContext.semanticLegend = effectiveContext.semanticLegend;
+      requestContext.preprocessorDefines = effectiveContext.defines;
+      requestContext.inlayHintsEnabled = effectiveContext.inlayHintsEnabled;
+      requestContext.inlayHintsParameterNamesEnabled =
+          effectiveContext.inlayHintsParameterNamesEnabled;
+      deferred->inlayHintsFull =
+          inlayHintsRuntimeBuildFullDocument(job.document.uri, job.document,
+                                             requestContext);
+      deferred->hasInlayHintsFull = true;
+    }
     const double buildMs = static_cast<double>(
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - buildStartedAt)
@@ -549,41 +566,7 @@ void ensureDeferredDocWorkerStarted() {
 
 std::shared_ptr<const DeferredDocSnapshot> getOrBuildDeferredDocSnapshot(
     const std::string &uri, const Document &doc, const ServerRequestContext &ctx) {
-  DocumentRuntime runtime;
-  if (!documentOwnerGetRuntime(uri, runtime))
-    return nullptr;
-  if (runtime.deferredDocSnapshot &&
-      runtime.deferredDocSnapshot->key.fullFingerprint ==
-          runtime.analysisSnapshotKey.fullFingerprint &&
-      runtime.deferredDocSnapshot->documentEpoch == doc.epoch &&
-      runtime.deferredDocSnapshot->documentVersion == doc.version) {
-    return runtime.deferredDocSnapshot;
-  }
-
-  DeferredDocBuildContext buildContext;
-  buildContext.workspaceFolders = runtime.activeUnitSnapshot.workspaceFolders;
-  buildContext.includePaths = runtime.activeUnitSnapshot.includePaths;
-  buildContext.shaderExtensions = runtime.activeUnitSnapshot.shaderExtensions;
-  buildContext.defines = runtime.activeUnitSnapshot.defines;
-  if (buildContext.workspaceFolders.empty() &&
-      buildContext.includePaths.empty() &&
-      buildContext.shaderExtensions.empty() && buildContext.defines.empty()) {
-    buildContext.workspaceFolders = ctx.workspaceFolders;
-    buildContext.includePaths = ctx.includePaths;
-    buildContext.shaderExtensions = ctx.shaderExtensions;
-    buildContext.defines = ctx.preprocessorDefines;
-  }
-  buildContext.semanticLegend = ctx.semanticLegend;
-  const auto buildStartedAt = std::chrono::steady_clock::now();
-  auto deferred =
-      buildDeferredSnapshotFromInputs(doc, buildContext, runtime.analysisSnapshotKey);
-  const double buildMs = static_cast<double>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - buildStartedAt)
-          .count());
-  recordDeferredBuildDuration(buildMs);
-  documentOwnerStoreDeferredSnapshot(uri, deferred);
-  return deferred;
+  return ensureDeferredSemanticCore(uri, doc, ctx);
 }
 
 std::shared_ptr<const DeferredDocSnapshot> tryGetDeferredDocSnapshot(
@@ -595,15 +578,58 @@ std::shared_ptr<const DeferredDocSnapshot> tryGetDeferredDocSnapshot(
       runtime.deferredDocSnapshot->key.fullFingerprint ==
           runtime.analysisSnapshotKey.fullFingerprint &&
       runtime.deferredDocSnapshot->documentEpoch == doc.epoch &&
-      runtime.deferredDocSnapshot->documentVersion == doc.version) {
+      runtime.deferredDocSnapshot->documentVersion == doc.version &&
+      runtime.deferredDocSnapshot->astDocument &&
+      runtime.deferredDocSnapshot->semanticSnapshot) {
     return runtime.deferredDocSnapshot;
   }
   return nullptr;
 }
 
+std::shared_ptr<const DeferredDocSnapshot> ensureDeferredSemanticCore(
+    const std::string &uri, const Document &doc, const ServerRequestContext &ctx) {
+  DocumentRuntime runtime;
+  if (!documentOwnerGetRuntime(uri, runtime))
+    return nullptr;
+
+  if (runtime.deferredDocSnapshot &&
+      runtime.deferredDocSnapshot->key.fullFingerprint ==
+          runtime.analysisSnapshotKey.fullFingerprint &&
+      runtime.deferredDocSnapshot->documentEpoch == doc.epoch &&
+      runtime.deferredDocSnapshot->documentVersion == doc.version &&
+      runtime.deferredDocSnapshot->astDocument &&
+      runtime.deferredDocSnapshot->semanticSnapshot) {
+    return runtime.deferredDocSnapshot;
+  }
+
+  DeferredDocBuildContext buildContext;
+  buildContext.workspaceFolders = runtime.activeUnitSnapshot.workspaceFolders;
+  buildContext.includePaths = runtime.activeUnitSnapshot.includePaths;
+  buildContext.shaderExtensions = runtime.activeUnitSnapshot.shaderExtensions;
+  buildContext.defines = runtime.activeUnitSnapshot.defines;
+  if (buildContext.workspaceFolders.empty() && buildContext.includePaths.empty() &&
+      buildContext.shaderExtensions.empty() && buildContext.defines.empty()) {
+    buildContext.workspaceFolders = ctx.workspaceFolders;
+    buildContext.includePaths = ctx.includePaths;
+    buildContext.shaderExtensions = ctx.shaderExtensions;
+    buildContext.defines = ctx.preprocessorDefines;
+  }
+
+  const auto buildStartedAt = std::chrono::steady_clock::now();
+  auto deferred = buildDeferredSemanticCoreFromInputs(
+      doc, buildContext, runtime.analysisSnapshotKey);
+  const double buildMs = static_cast<double>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - buildStartedAt)
+          .count());
+  recordDeferredBuildDuration(buildMs);
+  documentOwnerStoreDeferredSnapshot(uri, deferred);
+  return deferred;
+}
+
 Json buildDeferredSemanticTokensFull(const std::string &uri, const Document &doc,
                                      const ServerRequestContext &ctx) {
-  auto deferred = getOrBuildDeferredDocSnapshot(uri, doc, ctx);
+  auto deferred = ensureDeferredSemanticCore(uri, doc, ctx);
   if (!deferred)
     return buildSemanticTokensFull(doc.text, ctx.semanticLegend);
   if (deferred->hasSemanticTokensFull)
@@ -622,14 +648,33 @@ Json buildDeferredSemanticTokensRange(const std::string &uri, const Document &do
                                       int startLine, int startCharacter,
                                       int endLine, int endCharacter,
                                       const ServerRequestContext &ctx) {
-  getOrBuildDeferredDocSnapshot(uri, doc, ctx);
-  return buildSemanticTokensRange(doc.text, startLine, startCharacter, endLine,
-                                  endCharacter, ctx.semanticLegend);
+  const int normalizedStart = std::min(startLine, endLine);
+  const int normalizedEnd = std::max(startLine, endLine);
+  auto deferred = ensureDeferredSemanticCore(uri, doc, ctx);
+  if (!deferred)
+    return buildSemanticTokensRange(doc.text, startLine, startCharacter, endLine,
+                                    endCharacter, ctx.semanticLegend);
+
+  Json cached;
+  if (tryFindRangeCacheEntry(deferred->semanticTokensRangeCache, normalizedStart,
+                             normalizedEnd, cached)) {
+    return cached;
+  }
+
+  Json tokens = buildSemanticTokensRange(doc.text, startLine, startCharacter,
+                                         endLine, endCharacter,
+                                         ctx.semanticLegend);
+  auto writable = std::make_shared<DeferredDocSnapshot>(*deferred);
+  storeRangeCacheEntry(writable->semanticTokensRangeCache, normalizedStart,
+                       normalizedEnd, tokens);
+  writable->builtAtMs = currentTimeMs();
+  documentOwnerStoreDeferredSnapshot(uri, writable);
+  return tokens;
 }
 
 Json buildDeferredDocumentSymbols(const std::string &uri, const Document &doc,
                                   const ServerRequestContext &ctx) {
-  auto deferred = getOrBuildDeferredDocSnapshot(uri, doc, ctx);
+  auto deferred = ensureDeferredSemanticCore(uri, doc, ctx);
   if (!deferred)
     return makeArray();
   if (deferred->hasDocumentSymbols)
@@ -714,6 +759,7 @@ void deferredDocRuntimeInvalidateInlayHints(const std::string &uri) {
   auto writable = std::make_shared<DeferredDocSnapshot>(*runtime.deferredDocSnapshot);
   writable->inlayHintsFull = makeArray();
   writable->hasInlayHintsFull = false;
+  writable->inlayHintsRangeCache.clear();
   writable->builtAtMs = currentTimeMs();
   documentOwnerStoreDeferredSnapshot(uri, writable);
 }

@@ -64,6 +64,12 @@ std::shared_ptr<const DeferredDocSnapshot> getOrBuildDeferredDocSnapshot(
 std::shared_ptr<const DeferredDocSnapshot> tryGetDeferredDocSnapshot(
     const std::string &uri, const Document &doc);
 
+// Ensures a current-version deferred semantic core exists (AST + semantic view),
+// without eagerly building full-document artifacts like semantic tokens, document
+// symbols, diagnostics, or inlay hints.
+std::shared_ptr<const DeferredDocSnapshot> ensureDeferredSemanticCore(
+    const std::string &uri, const Document &doc, const ServerRequestContext &ctx);
+
 // Builds or reuses the full semantic tokens result for the current analysis key.
 Json buildDeferredSemanticTokensFull(const std::string &uri, const Document &doc,
                                      const ServerRequestContext &ctx);

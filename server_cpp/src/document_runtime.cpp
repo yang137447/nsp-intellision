@@ -4,6 +4,7 @@
 #include "include_resolver.hpp"
 #include "preprocessor_view.hpp"
 #include "resource_registry.hpp"
+#include "lsp_helpers.hpp"
 #include "server_documents.hpp"
 #include "text_utils.hpp"
 #include "uri_utils.hpp"
@@ -397,6 +398,48 @@ bool isSnapshotStaleEligible(const AnalysisSnapshotKey &candidate,
   return candidate.stableContextFingerprint == current.stableContextFingerprint;
 }
 
+static int countLines(const std::string &text) {
+  const int crCount =
+      static_cast<int>(std::count(text.begin(), text.end(), '\n'));
+  return std::max(1, 1 + crCount);
+}
+
+static std::pair<int, int> computeDeferredChangedWindow(
+    const std::string &text, const std::vector<ChangedRange> &changedRanges) {
+  const int lineCount = countLines(text);
+  if (changedRanges.empty())
+    return {0, lineCount - 1};
+
+  int startLine = lineCount - 1;
+  int endLine = 0;
+  for (const auto &range : changedRanges) {
+    const int normalizedStart = std::max(0, range.startLine);
+    startLine = std::min(startLine, normalizedStart);
+    const int candidateEnd =
+        std::max(range.endLine, range.startLine + range.newEndLine);
+    const int normalizedEnd =
+        std::min(lineCount - 1, std::max(candidateEnd, 0));
+    endLine = std::max(endLine, normalizedEnd);
+  }
+  if (endLine < startLine)
+    endLine = startLine;
+  return {startLine, endLine};
+}
+
+static void invalidateOverlappingDeferredRanges(
+    std::vector<DeferredRangeCacheEntry> &entries, int changedStartLine,
+    int changedEndLine) {
+  if (entries.empty())
+    return;
+  entries.erase(
+      std::remove_if(entries.begin(), entries.end(),
+                     [&](const DeferredRangeCacheEntry &entry) {
+                       return !(entry.endLine < changedStartLine ||
+                                entry.startLine > changedEndLine);
+                     }),
+      entries.end());
+}
+
 bool activeUnitContextMatches(
     const ActiveUnitSnapshot &snapshot, const std::string &activeUnitUri,
     const std::string &activeUnitPath,
@@ -632,11 +675,25 @@ void documentRuntimeUpsert(const Document &document,
       updated.lastGoodInteractiveSnapshot = existing.interactiveSnapshot
                                                 ? existing.interactiveSnapshot
                                                 : existing.lastGoodInteractiveSnapshot;
-      if (existing.deferredDocSnapshot &&
-          isSnapshotStaleEligible(existing.deferredDocSnapshot->key,
-                                  updated.analysisSnapshotKey)) {
-        updated.deferredDocSnapshot = existing.deferredDocSnapshot;
-      }
+    if (existing.deferredDocSnapshot &&
+        isSnapshotStaleEligible(existing.deferredDocSnapshot->key,
+                                updated.analysisSnapshotKey)) {
+      auto writable =
+          std::make_shared<DeferredDocSnapshot>(*existing.deferredDocSnapshot);
+      const auto [changedStartLine, changedEndLine] =
+          computeDeferredChangedWindow(document.text, changedRanges);
+      invalidateOverlappingDeferredRanges(writable->semanticTokensRangeCache,
+                                          changedStartLine, changedEndLine);
+      invalidateOverlappingDeferredRanges(writable->inlayHintsRangeCache,
+                                          changedStartLine, changedEndLine);
+      writable->semanticTokensFull = makeArray();
+      writable->hasSemanticTokensFull = false;
+      writable->inlayHintsFull = makeArray();
+      writable->hasInlayHintsFull = false;
+      writable->fullDiagnostics = makeArray();
+      writable->hasFullDiagnostics = false;
+      updated.deferredDocSnapshot = std::move(writable);
+    }
       if (existing.immediateSyntaxSnapshot.documentEpoch == document.epoch &&
           existing.immediateSyntaxSnapshot.documentVersion ==
               document.version) {

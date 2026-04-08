@@ -115,6 +115,12 @@ struct InteractiveSnapshot {
   uint64_t builtAtMs = 0;
 };
 
+struct DeferredRangeCacheEntry {
+  int startLine = 0;
+  int endLine = 0;
+  Json value;
+};
+
 // Published deferred semantic snapshot for the current document.
 struct DeferredDocSnapshot {
   AnalysisSnapshotKey key;
@@ -131,6 +137,8 @@ struct DeferredDocSnapshot {
   bool hasInlayHintsFull = false;
   Json documentSymbols;
   bool hasDocumentSymbols = false;
+  std::vector<DeferredRangeCacheEntry> semanticTokensRangeCache;
+  std::vector<DeferredRangeCacheEntry> inlayHintsRangeCache;
   uint64_t builtAtMs = 0;
 };
 

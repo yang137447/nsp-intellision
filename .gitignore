@@ -15,3 +15,6 @@ Thumbs.db
 .DS_Store
 .vsix-stage2/
 .agent-harness/
+.worktrees/
+.superpowers/
+./docs/superpowers/

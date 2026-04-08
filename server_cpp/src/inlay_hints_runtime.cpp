@@ -205,6 +205,30 @@ void collectLineStarts(const std::string &text,
   }
 }
 
+bool tryGetDeferredInlayRangeCache(const DeferredDocSnapshot &snapshot,
+                                   int startLine, int endLine,
+                                   Json &valueOut) {
+  for (const auto &entry : snapshot.inlayHintsRangeCache) {
+    if (entry.startLine == startLine && entry.endLine == endLine) {
+      valueOut = entry.value;
+      return true;
+    }
+  }
+  return false;
+}
+
+void storeDeferredInlayRangeCache(DeferredDocSnapshot &snapshot, int startLine,
+                                  int endLine, const Json &value) {
+  for (auto &entry : snapshot.inlayHintsRangeCache) {
+    if (entry.startLine == startLine && entry.endLine == endLine) {
+      entry.value = value;
+      return;
+    }
+  }
+  snapshot.inlayHintsRangeCache.push_back(
+      DeferredRangeCacheEntry{startLine, endLine, value});
+}
+
 bool offsetToPosition(const std::string &text,
                       const std::vector<size_t> &lineStarts, size_t offset,
                       int &lineOut, int &characterOut) {
@@ -576,16 +600,43 @@ Json inlayHintsRuntimeBuildRange(const std::string &uri, const Document &doc,
   if (endOffset < startOffset)
     std::swap(startOffset, endOffset);
 
+  const int normalizedStart = std::min(startLine, endLine);
+  const int normalizedEnd = std::max(startLine, endLine);
+  auto deferred = ensureDeferredSemanticCore(uri, doc, ctx);
+  if (deferred) {
+    const auto rangeCacheStartedAt = std::chrono::steady_clock::now();
+    Json cached;
+    if (tryGetDeferredInlayRangeCache(*deferred, normalizedStart, normalizedEnd,
+                                      cached)) {
+      const double rangeFilterDurationMs =
+          std::chrono::duration<double, std::milli>(
+              std::chrono::steady_clock::now() - rangeCacheStartedAt)
+              .count();
+      recordInlayRangeFilter(rangeFilterDurationMs);
+      return cached;
+    }
+  }
+
   const auto buildStart = std::chrono::steady_clock::now();
   Json hints = buildInlayHintsForOffsets(uri, doc, ctx, startOffset, endOffset,
-                                         std::min(startLine, endLine),
-                                         std::max(startLine, endLine),
+                                         normalizedStart, normalizedEnd,
                                          kRangeMaxHints);
   const double buildDurationMs =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                 buildStart)
           .count();
   recordInlayRangeBuild(buildDurationMs);
+
+  if (deferred) {
+    auto writable = std::make_shared<DeferredDocSnapshot>(*deferred);
+    storeDeferredInlayRangeCache(*writable, normalizedStart, normalizedEnd, hints);
+    writable->builtAtMs = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+    documentOwnerStoreDeferredSnapshot(uri, writable);
+  }
+
   return hints;
 }
 

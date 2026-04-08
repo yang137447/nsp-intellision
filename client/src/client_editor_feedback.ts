@@ -18,7 +18,8 @@ import {
 } from 'vscode';
 import type { LanguageClient } from 'vscode-languageclient/node';
 
-import { buildRuntimeSettings, normalizeIncludePaths } from './client_config_sync';
+import { buildRuntimeSettings } from './client_config_sync';
+import { resolveIncludeCandidatesForPath } from './include_underline_support';
 import { LSP_METHOD_KEYS } from './lsp_method_keys';
 import {
 	formatIndexingProgress,
@@ -27,7 +28,6 @@ import {
 	normalizeIndexingState,
 	type ServerIndexingState
 } from './client_indexing_status';
-import { computeSingleFileIncludePaths } from './single_file_config';
 
 export type EditorFeedbackSnapshot = {
 	lastIndexingState: ServerIndexingState | undefined;
@@ -39,6 +39,29 @@ export type EditorFeedbackSnapshot = {
 	indexSettledInlayRefreshTriggerCount: number;
 	pendingInitialInlayRefreshAfterIndex: boolean;
 	pendingInlayRefreshAfterIndexActivity: boolean;
+	includeUnderlineRefreshCount: number;
+	includeUnderlineLastRangeCount: number;
+	includeUnderlineLastDocumentUri: string;
+	includeUnderlineLastDurationMs: number;
+	includeUnderlineTotalDurationMs: number;
+	includeUnderlineAvgDurationMs: number;
+	inlayProviderRequestCount: number;
+	inlayProviderRequestAvgMs: number;
+	inlayProviderRequestMaxMs: number;
+	inlayRangeAdjustSamples: number;
+	inlayRangeAdjustAvgMs: number;
+	inlayRangeAdjustMaxMs: number;
+	inlayStateCheckSamples: number;
+	inlayStateCheckAvgMs: number;
+	inlayStateCheckMaxMs: number;
+	inlayRpcRequestSamples: number;
+	inlayRpcRequestAvgMs: number;
+	inlayRpcRequestMaxMs: number;
+	inlayAssemblySamples: number;
+	inlayAssemblyAvgMs: number;
+	inlayAssemblyMaxMs: number;
+	lastInlayRequestDocumentUri: string;
+	lastInlayRequestEndLine: number;
 };
 
 type EditorFeedbackOptions = {
@@ -101,10 +124,28 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 	let indexSettledInlayRefreshTriggerCount = 0;
 	let gitStormPollingTimer: NodeJS.Timeout | undefined;
 	let lastSentSingleFileSettingsKey = '';
+	const includeUnderlineMetrics = { count: 0, lastRangeCount: 0, lastDocumentUri: '', lastMs: 0, totalMs: 0 };
+	const inlayMetrics = {
+		provider: { samples: 0, totalMs: 0, maxMs: 0 },
+		rangeAdjust: { samples: 0, totalMs: 0, maxMs: 0 },
+		stateCheck: { samples: 0, totalMs: 0, maxMs: 0 },
+		rpc: { samples: 0, totalMs: 0, maxMs: 0 },
+		assembly: { samples: 0, totalMs: 0, maxMs: 0 },
+		lastDocumentUri: '',
+		lastEndLine: -1
+	};
+
+	const recordDuration = (metric: { samples: number; totalMs: number; maxMs: number }, durationMs: number): void => {
+		metric.samples++;
+		metric.totalMs += durationMs;
+		metric.maxMs = Math.max(metric.maxMs, durationMs);
+	};
+	const avgDuration = (metric: { samples: number; totalMs: number }): number =>
+		metric.samples > 0 ? metric.totalMs / metric.samples : 0;
 
 	const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 	const inlayHintsChanged = new EventEmitter<void>();
-	const inlayPrefetchLines = 80;
+	const inlayPrefetchLines = 24;
 	let inlayRefreshTimer: NodeJS.Timeout | undefined;
 	let includeUnderlineRefreshTimer: NodeJS.Timeout | undefined;
 	const inlayDeferredRefreshTimers = new Set<NodeJS.Timeout>();
@@ -169,67 +210,6 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 		return normalized;
 	};
 
-	const resolveIncludeCandidatesForDocument = (document: TextDocument, includePath: string): string[] => {
-		const isAbsolutePath = (value: string): boolean => {
-			if (path.isAbsolute(value)) {
-				return true;
-			}
-			return /^[a-zA-Z]:[\\/]/.test(value);
-		};
-		const workspaceFolders = (workspace.workspaceFolders ?? []).map((item) => item.uri.fsPath);
-		const includePaths = workspace.getConfiguration('nsf').get<string[]>('intellisionPath', []);
-		const candidates: string[] = [];
-		if (isAbsolutePath(includePath)) {
-			candidates.push(includePath);
-		} else {
-			candidates.push(path.join(path.dirname(document.uri.fsPath), includePath));
-			for (const inc of includePaths) {
-				const trimmed = inc.trim();
-				if (!trimmed) {
-					continue;
-				}
-				if (isAbsolutePath(trimmed)) {
-					candidates.push(path.join(trimmed, includePath));
-				}
-			}
-			for (const folder of workspaceFolders) {
-				for (const inc of includePaths) {
-					const trimmed = inc.trim();
-					if (!trimmed) {
-						continue;
-					}
-					const base = isAbsolutePath(trimmed) ? trimmed : path.join(folder, trimmed);
-					candidates.push(path.join(base, includePath));
-				}
-			}
-		}
-		const hasExtension = path.extname(includePath).length > 0;
-		const extensions = getConfiguredShaderExtensions();
-		const expanded: string[] = [];
-		const seen = new Set<string>();
-		for (const candidate of candidates) {
-			if (hasExtension) {
-				const key = path.normalize(candidate).toLowerCase();
-				if (seen.has(key)) {
-					continue;
-				}
-				seen.add(key);
-				expanded.push(candidate);
-				continue;
-			}
-			for (const ext of extensions) {
-				const withExt = `${candidate}${ext}`;
-				const key = path.normalize(withExt).toLowerCase();
-				if (seen.has(key)) {
-					continue;
-				}
-				seen.add(key);
-				expanded.push(withExt);
-			}
-		}
-		return expanded;
-	};
-
 	const computeValidIncludeRanges = (document: TextDocument): Range[] => {
 		const ranges: Range[] = [];
 		const lines = document.getText().split(/\r?\n/);
@@ -247,7 +227,13 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 			}
 			const start = (matched.index ?? 0) + relativeStart;
 			const end = start + includePath.length;
-			const candidates = resolveIncludeCandidatesForDocument(document, includePath);
+			const candidates = resolveIncludeCandidatesForPath({
+				documentFsPath: document.uri.fsPath,
+				includePath,
+				workspaceFolders: (workspace.workspaceFolders ?? []).map((item) => item.uri.fsPath),
+				includePaths: workspace.getConfiguration('nsf').get<string[]>('intellisionPath', []),
+				shaderExtensions: getConfiguredShaderExtensions()
+			});
 			const found = candidates.some((candidate) => {
 				try {
 					return fs.existsSync(candidate);
@@ -271,7 +257,15 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 			editor.setDecorations(includeValidDecoration, []);
 			return;
 		}
-		editor.setDecorations(includeValidDecoration, computeValidIncludeRanges(editor.document));
+		const startedAt = Date.now();
+		const ranges = computeValidIncludeRanges(editor.document);
+		const durationMs = Date.now() - startedAt;
+		includeUnderlineMetrics.count++;
+		includeUnderlineMetrics.lastRangeCount = ranges.length;
+		includeUnderlineMetrics.lastDocumentUri = editor.document.uri.toString();
+		includeUnderlineMetrics.lastMs = durationMs;
+		includeUnderlineMetrics.totalMs += durationMs;
+		editor.setDecorations(includeValidDecoration, ranges);
 	};
 
 	const scheduleIncludeUnderlineRefresh = (): void => {
@@ -608,17 +602,10 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 		if (!client) {
 			return;
 		}
-		let includePathsOverride: string[] | undefined;
-		const configuredIncludePaths = normalizeIncludePaths(
-			workspace.getConfiguration('nsf').get<string[]>('intellisionPath', [])
-		);
 		if (filePath && !isInAnyWorkspaceFolder(filePath)) {
-			if (configuredIncludePaths.length > 0) {
-				includePathsOverride = computeSingleFileIncludePaths(filePath, configuredIncludePaths);
-			} else {
-				includePathsOverride = [];
-			}
+			return;
 		}
+		let includePathsOverride: string[] | undefined;
 		const runtimeSettings = buildRuntimeSettings(options.isTestMode, options.isPerfTestMode, includePathsOverride);
 		const key = JSON.stringify(runtimeSettings);
 		if (key === lastSentSingleFileSettingsKey) {
@@ -738,6 +725,7 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 			{
 				onDidChangeInlayHints: inlayHintsChanged.event,
 				provideInlayHints: async (document, range, token) => {
+					const providerStartedAt = Date.now();
 					await options.ensureClientStarted(false);
 					const client = options.getClient();
 					if (!client || !client.initializeResult) {
@@ -751,6 +739,7 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 						(editor) => editor.document.uri.toString() === document.uri.toString()
 					);
 					if (visibleEditor && visibleEditor.visibleRanges.length > 0) {
+						const rangeAdjustStartedAt = Date.now();
 						let visibleStart = visibleEditor.visibleRanges[0].start;
 						let visibleEnd = visibleEditor.visibleRanges[0].end;
 						for (const visibleRange of visibleEditor.visibleRanges) {
@@ -761,8 +750,8 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 								visibleEnd = visibleRange.end;
 							}
 						}
-						const expandedStartLine = Math.max(0, visibleStart.line - 80);
-						const expandedEndLine = Math.min(document.lineCount - 1, visibleEnd.line + 80);
+						const expandedStartLine = Math.max(0, visibleStart.line - inlayPrefetchLines);
+						const expandedEndLine = Math.min(document.lineCount - 1, visibleEnd.line + inlayPrefetchLines);
 						const expandedStart = new Position(expandedStartLine, 0);
 						const expandedEndChar = document.lineAt(expandedEndLine).text.length;
 						const expandedEnd = new Position(expandedEndLine, expandedEndChar);
@@ -771,15 +760,20 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 						if (end.isAfter(start)) {
 							effectiveRange = new Range(start, end);
 						}
+						recordDuration(inlayMetrics.rangeAdjust, Date.now() - rangeAdjustStartedAt);
 					}
+					const stateCheckStartedAt = Date.now();
 					const stateSnapshot = lastIndexingState ?? (await fetchIndexingState(false));
+					recordDuration(inlayMetrics.stateCheck, Date.now() - stateCheckStartedAt);
 					if (!isIndexingStateStable(stateSnapshot)) {
 						return [];
 					}
 					options.beginRpcActivity(LSP_METHOD_KEYS.inlayHint);
 					let response: any[] | undefined;
 					try {
+						const rpcStartedAt = Date.now();
 						response = await sendInlayHintRequest(document.uri.toString(), effectiveRange, token);
+						recordDuration(inlayMetrics.rpc, Date.now() - rpcStartedAt);
 					} catch (error) {
 						if (token.isCancellationRequested) {
 							return [];
@@ -791,6 +785,7 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 					if (token.isCancellationRequested || !Array.isArray(response)) {
 						return [];
 					}
+					const assemblyStartedAt = Date.now();
 					const hints: InlayHint[] = [];
 					for (const item of response) {
 						const line = typeof item?.position?.line === 'number' ? item.position.line : -1;
@@ -815,6 +810,10 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 						}
 						hints.push(hint);
 					}
+					recordDuration(inlayMetrics.assembly, Date.now() - assemblyStartedAt);
+					recordDuration(inlayMetrics.provider, Date.now() - providerStartedAt);
+					inlayMetrics.lastDocumentUri = document.uri.toString();
+					inlayMetrics.lastEndLine = effectiveRange.end.line;
 					return hints;
 				}
 			}
@@ -831,7 +830,31 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 			initialInlayRefreshTriggerCount,
 			indexSettledInlayRefreshTriggerCount,
 			pendingInitialInlayRefreshAfterIndex,
-			pendingInlayRefreshAfterIndexActivity
+			pendingInlayRefreshAfterIndexActivity,
+			includeUnderlineRefreshCount: includeUnderlineMetrics.count,
+			includeUnderlineLastRangeCount: includeUnderlineMetrics.lastRangeCount,
+			includeUnderlineLastDocumentUri: includeUnderlineMetrics.lastDocumentUri,
+			includeUnderlineLastDurationMs: includeUnderlineMetrics.lastMs,
+			includeUnderlineTotalDurationMs: includeUnderlineMetrics.totalMs,
+			includeUnderlineAvgDurationMs:
+				includeUnderlineMetrics.count > 0 ? includeUnderlineMetrics.totalMs / includeUnderlineMetrics.count : 0,
+			inlayProviderRequestCount: inlayMetrics.provider.samples,
+			inlayProviderRequestAvgMs: avgDuration(inlayMetrics.provider),
+			inlayProviderRequestMaxMs: inlayMetrics.provider.maxMs,
+			inlayRangeAdjustSamples: inlayMetrics.rangeAdjust.samples,
+			inlayRangeAdjustAvgMs: avgDuration(inlayMetrics.rangeAdjust),
+			inlayRangeAdjustMaxMs: inlayMetrics.rangeAdjust.maxMs,
+			inlayStateCheckSamples: inlayMetrics.stateCheck.samples,
+			inlayStateCheckAvgMs: avgDuration(inlayMetrics.stateCheck),
+			inlayStateCheckMaxMs: inlayMetrics.stateCheck.maxMs,
+			inlayRpcRequestSamples: inlayMetrics.rpc.samples,
+			inlayRpcRequestAvgMs: avgDuration(inlayMetrics.rpc),
+			inlayRpcRequestMaxMs: inlayMetrics.rpc.maxMs,
+			inlayAssemblySamples: inlayMetrics.assembly.samples,
+			inlayAssemblyAvgMs: avgDuration(inlayMetrics.assembly),
+			inlayAssemblyMaxMs: inlayMetrics.assembly.maxMs,
+			lastInlayRequestDocumentUri: inlayMetrics.lastDocumentUri,
+			lastInlayRequestEndLine: inlayMetrics.lastEndLine
 		}),
 		sendInlayHintRequest,
 		sendDocumentSymbolRequest,

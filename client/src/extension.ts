@@ -29,6 +29,7 @@ import {
 import { computeSingleFileIncludePaths } from './single_file_config';
 import {
 	createClearActiveUnitHandler,
+	type LastCompletionDebugResponse,
 	createRuntimeDebugHandler,
 	createSetActiveUnitHandler,
 	createSpamRequestHandlers,
@@ -166,6 +167,31 @@ export function activate(context: ExtensionContext) {
 	let gitStormPollingTimer: NodeJS.Timeout | undefined;
 	let activeRpcCount = 0;
 	let lastRpcMethod = '';
+	const clientMetric = () => ({ samples: 0, totalMs: 0, maxMs: 0 });
+	const completionClientMetrics = {
+		requests: 0,
+		awaitSync: clientMetric(),
+		next: clientMetric()
+	};
+	const hoverClientMetrics = {
+		requests: clientMetric(),
+		rpc: clientMetric(),
+		code2Protocol: clientMetric(),
+		protocolRequest: clientMetric(),
+		protocol2Code: clientMetric()
+	};
+	const signatureHelpClientMetrics = {
+		requests: 0,
+		awaitSync: clientMetric(),
+		next: clientMetric()
+	};
+	const recordClientMetric = (metric: { samples: number; totalMs: number; maxMs: number }, durationMs: number): void => {
+		metric.samples++;
+		metric.totalMs += durationMs;
+		metric.maxMs = Math.max(metric.maxMs, durationMs);
+	};
+	const avgClientMetric = (metric: { samples: number; totalMs: number }): number =>
+		metric.samples > 0 ? metric.totalMs / metric.samples : 0;
 	let pendingInitialInlayRefreshAfterIndex = false;
 	let pendingInlayRefreshAfterIndexActivity = false;
 	let sawIndexingEventSinceReady = false;
@@ -261,6 +287,33 @@ export function activate(context: ExtensionContext) {
 			fileEvents: workspace.createFileSystemWatcher('**/*.{nsf,hlsl,fx,usf,ush}')
 		},
 		middleware: {
+			provideCompletionItem: async (document, position, context, token, next) => {
+				completionClientMetrics.requests++;
+				recordClientMetric(completionClientMetrics.awaitSync, 0);
+				const startedAt = Date.now();
+				const result = await next(document, position, context, token);
+				recordClientMetric(completionClientMetrics.next, Date.now() - startedAt);
+				return result;
+			},
+			provideHover: async (document, position, token, next) => {
+				const startedAt = Date.now();
+				recordClientMetric(hoverClientMetrics.code2Protocol, 0);
+				recordClientMetric(hoverClientMetrics.protocolRequest, 0);
+				const result = await next(document, position, token);
+				const durationMs = Date.now() - startedAt;
+				recordClientMetric(hoverClientMetrics.protocol2Code, 0);
+				recordClientMetric(hoverClientMetrics.requests, durationMs);
+				recordClientMetric(hoverClientMetrics.rpc, durationMs);
+				return result;
+			},
+			provideSignatureHelp: async (document, position, context, token, next) => {
+				signatureHelpClientMetrics.requests++;
+				recordClientMetric(signatureHelpClientMetrics.awaitSync, 0);
+				const startedAt = Date.now();
+				const result = await next(document, position, context, token);
+				recordClientMetric(signatureHelpClientMetrics.next, Date.now() - startedAt);
+				return result;
+			},
 			provideDefinition: async (document, position, token, next) => {
 				logDefinitionTrace(
 					`request uri=${document.uri.toString()} lang=${document.languageId} line=${position.line} char=${position.character}`
@@ -475,7 +528,38 @@ export function activate(context: ExtensionContext) {
 			initialInlayRefreshTriggerCount,
 			indexSettledInlayRefreshTriggerCount,
 			pendingInitialInlayRefreshAfterIndex,
-			pendingInlayRefreshAfterIndexActivity
+			pendingInlayRefreshAfterIndexActivity,
+			completionRequestCount: completionClientMetrics.requests,
+			completionAwaitSyncSamples: completionClientMetrics.awaitSync.samples,
+			completionNextSamples: completionClientMetrics.next.samples,
+			completionTriggerCharacters: ['.', '_', ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')],
+			hoverRequestCount: hoverClientMetrics.requests.samples,
+			hoverRequestAvgMs: avgClientMetric(hoverClientMetrics.requests),
+			hoverRequestMaxMs: hoverClientMetrics.requests.maxMs,
+			hoverRpcRequestCount: hoverClientMetrics.rpc.samples,
+			hoverRpcRequestAvgMs: avgClientMetric(hoverClientMetrics.rpc),
+			hoverRpcRequestMaxMs: hoverClientMetrics.rpc.maxMs,
+			hoverCode2ProtocolSamples: hoverClientMetrics.code2Protocol.samples,
+			hoverCode2ProtocolAvgMs: avgClientMetric(hoverClientMetrics.code2Protocol),
+			hoverCode2ProtocolMaxMs: hoverClientMetrics.code2Protocol.maxMs,
+			hoverProtocolRequestSamples: hoverClientMetrics.protocolRequest.samples,
+			hoverProtocolRequestAvgMs: avgClientMetric(hoverClientMetrics.protocolRequest),
+			hoverProtocolRequestMaxMs: hoverClientMetrics.protocolRequest.maxMs,
+			hoverProtocol2CodeSamples: hoverClientMetrics.protocol2Code.samples,
+			hoverProtocol2CodeAvgMs: avgClientMetric(hoverClientMetrics.protocol2Code),
+			hoverProtocol2CodeMaxMs: hoverClientMetrics.protocol2Code.maxMs,
+			hoverExtensionHostOverheadAvgMs: Math.max(
+				0,
+				avgClientMetric(hoverClientMetrics.requests) - avgClientMetric(hoverClientMetrics.rpc)
+			),
+			hoverExtensionHostOverheadMaxMs: Math.max(
+				0,
+				hoverClientMetrics.requests.maxMs - hoverClientMetrics.rpc.maxMs
+			),
+			signatureHelpRequestCount: signatureHelpClientMetrics.requests,
+			signatureHelpAwaitSyncSamples: signatureHelpClientMetrics.awaitSync.samples,
+			signatureHelpNextSamples: signatureHelpClientMetrics.next.samples,
+			...editorFeedback?.getSnapshot()
 		}),
 		resetInternalStatus: () => {
 			lastIndexingEvent = undefined;
@@ -484,6 +568,17 @@ export function activate(context: ExtensionContext) {
 			indexingMessage = '';
 			initialInlayRefreshTriggerCount = 0;
 			indexSettledInlayRefreshTriggerCount = 0;
+			completionClientMetrics.requests = 0;
+			completionClientMetrics.awaitSync = clientMetric();
+			completionClientMetrics.next = clientMetric();
+			hoverClientMetrics.requests = clientMetric();
+			hoverClientMetrics.rpc = clientMetric();
+			hoverClientMetrics.code2Protocol = clientMetric();
+			hoverClientMetrics.protocolRequest = clientMetric();
+			hoverClientMetrics.protocol2Code = clientMetric();
+			signatureHelpClientMetrics.requests = 0;
+			signatureHelpClientMetrics.awaitSync = clientMetric();
+			signatureHelpClientMetrics.next = clientMetric();
 			refreshStatusBar();
 		},
 		clearActiveUnitForTests: createClearActiveUnitHandler({
@@ -511,6 +606,13 @@ export function activate(context: ExtensionContext) {
 				throw new Error('Language client is not ready yet');
 			}
 			return client.sendRequest<any>(method, params ?? {});
+		},
+		getLastCompletionDebug: async () => {
+			await ensureClientStarted(false);
+			if (!client) {
+				throw new Error('Language client is not ready yet');
+			}
+			return client.sendRequest<LastCompletionDebugResponse>('nsf/_getLastCompletionDebug', {});
 		}
 	});
 

@@ -26,6 +26,21 @@ export type LatestMetricsSnapshot = {
 	receivedAtMs: number;
 };
 
+export type LastCompletionDebugResponse = {
+	memberAccessDetected?: boolean;
+	line?: number;
+	character?: number;
+	lineText?: string;
+	base?: string;
+	member?: string;
+	memberTypeResolved?: boolean;
+	resolvedType?: string;
+	memberItemsReturned?: boolean;
+	fieldCount?: number;
+	methodCount?: number;
+	path?: string;
+};
+
 export type MetricsHistoryEntry = {
 	summary: string;
 	payload?: unknown;
@@ -62,6 +77,7 @@ export type InternalCommandDeps = {
 	getMetricsHistory: (sinceRevision?: number) => MetricsHistoryEntry[];
 	getDocumentRuntimeDebug: (payload?: { uris?: string[] }) => Promise<RuntimeDebugResponse>;
 	sendServerRequest: (method: string, params?: unknown) => Promise<any>;
+	getLastCompletionDebug: () => Promise<LastCompletionDebugResponse>;
 };
 
 export function registerInternalCommands(
@@ -132,6 +148,34 @@ export function registerInternalCommands(
 	context.subscriptions.push(
 		commands.registerCommand('nsf._getInteractiveRuntimeDebug', async (args?: { uri?: string }) =>
 			deps.sendServerRequest('nsf/_getInteractiveRuntimeDebug', args ?? {})
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand(
+			'nsf._sendServerRequest',
+			async (args?: { method?: string; params?: unknown }) =>
+				deps.sendServerRequest(String(args?.method ?? ''), args?.params)
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand(
+			'nsf._debugMemberCompletion',
+			async (args?: { uri?: string; line?: number; character?: number }) =>
+				deps.sendServerRequest('nsf/_debugMemberCompletion', args ?? {})
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand(
+			'nsf._invalidateInlayHintsForTests',
+			async (uriText?: string) =>
+				deps.sendServerRequest('nsf/_invalidateInlayHints', {
+					uri: typeof uriText === 'string' ? uriText : ''
+				})
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand('nsf._getLastCompletionDebug', async () =>
+			deps.getLastCompletionDebug()
 		)
 	);
 }

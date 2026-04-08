@@ -959,6 +959,14 @@ void interactiveCollectCompletionItems(
     lastGood.reset();
   }
 
+  bool recordedLayer = false;
+  auto recordLayer = [&](const char *layer) {
+    if (recordedLayer)
+      return;
+    recordInteractiveResolutionDebug(uri, "completion", layer, prefix);
+    recordedLayer = true;
+  };
+
   std::unordered_set<std::string> seen;
   if (current && current->semanticSnapshot &&
       appendCompletionItemsFromSnapshot(*current->semanticSnapshot, doc.text,
