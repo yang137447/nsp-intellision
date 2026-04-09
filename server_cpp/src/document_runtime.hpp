@@ -138,6 +138,13 @@ struct DeferredRangeCacheEntry {
 };
 
 // Published deferred semantic snapshot for the current document.
+//
+// For stale-eligible didChange, callers may continue carrying the previous
+// `fullDiagnostics` as a last-good continuity artifact until a replacement full
+// diagnostics result for the new document version is ready. Other full-document
+// artifacts like semantic tokens / inlay hints can still be invalidated eagerly
+// because they are not published through the same whole-document replacement
+// channel.
 struct DeferredDocSnapshot {
   AnalysisSnapshotKey key;
   uint64_t documentEpoch = 0;
@@ -258,5 +265,16 @@ void documentRuntimeStoreInteractiveSnapshot(
 // Stores a published deferred snapshot only if it still matches the current
 // full analysis key.
 void documentRuntimeStoreDeferredSnapshot(
+    const std::string &uri,
+    const std::shared_ptr<const DeferredDocSnapshot> &snapshot);
+
+// Stores a published deferred snapshot while atomically preserving additive
+// same-version artifacts that concurrent requests may have written into the
+// current deferred snapshot after the caller started building `snapshot`.
+//
+// This is intended for deferred-worker final publish paths that should not
+// clobber semantic tokens / document symbols / range caches computed in
+// parallel, but it must not be used for explicit invalidation stores.
+void documentRuntimeMergeAndStoreDeferredSnapshot(
     const std::string &uri,
     const std::shared_ptr<const DeferredDocSnapshot> &snapshot);

@@ -78,3 +78,10 @@ void documentOwnerStoreInteractiveSnapshot(
 void documentOwnerStoreDeferredSnapshot(
     const std::string &uri,
     const std::shared_ptr<const DeferredDocSnapshot> &snapshot);
+
+// Same as documentOwnerStoreDeferredSnapshot(...), but preserves additive
+// same-version deferred artifacts written by concurrent requests before the
+// final publish lands.
+void documentOwnerMergeAndStoreDeferredSnapshot(
+    const std::string &uri,
+    const std::shared_ptr<const DeferredDocSnapshot> &snapshot);

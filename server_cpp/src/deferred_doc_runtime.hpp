@@ -100,6 +100,9 @@ void deferredDocRuntimeInvalidateInlayHints(const std::string &uri);
 // - scheduling is latest-only per uri: a newer pending job replaces the older
 //   pending job before build
 // - stale jobs discovered by the worker must be dropped instead of published
+// - when full diagnostics prewarm is enabled, the worker should publish that
+//   last-good diagnostics artifact as soon as it is ready instead of waiting for
+//   slower inlay prewarm to finish
 void deferredDocRuntimeSchedule(const Document &doc,
                                 const DeferredDocBuildContext &context);
 

@@ -269,8 +269,9 @@
 - references / rename 当前也已改为基于 workspace summary 的 indexed include closure 收集 active occurrences，不再先经 include-graph 定义定位反推扫描范围
 - Lane C（background）请求当前统一 latest-only + cancellation，覆盖 inlay hints、semantic tokens full/range、document symbols、references、prepareRename、rename、workspace symbol
 - deferred doc runtime 当前会缓存 current-doc AST、semantic snapshot、semantic tokens full、document symbols、full diagnostics 与 full-document inlay hints；document symbols 构建已优先复用 current-doc AST / semantic snapshot，仅对 technique/pass 保留轻量文本补充，不再回退 legacy 顶层文本扫描
-- inlay hints 当前会优先复用 deferred doc runtime 的 full-document hints，再按请求 range 过滤；慢路径补参成功后会主动失效当前文档的 inlay full cache
-- deferred doc runtime 后台任务当前也会按配置预热 full diagnostics 与 full-document inlay hints，减少首次请求命中的临时构建
+- fast diagnostics 当前在 changed-window immediate syntax publish 时，会继续叠加上一份 last-good full diagnostics，避免 LSP 整份替换把无关 semantic diagnostics 先清空；对 stale-eligible edit，旧 full diagnostics 会一直保留到 replacement full 结果 ready
+- inlay hints 当前会优先复用 deferred doc runtime 的 full-document hints，再按请求 range 过滤；慢路径补参成功后会主动失效当前文档的 inlay full cache。client provider 对 indexing 不稳定、请求取消与瞬态 RPC 错误会优先回退最近一次成功的 last-good hints，而不是返回空结果
+- deferred doc runtime 后台任务当前也会按配置预热 full diagnostics 与 full-document inlay hints，减少首次请求命中的临时构建；其中 full diagnostics prewarm 会先于较慢的 full inlay prewarm 落盘发布，避免两者被串成同一个可见恢复点
 - workspace summary 入口当前统一经由 `workspace_summary_runtime.*`，再由它封装 `workspace_index.*`
 - workspace index 在 startup 命中持久化磁盘 cache 时，会先发布该 summary 供 cross-file 查询复用；warm-cache 启动不再先重建当前 active unit 的整条 include closure，再在后台按 `mtime/size` 做校验、脏文件重建与新文件探测；如果命中的是已确认不兼容的旧索引 cache，会自动清理该 cache 并执行一次完整重建，避免后续每次启动都被坏 cache 判成全量脏化；`workspaceSummaryRuntimeIsReady()` 的含义因此是“当前可查询”，不等同于“后台校验已全部结束”
 - active unit 切换当前会触发一次新的 workspace index 重排；索引会优先处理当前 active unit 的 include closure，并在检测到更晚的 active unit / rebuild 请求后尽快中止旧批次，让新的 active unit 尽快进入可查询状态，其余工作区扫描继续留在后台

@@ -5,6 +5,28 @@
       "type": "extensionHost",
       "request": "launch",
       "name": "Launch Client (G66 Workspace)",
+      "presentation": {
+        "group": "G66"
+      },
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extensions",
+        "C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/client/out/**/*.js"
+      ],
+      "smartStep": true,
+      "preLaunchTask": "npm: compile"
+    },
+    {
+      "type": "extensionHost",
+      "request": "launch",
+      "name": "Launch Client (G66 Workspace, Watch)",
+      "presentation": {
+        "group": "G66"
+      },
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
@@ -31,7 +53,7 @@
         "${workspaceFolder}/client/out/**/*.js"
       ],
       "smartStep": true,
-      "preLaunchTask": "npm: watch"
+      "preLaunchTask": "npm: compile"
     },
     {
       "type": "extensionHost",
@@ -48,7 +70,7 @@
         "${workspaceFolder}/client/out/**/*.js"
       ],
       "smartStep": true,
-      "preLaunchTask": "npm: watch"
+      "preLaunchTask": "npm: compile"
     }
   ]
 }

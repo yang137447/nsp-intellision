@@ -112,6 +112,10 @@ export type EditorFeedbackController = {
 };
 
 export function createEditorFeedbackController(options: EditorFeedbackOptions): EditorFeedbackController {
+	type CachedInlayHintsEntry = {
+		range: Range;
+		hints: InlayHint[];
+	};
 	let lastIndexingEvent: { kind: string; state: string; phase?: string; symbol?: string; token?: number } | undefined;
 	let lastIndexingState: ServerIndexingState | undefined;
 	let pendingIndexingStateRequest: Promise<ServerIndexingState | undefined> | undefined;
@@ -134,6 +138,8 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 		lastDocumentUri: '',
 		lastEndLine: -1
 	};
+	const inlayLastGoodByUri = new Map<string, CachedInlayHintsEntry>();
+	const maxLastGoodInlayEntries = 32;
 
 	const recordDuration = (metric: { samples: number; totalMs: number; maxMs: number }, durationMs: number): void => {
 		metric.samples++;
@@ -142,6 +148,62 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 	};
 	const avgDuration = (metric: { samples: number; totalMs: number }): number =>
 		metric.samples > 0 ? metric.totalMs / metric.samples : 0;
+
+	const isPositionWithinRange = (position: Position, range: Range): boolean => {
+		if (position.line < range.start.line || position.line > range.end.line) {
+			return false;
+		}
+		if (position.line === range.start.line && position.character < range.start.character) {
+			return false;
+		}
+		if (position.line === range.end.line && position.character > range.end.character) {
+			return false;
+		}
+		return true;
+	};
+
+	const doesRangeCover = (coveringRange: Range, innerRange: Range): boolean => {
+		if (coveringRange.start.isAfter(innerRange.start)) {
+			return false;
+		}
+		if (coveringRange.end.isBefore(innerRange.end)) {
+			return false;
+		}
+		return true;
+	};
+
+	const rememberLastGoodInlayHints = (documentUri: string, range: Range, hints: InlayHint[]): void => {
+		const existing = inlayLastGoodByUri.get(documentUri);
+		if (
+			hints.length === 0 &&
+			existing &&
+			existing.hints.length > 0 &&
+			!doesRangeCover(range, existing.range)
+		) {
+			return;
+		}
+		inlayLastGoodByUri.delete(documentUri);
+		inlayLastGoodByUri.set(documentUri, { range, hints });
+		while (inlayLastGoodByUri.size > maxLastGoodInlayEntries) {
+			const oldestKey = inlayLastGoodByUri.keys().next().value as string | undefined;
+			if (!oldestKey) {
+				break;
+			}
+			inlayLastGoodByUri.delete(oldestKey);
+		}
+	};
+
+	const getLastGoodInlayHints = (documentUri: string, range: Range): InlayHint[] | undefined => {
+		const cached = inlayLastGoodByUri.get(documentUri);
+		if (!cached) {
+			return undefined;
+		}
+		if (!doesRangeCover(cached.range, range)) {
+			return undefined;
+		}
+		const filtered = cached.hints.filter((hint) => isPositionWithinRange(hint.position, range));
+		return filtered;
+	};
 
 	const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 	const inlayHintsChanged = new EventEmitter<void>();
@@ -170,6 +232,7 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 				clearTimeout(timeout);
 			}
 			inlayDeferredRefreshTimers.clear();
+			inlayLastGoodByUri.clear();
 		}
 	});
 
@@ -363,9 +426,6 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 			);
 			return Array.isArray(response) ? response : [];
 		} catch (error) {
-			if (token?.isCancellationRequested || options.isTransientClientRpcError(error)) {
-				return [];
-			}
 			throw error;
 		}
 	};
@@ -728,12 +788,6 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 					const providerStartedAt = Date.now();
 					await options.ensureClientStarted(false);
 					const client = options.getClient();
-					if (!client || !client.initializeResult) {
-						return [];
-					}
-					if (token.isCancellationRequested) {
-						return [];
-					}
 					let effectiveRange = range;
 					const visibleEditor = window.visibleTextEditors.find(
 						(editor) => editor.document.uri.toString() === document.uri.toString()
@@ -762,11 +816,21 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 						}
 						recordDuration(inlayMetrics.rangeAdjust, Date.now() - rangeAdjustStartedAt);
 					}
+					const lastGoodFallback = (): InlayHint[] => {
+						const cached = getLastGoodInlayHints(document.uri.toString(), effectiveRange);
+						return cached ?? [];
+					};
+					if (!client || !client.initializeResult) {
+						return lastGoodFallback();
+					}
+					if (token.isCancellationRequested) {
+						return lastGoodFallback();
+					}
 					const stateCheckStartedAt = Date.now();
 					const stateSnapshot = lastIndexingState ?? (await fetchIndexingState(false));
 					recordDuration(inlayMetrics.stateCheck, Date.now() - stateCheckStartedAt);
 					if (!isIndexingStateStable(stateSnapshot)) {
-						return [];
+						return lastGoodFallback();
 					}
 					options.beginRpcActivity(LSP_METHOD_KEYS.inlayHint);
 					let response: any[] | undefined;
@@ -775,15 +839,15 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 						response = await sendInlayHintRequest(document.uri.toString(), effectiveRange, token);
 						recordDuration(inlayMetrics.rpc, Date.now() - rpcStartedAt);
 					} catch (error) {
-						if (token.isCancellationRequested) {
-							return [];
+						if (token.isCancellationRequested || options.isTransientClientRpcError(error)) {
+							return lastGoodFallback();
 						}
 						throw error;
 					} finally {
 						options.endRpcActivity();
 					}
 					if (token.isCancellationRequested || !Array.isArray(response)) {
-						return [];
+						return lastGoodFallback();
 					}
 					const assemblyStartedAt = Date.now();
 					const hints: InlayHint[] = [];
@@ -814,6 +878,7 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 					recordDuration(inlayMetrics.provider, Date.now() - providerStartedAt);
 					inlayMetrics.lastDocumentUri = document.uri.toString();
 					inlayMetrics.lastEndLine = effectiveRange.end.line;
+					rememberLastGoodInlayHints(document.uri.toString(), effectiveRange, hints);
 					return hints;
 				}
 			}

@@ -204,6 +204,108 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(opMessages.includes('Binary operator type mismatch: float3 + float4.'));
 	});
 
+	it('keeps semantic diagnostics across comment-only edits before replacement full diagnostics is ready', async () => {
+		let document = await openFixture('module_diagnostics_type_mismatch_assign.nsf');
+		const mismatchText = 'Assignment type mismatch: float3 = float4.';
+		const restoreText = '    // continuity comment\n';
+		let sawTransientDrop = false;
+		const diagnosticsSubscription = vscode.languages.onDidChangeDiagnostics((event) => {
+			if (!event.uris.some((uri) => uri.toString() === document.uri.toString())) {
+				return;
+			}
+			const currentDiagnostics = vscode.languages.getDiagnostics(document.uri);
+			if (!currentDiagnostics.some((diag) => diag.message.includes(mismatchText))) {
+				sawTransientDrop = true;
+			}
+		});
+		try {
+			const initialDiagnostics = await waitForDiagnostics(
+				document,
+				(value) => value.some((diag) => diag.message.includes(mismatchText)),
+				'initial semantic diagnostics before comment-only edit'
+			);
+			assert.ok(initialDiagnostics.some((diag) => diag.message.includes(mismatchText)));
+
+			const edit = new vscode.WorkspaceEdit();
+			edit.insert(document.uri, new vscode.Position(2, 0), restoreText);
+			assert.ok(await vscode.workspace.applyEdit(edit), 'Expected comment-only edit to apply.');
+			document = await vscode.workspace.openTextDocument(document.uri);
+
+			const afterEditDiagnostics = await waitForDiagnostics(
+				document,
+				(value) => value.some((diag) => diag.message.includes(mismatchText)),
+				'semantic diagnostics preserved after comment-only edit'
+			);
+			assert.ok(afterEditDiagnostics.some((diag) => diag.message.includes(mismatchText)));
+			await waitForClientQuiescent('client quiescent after comment-only diagnostics continuity edit');
+			assert.ok(!sawTransientDrop, 'Expected semantic diagnostics to remain visible throughout comment-only edit processing.');
+		} finally {
+			diagnosticsSubscription.dispose();
+			document = await vscode.workspace.openTextDocument(document.uri);
+			if (document.getText().includes(restoreText)) {
+				const restoreStart = new vscode.Position(2, 0);
+				const restoreEnd = new vscode.Position(3, 0);
+				const restoreEdit = new vscode.WorkspaceEdit();
+				restoreEdit.delete(document.uri, new vscode.Range(restoreStart, restoreEnd));
+				assert.ok(await vscode.workspace.applyEdit(restoreEdit), 'Expected continuity comment cleanup to apply.');
+			}
+		}
+	});
+
+	it('keeps same-line semantic diagnostics across whitespace-only edits when full rebuild is skipped', async () => {
+		let document = await openFixture('module_diagnostics_type_mismatch_assign.nsf');
+		const mismatchText = 'Assignment type mismatch: float3 = float4.';
+		const whitespaceInsert = '  ';
+		let sawTransientDrop = false;
+		const diagnosticsSubscription = vscode.languages.onDidChangeDiagnostics((event) => {
+			if (!event.uris.some((uri) => uri.toString() === document.uri.toString())) {
+				return;
+			}
+			const currentDiagnostics = vscode.languages.getDiagnostics(document.uri);
+			if (!currentDiagnostics.some((diag) => diag.message.includes(mismatchText))) {
+				sawTransientDrop = true;
+			}
+		});
+		try {
+			const initialDiagnostics = await waitForDiagnostics(
+				document,
+				(value) => value.some((diag) => diag.message.includes(mismatchText)),
+				'initial semantic diagnostics before same-line whitespace edit'
+			);
+			assert.ok(initialDiagnostics.some((diag) => diag.message.includes(mismatchText)));
+
+			const insertPosition = positionOf(
+				document,
+				'a = float4(uv, 0.0, 1.0);',
+				1,
+				'a = float4(uv, 0.0, 1.0);'.length
+			);
+			const edit = new vscode.WorkspaceEdit();
+			edit.insert(document.uri, insertPosition, whitespaceInsert);
+			assert.ok(await vscode.workspace.applyEdit(edit), 'Expected same-line whitespace edit to apply.');
+			document = await vscode.workspace.openTextDocument(document.uri);
+
+			await waitForClientQuiescent('client quiescent after same-line whitespace diagnostics edit');
+			const settledDiagnostics = vscode.languages.getDiagnostics(document.uri);
+			assert.ok(
+				settledDiagnostics.some((diag) => diag.message.includes(mismatchText)),
+				'Expected same-line semantic diagnostics to remain visible after whitespace-only edit.'
+			);
+			assert.ok(!sawTransientDrop, 'Expected same-line semantic diagnostics to remain visible throughout whitespace-only edit processing.');
+		} finally {
+			diagnosticsSubscription.dispose();
+			document = await vscode.workspace.openTextDocument(document.uri);
+			const mismatchLine = document.lineAt(2).text;
+			if (mismatchLine.endsWith(whitespaceInsert)) {
+				const deleteStart = new vscode.Position(2, mismatchLine.length - whitespaceInsert.length);
+				const deleteEnd = new vscode.Position(2, mismatchLine.length);
+				const restoreEdit = new vscode.WorkspaceEdit();
+				restoreEdit.delete(document.uri, new vscode.Range(deleteStart, deleteEnd));
+				assert.ok(await vscode.workspace.applyEdit(restoreEdit), 'Expected same-line whitespace cleanup to apply.');
+			}
+		}
+	});
+
 	it('does not misinfer cast initialization types', async () => {
 		const document = await openFixture('module_diagnostics_cast_initialization.nsf');
 		const diagnostics = await waitFor(

@@ -331,6 +331,84 @@ export function registerDeferredDocSemanticTokenTests(): void {
 			assert.strictEqual(runtime?.deferredHasDocumentSymbols, true);
 			assert.strictEqual(runtime?.deferredSemanticTokensRangeCacheCount, seededSemanticRangeCount);
 		});
+
+	});
+}
+
+export function registerDeferredDocVisualContinuityTests(): void {
+	repoDescribe('NSF client integration: Deferred Doc Runtime / Visual Continuity', () => {
+		it('does not let the final deferred inlay publish clobber semantic token range caches built after early diagnostics publish', async function () {
+			this.timeout(120000);
+			await vscode.commands.executeCommand('nsf.restartServer');
+			const tempPath = path.join(
+				os.tmpdir(),
+				`tmp_deferred_full_publish_race_${Date.now()}_${Math.random().toString(16).slice(2)}.nsf`
+			);
+			const repeatedCalls = Array.from({ length: 2600 }, (_, index) => {
+				const amount = ((index % 9) + 1) / 10;
+				const bias = (((index + 4) % 9) + 1) / 10;
+				return `  sum += BlendColor(src, ${amount.toFixed(1)}, ${bias.toFixed(1)}).x;`;
+			}).join('\n');
+			const content = [
+				'float4 BlendColor(float4 baseColor, float amount, float bias) {',
+				'  return baseColor * amount + bias;',
+				'}',
+				'',
+				'float4 MainPS(float2 uv : TEXCOORD0) : SV_Target {',
+				'  float4 src = float4(uv, 0.0, 1.0);',
+				'  float sum = 0.0;',
+				repeatedCalls,
+				'  return src + sum;',
+				'}'
+			].join('\n');
+			fs.writeFileSync(tempPath, content, 'utf8');
+			try {
+				const document = await vscode.workspace.openTextDocument(tempPath);
+				await vscode.window.showTextDocument(document, { preview: false });
+				const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(6, 0));
+
+				await waitFor(
+					() => getDocumentRuntimeDebug([document.uri.toString()]),
+					(entries) =>
+						entries[0]?.hasDeferredDocSnapshot === true &&
+						entries[0]?.deferredHasFullDiagnostics === true &&
+						entries[0]?.deferredHasInlayHintsFull === false,
+					'early deferred diagnostics publish before full inlay prewarm'
+				);
+
+				await waitFor(
+					() =>
+						vscode.commands.executeCommand<vscode.SemanticTokens>(
+							'vscode.provideDocumentRangeSemanticTokens',
+							document.uri,
+							range
+						),
+					(value) => Boolean(value) && (value?.data.length ?? 0) > 0,
+					'semantic token range request during deferred inlay prewarm'
+				);
+
+				await waitFor(
+					() => getDocumentRuntimeDebug([document.uri.toString()]),
+					(entries) => (entries[0]?.deferredSemanticTokensRangeCacheCount ?? 0) > 0,
+					'semantic token range cache reflected in runtime debug before final deferred publish'
+				);
+
+				const [runtime] = await waitFor(
+					() => getDocumentRuntimeDebug([document.uri.toString()]),
+					(entries) => entries[0]?.deferredHasInlayHintsFull === true,
+					'final deferred inlay publish after semantic tokens were built'
+				);
+				assert.strictEqual(
+					(runtime?.deferredSemanticTokensRangeCacheCount ?? 0) > 0,
+					true,
+					'Expected semantic token range caches to survive the final deferred inlay publish.'
+				);
+			} finally {
+				if (fs.existsSync(tempPath)) {
+					fs.unlinkSync(tempPath);
+				}
+			}
+		});
 	});
 }
 
@@ -369,6 +447,118 @@ export function registerDeferredDocInlayTests(): void {
 			assert.ok(labels.includes('x:'), 'Expected built-in parameter hint x:.');
 			assert.ok(labels.includes('y:'), 'Expected built-in parameter hint y:.');
 			assert.ok(labels.includes('s:'), 'Expected built-in parameter hint s:.');
+		});
+
+		it('keeps last-good inlay hints while indexing is temporarily unstable', async function () {
+			this.timeout(120000);
+			const document = await openFixture('module_inlay_hints.nsf');
+			const range = new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length));
+			const initialHints = await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.InlayHint[]>(
+						'vscode.executeInlayHintProvider',
+						document.uri,
+						range
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'seed last-good inlay hints before indexing wobble'
+			);
+			assert.ok(initialHints.length > 0, 'Expected initial inlay hints before triggering unstable indexing.');
+
+			await vscode.commands.executeCommand('nsf._sendServerRequest', {
+				method: 'nsf/rebuildIndex',
+				params: {
+					reason: 'testInlayContinuity',
+					clearDiskCache: false
+				}
+			});
+			await waitFor(
+				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+				(value) => {
+					const state = value?.indexingState;
+					if (!state) {
+						return false;
+					}
+					return (
+						state.state !== 'Idle' ||
+						(state.pending?.queuedTasks ?? 0) > 0 ||
+						(state.pending?.runningWorkers ?? 0) > 0
+					);
+				},
+				'indexing becomes unstable for inlay continuity fallback'
+			);
+
+			const fallbackHints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
+				'vscode.executeInlayHintProvider',
+				document.uri,
+				range
+			);
+			assert.ok(Array.isArray(fallbackHints) && fallbackHints.length > 0, 'Expected last-good inlay hints during unstable indexing.');
+
+			await waitForIndexingIdle('indexing idle after inlay continuity fallback');
+		});
+
+		it('does not let a narrower empty inlay result evict a broader last-good fallback', async function () {
+			this.timeout(120000);
+			const document = await openFixture('module_inlay_hints.nsf');
+			const fullRange = new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length));
+			const emptyRange = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+
+			const seededFullHints = await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.InlayHint[]>(
+						'vscode.executeInlayHintProvider',
+						document.uri,
+						fullRange
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'seed broader last-good inlay hints before narrow empty request'
+			);
+			assert.ok(seededFullHints.length > 0, 'Expected broader range to seed non-empty inlay hints.');
+
+			await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+			const narrowHints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
+				'vscode.executeInlayHintProvider',
+				document.uri,
+				emptyRange
+			);
+			assert.ok(Array.isArray(narrowHints) && narrowHints.length === 0, 'Expected narrower range to produce an empty inlay result.');
+
+			await vscode.commands.executeCommand('nsf._sendServerRequest', {
+				method: 'nsf/rebuildIndex',
+				params: {
+					reason: 'testInlayEmptyRangeFallbackContinuity',
+					clearDiskCache: false
+				}
+			});
+			await waitFor(
+				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+				(value) => {
+					const state = value?.indexingState;
+					if (!state) {
+						return false;
+					}
+					return (
+						state.state !== 'Idle' ||
+						(state.pending?.queuedTasks ?? 0) > 0 ||
+						(state.pending?.runningWorkers ?? 0) > 0
+					);
+				},
+				'indexing becomes unstable for broader inlay fallback after narrow empty result'
+			);
+
+			const fallbackHints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
+				'vscode.executeInlayHintProvider',
+				document.uri,
+				fullRange
+			);
+			assert.ok(
+				Array.isArray(fallbackHints) && fallbackHints.length > 0,
+				'Expected broader last-good inlay hints to survive a narrower empty cache result.'
+			);
+
+			await waitForIndexingIdle('indexing idle after narrow empty inlay fallback continuity test');
 		});
 
 		it('retains non-overlapping inlay range caches and clears them on overlapping edits', async function () {

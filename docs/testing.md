@@ -268,13 +268,14 @@
 - `src/test/suite/*.test.ts`
   - repo / real 模式测试入口文件
   - loader 会按 `*.test.ts` 作为当前事实入口过滤对应的编译产物，避免陈旧 `.js` 输出被重复执行
-  - repo 模式当前按架构拆成 `client.runtime-config.test.ts`、`client.interactive-runtime.test.ts`、`client.interactive-visibility.test.ts`、`client.diagnostics.test.ts`、`client.deferred-doc-runtime.test.ts`、`client.analysis-context-shared-key.test.ts`、`client.analysis-context-active-unit.test.ts`、`client.analysis-context-defines.test.ts`、`client.analysis-context-include.test.ts`、`client.analysis-context-workspace.test.ts`、`client.workspace-summary.test.ts`、`client.references-rename.test.ts`
+  - repo 模式当前按架构拆成 `client.runtime-config.test.ts`、`client.interactive-runtime.test.ts`、`client.interactive-visibility.test.ts`、`client.diagnostics.test.ts`、`client.deferred-doc-runtime.test.ts`、`client.deferred-visual-continuity.test.ts`、`client.analysis-context-shared-key.test.ts`、`client.analysis-context-active-unit.test.ts`、`client.analysis-context-defines.test.ts`、`client.analysis-context-include.test.ts`、`client.analysis-context-workspace.test.ts`、`client.workspace-summary.test.ts`、`client.references-rename.test.ts`
   - 其中 `client.analysis-context-shared-key.test.ts` 当前承接 `M4` 的 interactive / deferred 共用 analysis key 验收
   - `client.analysis-context-active-unit.test.ts` 当前承接 active unit 驱动的 shared analysis context 验收
   - `client.analysis-context-defines.test.ts` 当前单独承接 `M4` 的 defines 驱动共享 analysis context 验收
   - `client.analysis-context-include.test.ts` 当前单独承接 `M4` 的 include closure 驱动共享 analysis context 验收
   - `client.analysis-context-workspace.test.ts` 当前单独承接 workspace-summary 驱动的 shared analysis context 验收，避免和其他 `M4` 场景互相放大时序噪音
   - `client.interactive-visibility.test.ts` 当前承接 `P1` shared-visible 交互验收，至少覆盖函数/变量 completion、`.` member completion、hover、signature help
+  - `client.deferred-visual-continuity.test.ts` 当前单独承接 deferred snapshot 并发写入下的 visual continuity 回归，重点覆盖“early full diagnostics publish 与较慢 full inlay prewarm 并发时，不得把已写入的 semantic token range cache 再覆盖掉”
   - perf 模式当前通过 `client.perf.test.ts` 采集主线 wall-clock 与最新 `nsf/metrics` 快照，并输出到 `out/test/perf-reports/`
 - `src/test/suite/client.integration.groups.ts`
   - repo 模式共享的 architecture registrar，按层聚合测试定义，供各 `*.test.ts` 入口复用
@@ -317,6 +318,14 @@
 - semantic tokens / inlay hints / document symbols 属于 deferred 路径。
   - 不要假设第一次请求一定已经就绪
   - 对这类能力应优先使用 `waitFor(...)` 等待 provider / legend / full-cache 进入可断言状态
+
+- real workspace 类测试不要把“外部工程文件里某一整行固定文本永远不变”当成前提。
+  - 对 auto-trigger / 编辑类用例，优先用稳定前缀定位目标范围，并在编辑前缓存被删除的原始文本；恢复时按原位置直接写回缓存文本，不要在 finally 里再去搜索已被本次测试改写过的精确字面量
+  - 这样可以避免外部工程轻微格式调整、自动补全介入或前一条测试恢复不完整时，把真正想测的 client 行为误判成“找不到字符串”
+
+- real workspace 的 visible-range inlay / perf 用例不要把“冷请求一定命中 range-build 而不会命中 range-filter”写死。
+  - 当前 deferred/inlay 路径允许后台预热与可见范围请求并发交错；在失效后首个可见范围请求上，`rangeBuild` 和基于已补齐 full-cache 的 `rangeFilter` 都属于当前架构内的合法路径
+  - 这类断言应优先验证“确实发生了 deferred snapshot miss，并且 range-build 或 range-filter 至少其一发生”，而不是强行绑定某一个内部时序分支
 
 - 当测试目标是验证 background lane 的 latest-only / cancellation 行为时，不要在单个 test case 里手搓一组原始并发请求。
   - 当前 test mode 已提供内部命令：`nsf._spamInlayRequests`、`nsf._spamDocumentSymbolRequests`、`nsf._spamWorkspaceSymbolRequests`

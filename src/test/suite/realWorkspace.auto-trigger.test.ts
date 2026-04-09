@@ -61,6 +61,18 @@ function positionOf(
 	return document.positionAt(foundIndex + characterOffset);
 }
 
+function rangeFromNeedles(
+	document: vscode.TextDocument,
+	needle: string,
+	startCharacterOffset: number,
+	endCharacterOffset: number,
+	occurrence = 1
+): vscode.Range {
+	const start = positionOf(document, needle, occurrence, startCharacterOffset);
+	const end = positionOf(document, needle, occurrence, endCharacterOffset);
+	return new vscode.Range(start, end);
+}
+
 type InternalStatusWithInteractiveCounts = {
 	completionRequestCount?: number;
 	signatureHelpRequestCount?: number;
@@ -81,12 +93,17 @@ realDescribe('NSF real workspace auto trigger', () => {
 		);
 
 		const editor = await vscode.window.showTextDocument(document, { preview: false });
-		const start = positionOf(document, 'diffuseUV = Pixelate', 1, 'diffuseUV = '.length);
-		const end = positionOf(document, 'diffuseUV = Pixelate', 1, 'diffuseUV = Pixelate'.length);
+		const replaceRange = rangeFromNeedles(
+			document,
+			'diffuseUV = Pixelate',
+			'diffuseUV = '.length,
+			'diffuseUV = Pixelate'.length
+		);
+		const deletedText = document.getText(replaceRange);
 		await editor.edit((editBuilder) => {
-			editBuilder.delete(new vscode.Range(start, end));
+			editBuilder.delete(replaceRange);
 		});
-		editor.selection = new vscode.Selection(start, start);
+		editor.selection = new vscode.Selection(replaceRange.start, replaceRange.start);
 
 		try {
 			await vscode.commands.executeCommand('nsf._resetInternalStatus');
@@ -104,10 +121,11 @@ realDescribe('NSF real workspace auto trigger', () => {
 			);
 			assert.ok((status?.completionRequestCount ?? 0) > 0, JSON.stringify(status));
 		} finally {
-			const restoreDocument = await vscode.workspace.openTextDocument(document.uri);
-			const restoreStart = positionOf(restoreDocument, 'diffuseUV = Pixe', 1, 'diffuseUV = '.length);
 			await editor.edit((editBuilder) => {
-				editBuilder.replace(new vscode.Range(restoreStart, restoreStart.translate(0, 4)), 'Pixelate');
+				editBuilder.replace(
+					new vscode.Range(replaceRange.start, replaceRange.start.translate(0, 4)),
+					deletedText
+				);
 			});
 		}
 	});
@@ -126,17 +144,17 @@ realDescribe('NSF real workspace auto trigger', () => {
 		);
 
 		const editor = await vscode.window.showTextDocument(document, { preview: false });
-		const start = positionOf(document, 'diffuseUV = Pixelate(diffuseUV, batch.maintex_pixel_size);', 1, 'diffuseUV = Pixelate'.length);
-		const end = positionOf(
+		const replaceRange = rangeFromNeedles(
 			document,
 			'diffuseUV = Pixelate(diffuseUV, batch.maintex_pixel_size);',
-			1,
+			'diffuseUV = Pixelate'.length,
 			'diffuseUV = Pixelate(diffuseUV, batch.maintex_pixel_size)'.length
 		);
+		const deletedText = document.getText(replaceRange);
 		await editor.edit((editBuilder) => {
-			editBuilder.delete(new vscode.Range(start, end));
+			editBuilder.delete(replaceRange);
 		});
-		editor.selection = new vscode.Selection(start, start);
+		editor.selection = new vscode.Selection(replaceRange.start, replaceRange.start);
 
 		try {
 			await vscode.commands.executeCommand('nsf._resetInternalStatus');
@@ -152,12 +170,10 @@ realDescribe('NSF real workspace auto trigger', () => {
 			);
 			assert.ok((status?.signatureHelpRequestCount ?? 0) > 0, JSON.stringify(status));
 		} finally {
-			const restoreDocument = await vscode.workspace.openTextDocument(document.uri);
-			const restoreStart = positionOf(restoreDocument, 'diffuseUV = Pixelate(', 1, 'diffuseUV = Pixelate'.length);
 			await editor.edit((editBuilder) => {
 				editBuilder.replace(
-					new vscode.Range(restoreStart, restoreStart.translate(0, 1)),
-					'(diffuseUV, batch.maintex_pixel_size)'
+					new vscode.Range(replaceRange.start, replaceRange.start.translate(0, 1)),
+					deletedText
 				);
 			});
 		}

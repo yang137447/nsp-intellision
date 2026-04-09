@@ -514,6 +514,10 @@ void runDeferredDocWorker() {
         makeDeferredContextFromRuntime(runtime, job.context);
     auto deferred = buildDeferredSemanticCoreFromInputs(
         job.document, effectiveContext, runtime.analysisSnapshotKey);
+    const bool willBuildFullInlay =
+        effectiveContext.prewarmInlayHints &&
+        effectiveContext.inlayHintsEnabled &&
+        effectiveContext.inlayHintsParameterNamesEnabled;
     if (effectiveContext.prewarmFullDiagnostics) {
       DiagnosticsBuildOptions diagnosticsOptions =
           effectiveContext.diagnosticsOptions;
@@ -526,9 +530,15 @@ void runDeferredDocWorker() {
       deferred->hasFullDiagnostics = true;
       deferred->fullDiagnosticsFingerprint =
           buildDiagnosticsFingerprint(diagnosticsOptions);
+      if (willBuildFullInlay) {
+        auto diagnosticsReadySnapshot =
+            std::make_shared<DeferredDocSnapshot>(*deferred);
+        diagnosticsReadySnapshot->builtAtMs = currentTimeMs();
+        documentOwnerMergeAndStoreDeferredSnapshot(job.document.uri,
+                                                   diagnosticsReadySnapshot);
+      }
     }
-    if (effectiveContext.prewarmInlayHints && effectiveContext.inlayHintsEnabled &&
-        effectiveContext.inlayHintsParameterNamesEnabled) {
+    if (willBuildFullInlay) {
       ServerRequestContext requestContext;
       requestContext.documents = effectiveContext.documents;
       requestContext.workspaceFolders = effectiveContext.workspaceFolders;
@@ -549,7 +559,8 @@ void runDeferredDocWorker() {
             std::chrono::steady_clock::now() - buildStartedAt)
             .count());
     recordDeferredBuildDuration(buildMs);
-    documentOwnerStoreDeferredSnapshot(job.document.uri, deferred);
+    deferred->builtAtMs = currentTimeMs();
+    documentOwnerMergeAndStoreDeferredSnapshot(job.document.uri, deferred);
   }
 }
 
@@ -623,7 +634,7 @@ std::shared_ptr<const DeferredDocSnapshot> ensureDeferredSemanticCore(
           std::chrono::steady_clock::now() - buildStartedAt)
           .count());
   recordDeferredBuildDuration(buildMs);
-  documentOwnerStoreDeferredSnapshot(uri, deferred);
+  documentOwnerMergeAndStoreDeferredSnapshot(uri, deferred);
   return deferred;
 }
 
@@ -640,7 +651,7 @@ Json buildDeferredSemanticTokensFull(const std::string &uri, const Document &doc
       buildSemanticTokensFull(doc.text, ctx.semanticLegend);
   writable->hasSemanticTokensFull = true;
   writable->builtAtMs = currentTimeMs();
-  documentOwnerStoreDeferredSnapshot(uri, writable);
+  documentOwnerMergeAndStoreDeferredSnapshot(uri, writable);
   return writable->semanticTokensFull;
 }
 
@@ -668,7 +679,7 @@ Json buildDeferredSemanticTokensRange(const std::string &uri, const Document &do
   storeRangeCacheEntry(writable->semanticTokensRangeCache, normalizedStart,
                        normalizedEnd, tokens);
   writable->builtAtMs = currentTimeMs();
-  documentOwnerStoreDeferredSnapshot(uri, writable);
+  documentOwnerMergeAndStoreDeferredSnapshot(uri, writable);
   return tokens;
 }
 
@@ -686,7 +697,7 @@ Json buildDeferredDocumentSymbols(const std::string &uri, const Document &doc,
                                   writable->semanticSnapshot.get());
   writable->hasDocumentSymbols = true;
   writable->builtAtMs = currentTimeMs();
-  documentOwnerStoreDeferredSnapshot(uri, writable);
+  documentOwnerMergeAndStoreDeferredSnapshot(uri, writable);
   return writable->documentSymbols;
 }
 
@@ -744,7 +755,7 @@ DiagnosticsBuildResult buildDeferredFullDiagnostics(
   writable->hasFullDiagnostics = true;
   writable->fullDiagnosticsFingerprint = fingerprint;
   writable->builtAtMs = currentTimeMs();
-  documentOwnerStoreDeferredSnapshot(uri, writable);
+  documentOwnerMergeAndStoreDeferredSnapshot(uri, writable);
   return result;
 }
 

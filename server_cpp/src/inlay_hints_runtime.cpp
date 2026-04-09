@@ -634,7 +634,7 @@ Json inlayHintsRuntimeBuildRange(const std::string &uri, const Document &doc,
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
             .count());
-    documentOwnerStoreDeferredSnapshot(uri, writable);
+    documentOwnerMergeAndStoreDeferredSnapshot(uri, writable);
   }
 
   return hints;
@@ -663,7 +663,7 @@ Json inlayHintsRuntimeBuildOrGetDeferredFull(const std::string &uri,
   auto writable = std::make_shared<DeferredDocSnapshot>(*deferred);
   writable->inlayHintsFull = hints;
   writable->hasInlayHintsFull = true;
-  documentOwnerStoreDeferredSnapshot(uri, writable);
+  documentOwnerMergeAndStoreDeferredSnapshot(uri, writable);
   return hints;
 }
 

@@ -203,3 +203,15 @@ void documentOwnerStoreDeferredSnapshot(
   }
   documentRuntimeStoreDeferredSnapshot(uri, snapshot);
 }
+
+void documentOwnerMergeAndStoreDeferredSnapshot(
+    const std::string &uri,
+    const std::shared_ptr<const DeferredDocSnapshot> &snapshot) {
+  auto owner = findOwnerState(uri);
+  if (owner) {
+    std::lock_guard<std::mutex> ownerLock(owner->mutex);
+    documentRuntimeMergeAndStoreDeferredSnapshot(uri, snapshot);
+    return;
+  }
+  documentRuntimeMergeAndStoreDeferredSnapshot(uri, snapshot);
+}

@@ -13,7 +13,8 @@ export {
 export {
 	registerDeferredDocDocumentSymbolTests,
 	registerDeferredDocInlayTests,
-	registerDeferredDocSemanticTokenTests
+	registerDeferredDocSemanticTokenTests,
+	registerDeferredDocVisualContinuityTests
 } from './integration/deferred-doc';
 
 export {

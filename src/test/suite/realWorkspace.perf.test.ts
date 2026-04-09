@@ -251,8 +251,8 @@ perfDescribe('NSF real workspace perf', () => {
 			`Expected deferredSnapshotMissCount > 0. Actual=${JSON.stringify(inlayMetrics)}`
 		);
 		assert.ok(
-			(inlayMetrics?.rangeBuildSamples ?? 0) > 0,
-			`Expected rangeBuildSamples > 0. Actual=${JSON.stringify(inlayMetrics)}`
+			((inlayMetrics?.rangeBuildSamples ?? 0) + (inlayMetrics?.rangeFilterSamples ?? 0)) > 0,
+			`Expected rangeBuildSamples or rangeFilterSamples > 0. Actual=${JSON.stringify(inlayMetrics)}`
 		);
 		assert.strictEqual(
 			inlayMetrics?.fullBuildSamples ?? 0,

@@ -707,8 +707,6 @@ void documentRuntimeUpsert(const Document &document,
       writable->hasSemanticTokensFull = false;
       writable->inlayHintsFull = makeArray();
       writable->hasInlayHintsFull = false;
-      writable->fullDiagnostics = makeArray();
-      writable->hasFullDiagnostics = false;
       updated.deferredDocSnapshot = std::move(writable);
     }
       if (existing.immediateSyntaxSnapshot.documentEpoch == document.epoch &&
@@ -885,4 +883,74 @@ void documentRuntimeStoreDeferredSnapshot(
     return;
   }
   it->second.deferredDocSnapshot = snapshot;
+}
+
+void documentRuntimeMergeAndStoreDeferredSnapshot(
+    const std::string &uri,
+    const std::shared_ptr<const DeferredDocSnapshot> &snapshot) {
+  if (!snapshot)
+    return;
+  std::lock_guard<std::mutex> lock(gDocumentRuntimeMutex);
+  auto it = gDocumentRuntimes.find(uri);
+  if (it == gDocumentRuntimes.end())
+    return;
+  if (it->second.epoch != snapshot->documentEpoch ||
+      it->second.version != snapshot->documentVersion ||
+      !isSnapshotStillCurrent(snapshot->key, it->second.analysisSnapshotKey)) {
+    return;
+  }
+
+  auto merged = std::make_shared<DeferredDocSnapshot>(*snapshot);
+  const auto &current = it->second.deferredDocSnapshot;
+  if (current && current->key.fullFingerprint == merged->key.fullFingerprint &&
+      current->documentEpoch == merged->documentEpoch &&
+      current->documentVersion == merged->documentVersion) {
+    auto mergeRangeCacheEntries =
+        [](std::vector<DeferredRangeCacheEntry> &target,
+           const std::vector<DeferredRangeCacheEntry> &source) {
+          for (const auto &entry : source) {
+            bool replaced = false;
+            for (auto &existing : target) {
+              if (existing.startLine == entry.startLine &&
+                  existing.endLine == entry.endLine) {
+                existing.value = entry.value;
+                replaced = true;
+                break;
+              }
+            }
+            if (!replaced) {
+              target.push_back(entry);
+            }
+          }
+        };
+
+    if (!merged->astDocument && current->astDocument)
+      merged->astDocument = current->astDocument;
+    if (!merged->semanticSnapshot && current->semanticSnapshot)
+      merged->semanticSnapshot = current->semanticSnapshot;
+    if (!merged->hasFullDiagnostics && current->hasFullDiagnostics) {
+      merged->fullDiagnostics = current->fullDiagnostics;
+      merged->hasFullDiagnostics = true;
+      merged->fullDiagnosticsFingerprint = current->fullDiagnosticsFingerprint;
+    }
+    if (!merged->hasSemanticTokensFull && current->hasSemanticTokensFull) {
+      merged->semanticTokensFull = current->semanticTokensFull;
+      merged->hasSemanticTokensFull = true;
+    }
+    if (!merged->hasInlayHintsFull && current->hasInlayHintsFull) {
+      merged->inlayHintsFull = current->inlayHintsFull;
+      merged->hasInlayHintsFull = true;
+    }
+    if (!merged->hasDocumentSymbols && current->hasDocumentSymbols) {
+      merged->documentSymbols = current->documentSymbols;
+      merged->hasDocumentSymbols = true;
+    }
+    mergeRangeCacheEntries(merged->semanticTokensRangeCache,
+                           current->semanticTokensRangeCache);
+    mergeRangeCacheEntries(merged->inlayHintsRangeCache,
+                           current->inlayHintsRangeCache);
+    merged->builtAtMs = std::max(merged->builtAtMs, current->builtAtMs);
+  }
+
+  it->second.deferredDocSnapshot = std::move(merged);
 }

@@ -23,11 +23,11 @@
 #endif
 
 #include "active_unit.hpp"
-#include "crash_handler.hpp"
 #include "callsite_parser.hpp"
-#include "definition_location.hpp"
+#include "crash_handler.hpp"
 #include "declaration_query.hpp"
 #include "deferred_doc_runtime.hpp"
+#include "definition_location.hpp"
 #include "diagnostics.hpp"
 #include "document_owner.hpp"
 #include "document_runtime.hpp"
@@ -36,17 +36,22 @@
 #include "full_ast.hpp"
 #include "hlsl_builtin_docs.hpp"
 #include "hover_docs.hpp"
-#include "include_resolver.hpp"
 #include "immediate_syntax_diagnostics.hpp"
+#include "include_resolver.hpp"
 #include "indeterminate_reasons.hpp"
 #include "interactive_semantic_runtime.hpp"
 #include "json.hpp"
 #include "lsp_helpers.hpp"
 #include "lsp_io.hpp"
+#include "main_background_refresh.hpp"
+#include "main_did_change_classification.hpp"
+#include "main_include_graph_cache.hpp"
+#include "main_occurrence_helpers.hpp"
+#include "member_query.hpp"
 #include "nsf_lexer.hpp"
 #include "preprocessor_view.hpp"
-#include "semantic_snapshot.hpp"
 #include "semantic_cache.hpp"
+#include "semantic_snapshot.hpp"
 #include "server_documents.hpp"
 #include "server_occurrences.hpp"
 #include "server_parse.hpp"
@@ -56,12 +61,6 @@
 #include "uri_utils.hpp"
 #include "workspace_index.hpp"
 #include "workspace_summary_runtime.hpp"
-#include "main_background_refresh.hpp"
-#include "main_did_change_classification.hpp"
-#include "main_include_graph_cache.hpp"
-#include "member_query.hpp"
-#include "main_occurrence_helpers.hpp"
-
 
 int main(int argc, char **argv) {
   installCrashHandler("nsf_lsp_crash.log");
@@ -79,8 +78,7 @@ int main(int argc, char **argv) {
   getHlslBuiltinNames();
   ServerRequestContext core;
   std::mutex coreMutex;
-  core.shaderExtensions = {".nsf", ".hlsl", ".hlsli", ".fx", ".usf",
-                           ".ush"};
+  core.shaderExtensions = {".nsf", ".hlsl", ".hlsli", ".fx", ".usf", ".ush"};
   core.semanticLegend = createDefaultSemanticTokenLegend();
   std::unordered_map<std::string, int> preprocessorDefines;
   auto applySettings = [&](const Json &settings) {
@@ -96,8 +94,7 @@ int main(int argc, char **argv) {
         core.diagnosticsFullExpensiveRulesEnabled,
         core.diagnosticsFullTimeBudgetMs, core.diagnosticsFullMaxItems,
         core.diagnosticsWorkerCount, core.diagnosticsAutoWorkerCount,
-        core.semanticCacheEnabled,
-        core.diagnosticsIndeterminateEnabled,
+        core.semanticCacheEnabled, core.diagnosticsIndeterminateEnabled,
         core.diagnosticsIndeterminateSeverity,
         core.diagnosticsIndeterminateMaxItems,
         core.diagnosticsIndeterminateSuppressWhenErrors,
@@ -291,6 +288,72 @@ int main(int argc, char **argv) {
            job.analysisFingerprint;
   };
 
+  auto tryGetDiagnosticLineSpan = [&](const Json &diagnostic, int &startLineOut,
+                                      int &endLineOut) {
+    const Json *rangeValue = getObjectValue(diagnostic, "range");
+    if (!rangeValue || rangeValue->type != Json::Type::Object)
+      return false;
+    const Json *startValue = getObjectValue(*rangeValue, "start");
+    const Json *endValue = getObjectValue(*rangeValue, "end");
+    if (!startValue || startValue->type != Json::Type::Object || !endValue ||
+        endValue->type != Json::Type::Object) {
+      return false;
+    }
+    const Json *startLineValue = getObjectValue(*startValue, "line");
+    const Json *endLineValue = getObjectValue(*endValue, "line");
+    if (!startLineValue || startLineValue->type != Json::Type::Number ||
+        !endLineValue || endLineValue->type != Json::Type::Number) {
+      return false;
+    }
+    startLineOut = static_cast<int>(startLineValue->n);
+    endLineOut = static_cast<int>(endLineValue->n);
+    return true;
+  };
+
+  auto appendLastGoodDiagnosticsOutsideChangedWindow =
+      [&](Json &target, const Json &source, int changedWindowStartLine,
+          int changedWindowEndLine) {
+        if (target.type != Json::Type::Array)
+          target = makeArray();
+        if (source.type != Json::Type::Array)
+          return;
+        std::unordered_set<std::string> seen;
+        seen.reserve(target.a.size() + source.a.size());
+        for (const auto &item : target.a)
+          seen.insert(serializeJson(item));
+        for (const auto &item : source.a) {
+          int diagnosticStartLine = 0;
+          int diagnosticEndLine = 0;
+          if (tryGetDiagnosticLineSpan(item, diagnosticStartLine,
+                                       diagnosticEndLine) &&
+              diagnosticEndLine >= changedWindowStartLine &&
+              diagnosticStartLine <= changedWindowEndLine) {
+            continue;
+          }
+          const std::string key = serializeJson(item);
+          if (seen.insert(key).second)
+            target.a.push_back(item);
+        }
+      };
+  auto buildFastPublishDiagnostics =
+      [&](const PendingDiagnosticsJob &job,
+          const ImmediateSyntaxDiagnosticsResult &immediateResult) {
+        Json merged = immediateResult.diagnostics;
+        if (!immediateResult.changedWindowOnly)
+          return merged;
+        DocumentRuntime runtime;
+        if (!documentOwnerGetRuntime(job.uri, runtime) ||
+            !runtime.deferredDocSnapshot ||
+            !runtime.deferredDocSnapshot->hasFullDiagnostics) {
+          return merged;
+        }
+        appendLastGoodDiagnosticsOutsideChangedWindow(
+            merged, runtime.deferredDocSnapshot->fullDiagnostics,
+            immediateResult.changedWindowStartLine,
+            immediateResult.changedWindowEndLine);
+        return merged;
+      };
+
   DiagnosticsBackgroundRuntime *diagnosticsRuntime = nullptr;
 
   auto publishDiagnosticsNow = [&](const PendingDiagnosticsJob &job) {
@@ -312,22 +375,23 @@ int main(int argc, char **argv) {
     Json params = makeObject();
     params.o["uri"] = makeString(job.uri);
     DiagnosticsBuildResult diagnosticsResult;
-      if (job.kind == DiagnosticsJobKind::Fast) {
-        ImmediateSyntaxDiagnosticsOptions syntaxOptions;
-        syntaxOptions.workspaceFolders = job.workspaceFolders;
-        syntaxOptions.includePaths = job.includePaths;
-        syntaxOptions.shaderExtensions = job.shaderExtensions;
-        syntaxOptions.defines = job.defines;
-        syntaxOptions.activeUnitUri = job.activeUnitUri;
-        syntaxOptions.activeUnitText = job.activeUnitText;
-        syntaxOptions.maxItems = job.diagnosticsOptions.maxItems;
-        const ImmediateSyntaxDiagnosticsResult immediateResult =
-            buildImmediateSyntaxDiagnostics(job.uri, job.text, job.changedRanges,
-                                         syntaxOptions);
+    if (job.kind == DiagnosticsJobKind::Fast) {
+      ImmediateSyntaxDiagnosticsOptions syntaxOptions;
+      syntaxOptions.workspaceFolders = job.workspaceFolders;
+      syntaxOptions.includePaths = job.includePaths;
+      syntaxOptions.shaderExtensions = job.shaderExtensions;
+      syntaxOptions.defines = job.defines;
+      syntaxOptions.activeUnitUri = job.activeUnitUri;
+      syntaxOptions.activeUnitText = job.activeUnitText;
+      syntaxOptions.maxItems = job.diagnosticsOptions.maxItems;
+      const ImmediateSyntaxDiagnosticsResult immediateResult =
+          buildImmediateSyntaxDiagnostics(job.uri, job.text, job.changedRanges,
+                                          syntaxOptions);
       diagnosticsResult.diagnostics = immediateResult.diagnostics;
       diagnosticsResult.truncated = immediateResult.truncated;
       diagnosticsResult.elapsedMs = immediateResult.elapsedMs;
-      params.o["diagnostics"] = immediateResult.diagnostics;
+      params.o["diagnostics"] =
+          buildFastPublishDiagnostics(job, immediateResult);
 
       ImmediateSyntaxSnapshot syntaxSnapshot;
       syntaxSnapshot.documentEpoch = job.documentEpoch;
@@ -336,7 +400,8 @@ int main(int argc, char **argv) {
       syntaxSnapshot.changedWindowOnly = immediateResult.changedWindowOnly;
       syntaxSnapshot.changedWindowStartLine =
           immediateResult.changedWindowStartLine;
-      syntaxSnapshot.changedWindowEndLine = immediateResult.changedWindowEndLine;
+      syntaxSnapshot.changedWindowEndLine =
+          immediateResult.changedWindowEndLine;
       documentOwnerUpdateImmediateSyntaxSnapshot(job.uri, syntaxSnapshot);
     } else {
       Document currentDoc;
@@ -351,8 +416,8 @@ int main(int argc, char **argv) {
       }
       if (hasCurrentDoc && currentDoc.epoch == job.documentEpoch &&
           currentDoc.version == job.documentVersion) {
-        diagnosticsResult = buildDeferredFullDiagnostics(job.uri, currentDoc,
-                                                         core, job.diagnosticsOptions);
+        diagnosticsResult = buildDeferredFullDiagnostics(
+            job.uri, currentDoc, core, job.diagnosticsOptions);
       } else {
         diagnosticsResult = buildDiagnosticsWithOptions(
             job.uri, job.text, job.workspaceFolders, job.includePaths,
@@ -375,7 +440,7 @@ int main(int argc, char **argv) {
               std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now().time_since_epoch())
                   .count());
-          documentOwnerStoreDeferredSnapshot(job.uri, deferred);
+          documentOwnerMergeAndStoreDeferredSnapshot(job.uri, deferred);
         }
       }
     }
@@ -543,20 +608,16 @@ int main(int argc, char **argv) {
     std::lock_guard<std::mutex> lock(metricsMutex);
     diagnosticsMetrics.canceledInPending += canceledJobs;
   };
-  auto diagnosticsRuntimeOwner =
-      std::make_unique<DiagnosticsBackgroundRuntime>(
-          diagnosticsWorkerCountSnapshot, DiagnosticsBackgroundCallbacks{
-                                              publishDiagnosticsNow,
-                                              publishEmptyDiagnostics,
-                                              recordDiagnosticsQueueWait,
-                                              recordDiagnosticsQueueMax,
-                                              recordDiagnosticsCanceledPending,
-                                              recordDiagnosticsStaleDropBeforeBuild});
+  auto diagnosticsRuntimeOwner = std::make_unique<DiagnosticsBackgroundRuntime>(
+      diagnosticsWorkerCountSnapshot,
+      DiagnosticsBackgroundCallbacks{
+          publishDiagnosticsNow, publishEmptyDiagnostics,
+          recordDiagnosticsQueueWait, recordDiagnosticsQueueMax,
+          recordDiagnosticsCanceledPending,
+          recordDiagnosticsStaleDropBeforeBuild});
   diagnosticsRuntime = diagnosticsRuntimeOwner.get();
 
-  auto stopDiagnosticsThread = [&]() {
-    diagnosticsRuntimeOwner->stop();
-  };
+  auto stopDiagnosticsThread = [&]() { diagnosticsRuntimeOwner->stop(); };
 
   bool metricsThreadStopping = false;
   std::mutex metricsThreadMutex;
@@ -590,9 +651,8 @@ int main(int argc, char **argv) {
         if (samples.empty())
           return 0.0;
         std::sort(samples.begin(), samples.end());
-        const double rank =
-            std::max(0.0, std::min(1.0, percentile)) *
-            static_cast<double>(samples.size() - 1);
+        const double rank = std::max(0.0, std::min(1.0, percentile)) *
+                            static_cast<double>(samples.size() - 1);
         const size_t lower = static_cast<size_t>(std::floor(rank));
         const size_t upper = static_cast<size_t>(std::ceil(rank));
         if (lower >= samples.size())
@@ -618,9 +678,12 @@ int main(int argc, char **argv) {
                                         static_cast<double>(entry.second.count))
                                      : 0.0);
           item.o["maxMs"] = makeNumber(entry.second.maxMs);
-          item.o["p50Ms"] = makeNumber(percentileMs(entry.second.samplesMs, 0.50));
-          item.o["p95Ms"] = makeNumber(percentileMs(entry.second.samplesMs, 0.95));
-          item.o["p99Ms"] = makeNumber(percentileMs(entry.second.samplesMs, 0.99));
+          item.o["p50Ms"] =
+              makeNumber(percentileMs(entry.second.samplesMs, 0.50));
+          item.o["p95Ms"] =
+              makeNumber(percentileMs(entry.second.samplesMs, 0.95));
+          item.o["p99Ms"] =
+              makeNumber(percentileMs(entry.second.samplesMs, 0.99));
           methods.o[entry.first] = std::move(item);
         }
         diagnosticsSnapshot = diagnosticsMetrics;
@@ -773,8 +836,9 @@ int main(int argc, char **argv) {
           static_cast<double>(signatureHelpSnapshot.indeterminateReasonOther));
       signatureHelp.o["indeterminateReasons"] =
           signatureHelpIndeterminateReasons;
-      signatureHelp.o["interactiveOverloadSamples"] = makeNumber(
-          static_cast<double>(signatureHelpSnapshot.interactiveOverloadSamples));
+      signatureHelp.o["interactiveOverloadSamples"] =
+          makeNumber(static_cast<double>(
+              signatureHelpSnapshot.interactiveOverloadSamples));
       signatureHelp.o["interactiveOverloadAvgMs"] = makeNumber(
           signatureHelpSnapshot.interactiveOverloadSamples > 0
               ? signatureHelpSnapshot.interactiveOverloadTotalMs /
@@ -795,12 +859,12 @@ int main(int argc, char **argv) {
           makeNumber(signatureHelpSnapshot.builtinSignatureMaxMs);
       signatureHelp.o["responseWriteSamples"] = makeNumber(
           static_cast<double>(signatureHelpSnapshot.responseWriteSamples));
-      signatureHelp.o["responseWriteAvgMs"] = makeNumber(
-          signatureHelpSnapshot.responseWriteSamples > 0
-              ? signatureHelpSnapshot.responseWriteTotalMs /
-                    static_cast<double>(
-                        signatureHelpSnapshot.responseWriteSamples)
-              : 0.0);
+      signatureHelp.o["responseWriteAvgMs"] =
+          makeNumber(signatureHelpSnapshot.responseWriteSamples > 0
+                         ? signatureHelpSnapshot.responseWriteTotalMs /
+                               static_cast<double>(
+                                   signatureHelpSnapshot.responseWriteSamples)
+                         : 0.0);
       signatureHelp.o["responseWriteMaxMs"] =
           makeNumber(signatureHelpSnapshot.responseWriteMaxMs);
       Json overloadResolverMetrics = makeObject();
@@ -817,37 +881,32 @@ int main(int argc, char **argv) {
               signatureHelpSnapshot.overloadResolverShadowMismatch));
       signatureHelp.o["overloadResolver"] = overloadResolverMetrics;
       Json completionMetrics = makeObject();
-      completionMetrics.o["interactiveCollectSamples"] =
-          makeNumber(static_cast<double>(
-              completionSnapshot.interactiveCollectSamples));
-      completionMetrics.o["interactiveCollectAvgMs"] = makeNumber(
-          completionSnapshot.interactiveCollectSamples > 0
-              ? completionSnapshot.interactiveCollectTotalMs /
-                    static_cast<double>(
-                        completionSnapshot.interactiveCollectSamples)
-              : 0.0);
+      completionMetrics.o["interactiveCollectSamples"] = makeNumber(
+          static_cast<double>(completionSnapshot.interactiveCollectSamples));
+      completionMetrics.o["interactiveCollectAvgMs"] =
+          makeNumber(completionSnapshot.interactiveCollectSamples > 0
+                         ? completionSnapshot.interactiveCollectTotalMs /
+                               static_cast<double>(
+                                   completionSnapshot.interactiveCollectSamples)
+                         : 0.0);
       completionMetrics.o["interactiveCollectMaxMs"] =
           makeNumber(completionSnapshot.interactiveCollectMaxMs);
-      completionMetrics.o["memberAccessDetectedCount"] =
-          makeNumber(static_cast<double>(
-              completionSnapshot.memberAccessDetectedCount));
-      completionMetrics.o["memberTypeResolvedCount"] =
-          makeNumber(static_cast<double>(
-              completionSnapshot.memberTypeResolvedCount));
-      completionMetrics.o["memberItemsReturnedCount"] =
-          makeNumber(static_cast<double>(
-              completionSnapshot.memberItemsReturnedCount));
-      completionMetrics.o["memberGenericFallbackCount"] =
-          makeNumber(static_cast<double>(
-              completionSnapshot.memberGenericFallbackCount));
+      completionMetrics.o["memberAccessDetectedCount"] = makeNumber(
+          static_cast<double>(completionSnapshot.memberAccessDetectedCount));
+      completionMetrics.o["memberTypeResolvedCount"] = makeNumber(
+          static_cast<double>(completionSnapshot.memberTypeResolvedCount));
+      completionMetrics.o["memberItemsReturnedCount"] = makeNumber(
+          static_cast<double>(completionSnapshot.memberItemsReturnedCount));
+      completionMetrics.o["memberGenericFallbackCount"] = makeNumber(
+          static_cast<double>(completionSnapshot.memberGenericFallbackCount));
       completionMetrics.o["memberBaseResolveSamples"] = makeNumber(
           static_cast<double>(completionSnapshot.memberBaseResolveSamples));
-      completionMetrics.o["memberBaseResolveAvgMs"] = makeNumber(
-          completionSnapshot.memberBaseResolveSamples > 0
-              ? completionSnapshot.memberBaseResolveTotalMs /
-                    static_cast<double>(
-                        completionSnapshot.memberBaseResolveSamples)
-              : 0.0);
+      completionMetrics.o["memberBaseResolveAvgMs"] =
+          makeNumber(completionSnapshot.memberBaseResolveSamples > 0
+                         ? completionSnapshot.memberBaseResolveTotalMs /
+                               static_cast<double>(
+                                   completionSnapshot.memberBaseResolveSamples)
+                         : 0.0);
       completionMetrics.o["memberBaseResolveMaxMs"] =
           makeNumber(completionSnapshot.memberBaseResolveMaxMs);
       completionMetrics.o["memberQuerySamples"] = makeNumber(
@@ -860,8 +919,7 @@ int main(int argc, char **argv) {
       completionMetrics.o["memberQueryMaxMs"] =
           makeNumber(completionSnapshot.memberQueryMaxMs);
       completionMetrics.o["workspaceSummaryQuerySamples"] = makeNumber(
-          static_cast<double>(
-              completionSnapshot.workspaceSummaryQuerySamples));
+          static_cast<double>(completionSnapshot.workspaceSummaryQuerySamples));
       completionMetrics.o["workspaceSummaryQueryAvgMs"] = makeNumber(
           completionSnapshot.workspaceSummaryQuerySamples > 0
               ? completionSnapshot.workspaceSummaryQueryTotalMs /
@@ -901,12 +959,12 @@ int main(int argc, char **argv) {
           makeNumber(definitionSnapshot.currentDocInteractiveMaxMs);
       definitionMetrics.o["currentUnitCallSamples"] = makeNumber(
           static_cast<double>(definitionSnapshot.currentUnitCallSamples));
-      definitionMetrics.o["currentUnitCallAvgMs"] = makeNumber(
-          definitionSnapshot.currentUnitCallSamples > 0
-              ? definitionSnapshot.currentUnitCallTotalMs /
-                    static_cast<double>(
-                        definitionSnapshot.currentUnitCallSamples)
-              : 0.0);
+      definitionMetrics.o["currentUnitCallAvgMs"] =
+          makeNumber(definitionSnapshot.currentUnitCallSamples > 0
+                         ? definitionSnapshot.currentUnitCallTotalMs /
+                               static_cast<double>(
+                                   definitionSnapshot.currentUnitCallSamples)
+                         : 0.0);
       definitionMetrics.o["currentUnitCallMaxMs"] =
           makeNumber(definitionSnapshot.currentUnitCallMaxMs);
       definitionMetrics.o["responseWriteSamples"] = makeNumber(
@@ -914,24 +972,23 @@ int main(int argc, char **argv) {
       definitionMetrics.o["responseWriteAvgMs"] = makeNumber(
           definitionSnapshot.responseWriteSamples > 0
               ? definitionSnapshot.responseWriteTotalMs /
-                    static_cast<double>(
-                        definitionSnapshot.responseWriteSamples)
+                    static_cast<double>(definitionSnapshot.responseWriteSamples)
               : 0.0);
       definitionMetrics.o["responseWriteMaxMs"] =
           makeNumber(definitionSnapshot.responseWriteMaxMs);
       Json hoverMetrics = makeObject();
       hoverMetrics.o["currentDocDeclarationSamples"] = makeNumber(
           static_cast<double>(hoverSnapshot.currentDocDeclarationSamples));
-      hoverMetrics.o["currentDocDeclarationAvgMs"] = makeNumber(
-          hoverSnapshot.currentDocDeclarationSamples > 0
-              ? hoverSnapshot.currentDocDeclarationTotalMs /
-                    static_cast<double>(
-                        hoverSnapshot.currentDocDeclarationSamples)
-              : 0.0);
+      hoverMetrics.o["currentDocDeclarationAvgMs"] =
+          makeNumber(hoverSnapshot.currentDocDeclarationSamples > 0
+                         ? hoverSnapshot.currentDocDeclarationTotalMs /
+                               static_cast<double>(
+                                   hoverSnapshot.currentDocDeclarationSamples)
+                         : 0.0);
       hoverMetrics.o["currentDocDeclarationMaxMs"] =
           makeNumber(hoverSnapshot.currentDocDeclarationMaxMs);
-      hoverMetrics.o["requestSetupSamples"] = makeNumber(
-          static_cast<double>(hoverSnapshot.requestSetupSamples));
+      hoverMetrics.o["requestSetupSamples"] =
+          makeNumber(static_cast<double>(hoverSnapshot.requestSetupSamples));
       hoverMetrics.o["requestSetupAvgMs"] = makeNumber(
           hoverSnapshot.requestSetupSamples > 0
               ? hoverSnapshot.requestSetupTotalMs /
@@ -950,15 +1007,16 @@ int main(int argc, char **argv) {
           makeNumber(hoverSnapshot.currentDocFunctionMaxMs);
       hoverMetrics.o["includeContextSummarySamples"] = makeNumber(
           static_cast<double>(hoverSnapshot.includeContextSummarySamples));
-      hoverMetrics.o["includeContextSummaryAvgMs"] = makeNumber(
-          hoverSnapshot.includeContextSummarySamples > 0
-              ? hoverSnapshot.includeContextSummaryTotalMs /
-                    static_cast<double>(hoverSnapshot.includeContextSummarySamples)
-              : 0.0);
+      hoverMetrics.o["includeContextSummaryAvgMs"] =
+          makeNumber(hoverSnapshot.includeContextSummarySamples > 0
+                         ? hoverSnapshot.includeContextSummaryTotalMs /
+                               static_cast<double>(
+                                   hoverSnapshot.includeContextSummarySamples)
+                         : 0.0);
       hoverMetrics.o["includeContextSummaryMaxMs"] =
           makeNumber(hoverSnapshot.includeContextSummaryMaxMs);
-      hoverMetrics.o["builtinDocSamples"] = makeNumber(
-          static_cast<double>(hoverSnapshot.builtinDocSamples));
+      hoverMetrics.o["builtinDocSamples"] =
+          makeNumber(static_cast<double>(hoverSnapshot.builtinDocSamples));
       hoverMetrics.o["builtinDocAvgMs"] = makeNumber(
           hoverSnapshot.builtinDocSamples > 0
               ? hoverSnapshot.builtinDocTotalMs /
@@ -966,8 +1024,8 @@ int main(int argc, char **argv) {
               : 0.0);
       hoverMetrics.o["builtinDocMaxMs"] =
           makeNumber(hoverSnapshot.builtinDocMaxMs);
-      hoverMetrics.o["markdownRenderSamples"] = makeNumber(
-          static_cast<double>(hoverSnapshot.markdownRenderSamples));
+      hoverMetrics.o["markdownRenderSamples"] =
+          makeNumber(static_cast<double>(hoverSnapshot.markdownRenderSamples));
       hoverMetrics.o["markdownRenderAvgMs"] = makeNumber(
           hoverSnapshot.markdownRenderSamples > 0
               ? hoverSnapshot.markdownRenderTotalMs /
@@ -975,8 +1033,8 @@ int main(int argc, char **argv) {
               : 0.0);
       hoverMetrics.o["markdownRenderMaxMs"] =
           makeNumber(hoverSnapshot.markdownRenderMaxMs);
-      hoverMetrics.o["responseWriteSamples"] = makeNumber(
-          static_cast<double>(hoverSnapshot.responseWriteSamples));
+      hoverMetrics.o["responseWriteSamples"] =
+          makeNumber(static_cast<double>(hoverSnapshot.responseWriteSamples));
       hoverMetrics.o["responseWriteAvgMs"] = makeNumber(
           hoverSnapshot.responseWriteSamples > 0
               ? hoverSnapshot.responseWriteTotalMs /
@@ -985,10 +1043,10 @@ int main(int argc, char **argv) {
       hoverMetrics.o["responseWriteMaxMs"] =
           makeNumber(hoverSnapshot.responseWriteMaxMs);
       Json inlayMetrics = makeObject();
-      inlayMetrics.o["deferredSnapshotHitCount"] =
-          makeNumber(static_cast<double>(inlaySnapshot.deferredSnapshotHitCount));
-      inlayMetrics.o["deferredSnapshotMissCount"] =
-          makeNumber(static_cast<double>(inlaySnapshot.deferredSnapshotMissCount));
+      inlayMetrics.o["deferredSnapshotHitCount"] = makeNumber(
+          static_cast<double>(inlaySnapshot.deferredSnapshotHitCount));
+      inlayMetrics.o["deferredSnapshotMissCount"] = makeNumber(
+          static_cast<double>(inlaySnapshot.deferredSnapshotMissCount));
       inlayMetrics.o["rangeBuildSamples"] =
           makeNumber(static_cast<double>(inlaySnapshot.rangeBuildSamples));
       inlayMetrics.o["rangeBuildAvgMs"] = makeNumber(
@@ -1035,56 +1093,64 @@ int main(int argc, char **argv) {
       const uint64_t snapshotReuseCount =
           interactiveRuntimeSnapshot.analysisKeyHits +
           interactiveRuntimeSnapshot.lastGoodServed;
-      interactiveRuntime.o["snapshotRequests"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.snapshotRequests));
-      interactiveRuntime.o["analysisKeyHits"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.analysisKeyHits));
+      interactiveRuntime.o["snapshotRequests"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.snapshotRequests));
+      interactiveRuntime.o["analysisKeyHits"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.analysisKeyHits));
       interactiveRuntime.o["snapshotBuildAttempts"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.snapshotBuildAttempts));
-      interactiveRuntime.o["snapshotBuildSuccess"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.snapshotBuildSuccess));
-      interactiveRuntime.o["snapshotBuildFailed"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.snapshotBuildFailed));
-      interactiveRuntime.o["lastGoodServed"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.lastGoodServed));
+          makeNumber(static_cast<double>(
+              interactiveRuntimeSnapshot.snapshotBuildAttempts));
+      interactiveRuntime.o["snapshotBuildSuccess"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.snapshotBuildSuccess));
+      interactiveRuntime.o["snapshotBuildFailed"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.snapshotBuildFailed));
+      interactiveRuntime.o["lastGoodServed"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.lastGoodServed));
       interactiveRuntime.o["incrementalPromoted"] = makeNumber(
           static_cast<double>(interactiveRuntimeSnapshot.incrementalPromoted));
       interactiveRuntime.o["noSnapshotAvailable"] = makeNumber(
           static_cast<double>(interactiveRuntimeSnapshot.noSnapshotAvailable));
-      interactiveRuntime.o["mergeCurrentDocHits"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.mergeCurrentDocHits));
-      interactiveRuntime.o["mergeLastGoodHits"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.mergeLastGoodHits));
-      interactiveRuntime.o["mergeDeferredDocHits"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.mergeDeferredDocHits));
-      interactiveRuntime.o["mergeWorkspaceSummaryHits"] = makeNumber(
-          static_cast<double>(interactiveRuntimeSnapshot.mergeWorkspaceSummaryHits));
-      interactiveRuntime.o["mergeMisses"] =
-          makeNumber(static_cast<double>(interactiveRuntimeSnapshot.mergeMisses));
-      interactiveRuntime.o["analysisKeyHitRate"] = makeNumber(
-          interactiveRuntimeSnapshot.snapshotRequests > 0
-              ? static_cast<double>(interactiveRuntimeSnapshot.analysisKeyHits) /
-                    static_cast<double>(interactiveRuntimeSnapshot.snapshotRequests)
-              : 0.0);
-      interactiveRuntime.o["snapshotReuseRate"] = makeNumber(
-          interactiveRuntimeSnapshot.snapshotRequests > 0
-              ? static_cast<double>(snapshotReuseCount) /
-                    static_cast<double>(interactiveRuntimeSnapshot.snapshotRequests)
-              : 0.0);
+      interactiveRuntime.o["mergeCurrentDocHits"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.mergeCurrentDocHits));
+      interactiveRuntime.o["mergeLastGoodHits"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.mergeLastGoodHits));
+      interactiveRuntime.o["mergeDeferredDocHits"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.mergeDeferredDocHits));
+      interactiveRuntime.o["mergeWorkspaceSummaryHits"] =
+          makeNumber(static_cast<double>(
+              interactiveRuntimeSnapshot.mergeWorkspaceSummaryHits));
+      interactiveRuntime.o["mergeMisses"] = makeNumber(
+          static_cast<double>(interactiveRuntimeSnapshot.mergeMisses));
+      interactiveRuntime.o["analysisKeyHitRate"] =
+          makeNumber(interactiveRuntimeSnapshot.snapshotRequests > 0
+                         ? static_cast<double>(
+                               interactiveRuntimeSnapshot.analysisKeyHits) /
+                               static_cast<double>(
+                                   interactiveRuntimeSnapshot.snapshotRequests)
+                         : 0.0);
+      interactiveRuntime.o["snapshotReuseRate"] =
+          makeNumber(interactiveRuntimeSnapshot.snapshotRequests > 0
+                         ? static_cast<double>(snapshotReuseCount) /
+                               static_cast<double>(
+                                   interactiveRuntimeSnapshot.snapshotRequests)
+                         : 0.0);
       interactiveRuntime.o["workspaceMergeHitRate"] = makeNumber(
           interactiveMergeTotal > 0
-              ? static_cast<double>(interactiveRuntimeSnapshot.mergeWorkspaceSummaryHits) /
+              ? static_cast<double>(
+                    interactiveRuntimeSnapshot.mergeWorkspaceSummaryHits) /
                     static_cast<double>(interactiveMergeTotal)
               : 0.0);
       interactiveRuntime.o["snapshotWaitAvgMs"] = makeNumber(
           interactiveRuntimeSnapshot.snapshotWaitSamples > 0
               ? interactiveRuntimeSnapshot.snapshotWaitTotalMs /
-                    static_cast<double>(interactiveRuntimeSnapshot.snapshotWaitSamples)
+                    static_cast<double>(
+                        interactiveRuntimeSnapshot.snapshotWaitSamples)
               : 0.0);
       interactiveRuntime.o["snapshotWaitMaxMs"] =
           makeNumber(interactiveRuntimeSnapshot.snapshotWaitMaxMs);
-      interactiveRuntime.o["requestQueueWaitSamples"] = makeNumber(
-          static_cast<double>(interactiveRuntimeSnapshot.requestQueueWaitSamples));
+      interactiveRuntime.o["requestQueueWaitSamples"] =
+          makeNumber(static_cast<double>(
+              interactiveRuntimeSnapshot.requestQueueWaitSamples));
       interactiveRuntime.o["requestQueueWaitAvgMs"] = makeNumber(
           interactiveRuntimeSnapshot.requestQueueWaitSamples > 0
               ? interactiveRuntimeSnapshot.requestQueueWaitTotalMs /
@@ -1093,8 +1159,8 @@ int main(int argc, char **argv) {
               : 0.0);
       interactiveRuntime.o["requestQueueWaitMaxMs"] =
           makeNumber(interactiveRuntimeSnapshot.requestQueueWaitMaxMs);
-      interactiveRuntime.o["requestContextBuildSamples"] = makeNumber(
-          static_cast<double>(
+      interactiveRuntime.o["requestContextBuildSamples"] =
+          makeNumber(static_cast<double>(
               interactiveRuntimeSnapshot.requestContextBuildSamples));
       interactiveRuntime.o["requestContextBuildAvgMs"] = makeNumber(
           interactiveRuntimeSnapshot.requestContextBuildSamples > 0
@@ -1104,8 +1170,9 @@ int main(int argc, char **argv) {
               : 0.0);
       interactiveRuntime.o["requestContextBuildMaxMs"] =
           makeNumber(interactiveRuntimeSnapshot.requestContextBuildMaxMs);
-      interactiveRuntime.o["ownerDidChangeSamples"] = makeNumber(
-          static_cast<double>(interactiveRuntimeSnapshot.ownerDidChangeSamples));
+      interactiveRuntime.o["ownerDidChangeSamples"] =
+          makeNumber(static_cast<double>(
+              interactiveRuntimeSnapshot.ownerDidChangeSamples));
       interactiveRuntime.o["ownerDidChangeAvgMs"] = makeNumber(
           interactiveRuntimeSnapshot.ownerDidChangeSamples > 0
               ? interactiveRuntimeSnapshot.ownerDidChangeTotalMs /
@@ -1116,11 +1183,12 @@ int main(int argc, char **argv) {
           makeNumber(interactiveRuntimeSnapshot.ownerDidChangeMaxMs);
       interactiveRuntime.o["prewarmSamples"] = makeNumber(
           static_cast<double>(interactiveRuntimeSnapshot.prewarmSamples));
-      interactiveRuntime.o["prewarmAvgMs"] = makeNumber(
-          interactiveRuntimeSnapshot.prewarmSamples > 0
-              ? interactiveRuntimeSnapshot.prewarmTotalMs /
-                    static_cast<double>(interactiveRuntimeSnapshot.prewarmSamples)
-              : 0.0);
+      interactiveRuntime.o["prewarmAvgMs"] =
+          makeNumber(interactiveRuntimeSnapshot.prewarmSamples > 0
+                         ? interactiveRuntimeSnapshot.prewarmTotalMs /
+                               static_cast<double>(
+                                   interactiveRuntimeSnapshot.prewarmSamples)
+                         : 0.0);
       interactiveRuntime.o["prewarmMaxMs"] =
           makeNumber(interactiveRuntimeSnapshot.prewarmMaxMs);
 
@@ -1129,20 +1197,22 @@ int main(int argc, char **argv) {
           makeNumber(static_cast<double>(deferredDocRuntimeSnapshot.scheduled));
       deferredDocRuntime.o["mergedLatestOnly"] = makeNumber(
           static_cast<double>(deferredDocRuntimeSnapshot.mergedLatestOnly));
-      deferredDocRuntime.o["droppedStale"] =
-          makeNumber(static_cast<double>(deferredDocRuntimeSnapshot.droppedStale));
-      deferredDocRuntime.o["buildCount"] =
-          makeNumber(static_cast<double>(deferredDocRuntimeSnapshot.buildCount));
+      deferredDocRuntime.o["droppedStale"] = makeNumber(
+          static_cast<double>(deferredDocRuntimeSnapshot.droppedStale));
+      deferredDocRuntime.o["buildCount"] = makeNumber(
+          static_cast<double>(deferredDocRuntimeSnapshot.buildCount));
       deferredDocRuntime.o["latestOnlyMergeRate"] = makeNumber(
           deferredDocRuntimeSnapshot.scheduled > 0
-              ? static_cast<double>(deferredDocRuntimeSnapshot.mergedLatestOnly) /
+              ? static_cast<double>(
+                    deferredDocRuntimeSnapshot.mergedLatestOnly) /
                     static_cast<double>(deferredDocRuntimeSnapshot.scheduled)
               : 0.0);
-      deferredDocRuntime.o["queueWaitAvgMs"] = makeNumber(
-          deferredDocRuntimeSnapshot.queueWaitSamples > 0
-              ? deferredDocRuntimeSnapshot.queueWaitTotalMs /
-                    static_cast<double>(deferredDocRuntimeSnapshot.queueWaitSamples)
-              : 0.0);
+      deferredDocRuntime.o["queueWaitAvgMs"] =
+          makeNumber(deferredDocRuntimeSnapshot.queueWaitSamples > 0
+                         ? deferredDocRuntimeSnapshot.queueWaitTotalMs /
+                               static_cast<double>(
+                                   deferredDocRuntimeSnapshot.queueWaitSamples)
+                         : 0.0);
       deferredDocRuntime.o["queueWaitMaxMs"] =
           makeNumber(deferredDocRuntimeSnapshot.queueWaitMaxMs);
       deferredDocRuntime.o["buildAvgMs"] = makeNumber(
@@ -1283,8 +1353,7 @@ int main(int argc, char **argv) {
         method == "textDocument/semanticTokens/range" ||
         method == "textDocument/references" ||
         method == "textDocument/prepareRename" ||
-        method == "textDocument/rename" ||
-        method == "workspace/symbol") {
+        method == "textDocument/rename" || method == "workspace/symbol") {
       return RequestPriority::P3;
     }
     return RequestPriority::P2;
@@ -1416,10 +1485,9 @@ int main(int argc, char **argv) {
       };
       const Json *paramsPtr =
           request.params.type == Json::Type::Null ? nullptr : &request.params;
-      bool handled =
-          handleCoreRequestMethods(request.method, request.id, paramsPtr,
-                                   requestCtx, noLanguageItems,
-                                   noLanguageItems);
+      bool handled = handleCoreRequestMethods(request.method, request.id,
+                                              paramsPtr, requestCtx,
+                                              noLanguageItems, noLanguageItems);
       bool failed = false;
       if (!handled && request.hasId) {
         writeError(request.id, -32601, "Method not implemented");
@@ -1892,9 +1960,8 @@ int main(int argc, char **argv) {
             makeString(runtime.analysisSnapshotKey.fullFingerprint);
         item.o["analysisStableFingerprint"] =
             makeString(runtime.analysisSnapshotKey.stableContextFingerprint);
-        item.o["workspaceSummaryVersion"] = makeNumber(
-            static_cast<double>(
-                runtime.analysisSnapshotKey.workspaceSummaryVersion));
+        item.o["workspaceSummaryVersion"] = makeNumber(static_cast<double>(
+            runtime.analysisSnapshotKey.workspaceSummaryVersion));
         item.o["activeUnitPath"] =
             makeString(runtime.analysisSnapshotKey.activeUnitPath);
         item.o["activeUnitIncludeClosureFingerprint"] =
@@ -1903,8 +1970,9 @@ int main(int argc, char **argv) {
             makeString(runtime.activeUnitSnapshot.activeBranchFingerprint);
         item.o["interactiveVisibilityFingerprint"] =
             makeString(runtime.interactiveVisibilityKey.fullFingerprint);
-        item.o["activeUnitWorkspaceSummaryVersion"] = makeNumber(
-            static_cast<double>(runtime.activeUnitSnapshot.workspaceSummaryVersion));
+        item.o["activeUnitWorkspaceSummaryVersion"] =
+            makeNumber(static_cast<double>(
+                runtime.activeUnitSnapshot.workspaceSummaryVersion));
         item.o["hasInteractiveSnapshot"] =
             makeBool(static_cast<bool>(runtime.interactiveSnapshot));
         item.o["hasLastGoodInteractiveSnapshot"] =
@@ -1914,20 +1982,20 @@ int main(int argc, char **argv) {
         if (runtime.interactiveSnapshot) {
           item.o["interactiveAnalysisFullFingerprint"] =
               makeString(runtime.interactiveSnapshot->key.fullFingerprint);
-          item.o["interactiveAnalysisStableFingerprint"] =
-              makeString(runtime.interactiveSnapshot->key.stableContextFingerprint);
+          item.o["interactiveAnalysisStableFingerprint"] = makeString(
+              runtime.interactiveSnapshot->key.stableContextFingerprint);
         }
         if (runtime.lastGoodInteractiveSnapshot) {
-          item.o["lastGoodAnalysisFullFingerprint"] =
-              makeString(runtime.lastGoodInteractiveSnapshot->key.fullFingerprint);
+          item.o["lastGoodAnalysisFullFingerprint"] = makeString(
+              runtime.lastGoodInteractiveSnapshot->key.fullFingerprint);
         }
         if (runtime.deferredDocSnapshot) {
           item.o["deferredAnalysisFullFingerprint"] =
               makeString(runtime.deferredDocSnapshot->key.fullFingerprint);
-          item.o["deferredAnalysisStableFingerprint"] =
-              makeString(runtime.deferredDocSnapshot->key.stableContextFingerprint);
-          item.o["deferredHasSemanticSnapshot"] =
-              makeBool(static_cast<bool>(runtime.deferredDocSnapshot->semanticSnapshot));
+          item.o["deferredAnalysisStableFingerprint"] = makeString(
+              runtime.deferredDocSnapshot->key.stableContextFingerprint);
+          item.o["deferredHasSemanticSnapshot"] = makeBool(
+              static_cast<bool>(runtime.deferredDocSnapshot->semanticSnapshot));
           item.o["deferredHasSemanticTokensFull"] =
               makeBool(runtime.deferredDocSnapshot->hasSemanticTokensFull);
           item.o["deferredHasDocumentSymbols"] =
@@ -1937,10 +2005,10 @@ int main(int argc, char **argv) {
           item.o["deferredHasInlayHintsFull"] =
               makeBool(runtime.deferredDocSnapshot->hasInlayHintsFull);
           item.o["deferredSemanticTokensRangeCacheCount"] = makeNumber(
-              static_cast<double>(
-                  runtime.deferredDocSnapshot->semanticTokensRangeCache.size()));
-          item.o["deferredInlayRangeCacheCount"] = makeNumber(
-              static_cast<double>(
+              static_cast<double>(runtime.deferredDocSnapshot
+                                      ->semanticTokensRangeCache.size()));
+          item.o["deferredInlayRangeCacheCount"] =
+              makeNumber(static_cast<double>(
                   runtime.deferredDocSnapshot->inlayHintsRangeCache.size()));
         }
         item.o["changedRangesCount"] =
@@ -1962,7 +2030,8 @@ int main(int argc, char **argv) {
               getInteractiveRuntimeDebugSnapshot(uriValue->s);
           result.o["uri"] = makeString(snapshot.uri);
           result.o["lastQueryKind"] = makeString(snapshot.lastQueryKind);
-          result.o["lastResolvedLayer"] = makeString(snapshot.lastResolvedLayer);
+          result.o["lastResolvedLayer"] =
+              makeString(snapshot.lastResolvedLayer);
           result.o["lastSymbol"] = makeString(snapshot.lastSymbol);
         }
       }
@@ -2019,7 +2088,8 @@ int main(int argc, char **argv) {
               };
               DeclCandidate decl;
               DeclCandidate rawDecl;
-              if (findBestDeclarationUpTo(doc.text, base, cursorOffset, rawDecl) &&
+              if (findBestDeclarationUpTo(doc.text, base, cursorOffset,
+                                          rawDecl) &&
                   rawDecl.found) {
                 result.o["rawCurrentDocDeclarationFound"] = makeBool(true);
                 result.o["rawCurrentDocDeclarationLine"] =
@@ -2049,9 +2119,8 @@ int main(int argc, char **argv) {
               }
               MemberAccessBaseTypeOptions options;
               options.includeWorkspaceIndexFallback = true;
-              MemberAccessBaseTypeResult resolved =
-                  resolveMemberAccessBaseType(uri, doc, base, cursorOffset,
-                                              debugCtx, options);
+              MemberAccessBaseTypeResult resolved = resolveMemberAccessBaseType(
+                  uri, doc, base, cursorOffset, debugCtx, options);
               result.o["resolved"] = makeBool(resolved.resolved);
               result.o["resolvedType"] = makeString(resolved.typeName);
               result.o["resolutionPath"] = makeString(resolved.resolutionPath);
@@ -2113,11 +2182,11 @@ int main(int argc, char **argv) {
       if (params) {
         const Json *uriValue = getObjectValue(*params, "uri");
         if (uriValue && uriValue->type == Json::Type::String) {
-          const auto snapshot =
-              getInteractiveRuntimeDebugSnapshot(uriValue->s);
+          const auto snapshot = getInteractiveRuntimeDebugSnapshot(uriValue->s);
           result.o["uri"] = makeString(snapshot.uri);
           result.o["lastQueryKind"] = makeString(snapshot.lastQueryKind);
-          result.o["lastResolvedLayer"] = makeString(snapshot.lastResolvedLayer);
+          result.o["lastResolvedLayer"] =
+              makeString(snapshot.lastResolvedLayer);
           result.o["lastSymbol"] = makeString(snapshot.lastSymbol);
         }
       }
@@ -2274,13 +2343,12 @@ int main(int argc, char **argv) {
                 }
               }
               const std::string lastLine = newText.substr(newLineStart);
-              newEndCharacter =
-                  byteOffsetInLineToUtf16(lastLine,
-                                          static_cast<int>(lastLine.size()));
+              newEndCharacter = byteOffsetInLineToUtf16(
+                  lastLine, static_cast<int>(lastLine.size()));
             }
-            changedRanges.push_back(
-                ChangedRange{startLine, startCh, endLine, endCh, newEndLine,
-                             newEndCharacter});
+            changedRanges.push_back(ChangedRange{startLine, startCh, endLine,
+                                                 endCh, newEndLine,
+                                                 newEndCharacter});
             const size_t startOffset =
                 positionToOffsetUtf16(text, startLine, startCh);
             const size_t endOffset =
@@ -2325,16 +2393,14 @@ int main(int argc, char **argv) {
           {
             DocumentRuntime runtime;
             if (documentOwnerGetRuntime(updatedDocument.uri, runtime)) {
-              const bool commentOnlyEdit =
-                  isCommentOnlyEditForDidChange(updatedDocument.text,
-                                                changedRanges);
+              const bool commentOnlyEdit = isCommentOnlyEditForDidChange(
+                  updatedDocument.text, changedRanges);
               const bool hasReusableInteractive =
                   runtime.lastGoodInteractiveSnapshot != nullptr;
               const bool hasDeferredSnapshot =
                   runtime.deferredDocSnapshot != nullptr;
               skipExpensivePostChangeWork =
-                  hasDeferredSnapshot &&
-                  runtime.syntaxOnlyEditHint ||
+                  hasDeferredSnapshot && runtime.syntaxOnlyEditHint ||
                   (hasDeferredSnapshot && hasReusableInteractive &&
                    (runtime.semanticNeutralEditHint || commentOnlyEdit));
             }
@@ -2409,20 +2475,15 @@ int main(int argc, char **argv) {
           request.inlayUri = request.documentUri;
           request.latestOnlyKey = "inlay|" + request.documentUri;
         } else if (method == "textDocument/semanticTokens/full") {
-          request.latestOnlyKey =
-              "semanticTokens/full|" + request.documentUri;
+          request.latestOnlyKey = "semanticTokens/full|" + request.documentUri;
         } else if (method == "textDocument/semanticTokens/range") {
-          request.latestOnlyKey =
-              "semanticTokens/range|" + request.documentUri;
+          request.latestOnlyKey = "semanticTokens/range|" + request.documentUri;
         } else if (method == "textDocument/documentSymbol") {
-          request.latestOnlyKey =
-              "documentSymbol|" + request.documentUri;
+          request.latestOnlyKey = "documentSymbol|" + request.documentUri;
         } else if (method == "textDocument/references") {
-          request.latestOnlyKey =
-              "references|" + request.documentUri;
+          request.latestOnlyKey = "references|" + request.documentUri;
         } else if (method == "textDocument/prepareRename") {
-          request.latestOnlyKey =
-              "prepareRename|" + request.documentUri;
+          request.latestOnlyKey = "prepareRename|" + request.documentUri;
         } else if (method == "textDocument/rename") {
           request.latestOnlyKey = "rename|" + request.documentUri;
         }
