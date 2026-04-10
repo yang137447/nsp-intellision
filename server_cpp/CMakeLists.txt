@@ -14,6 +14,7 @@ add_executable(nsf_lsp
   src/app/main_occurrence_helpers.cpp
   src/active_unit.cpp
   src/deferred_doc_runtime.cpp
+  src/current_doc_semantic_runtime.cpp
   src/document_owner.cpp
   src/document_runtime.cpp
   src/global_context_runtime.cpp

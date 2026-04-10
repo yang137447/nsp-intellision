@@ -1,5 +1,6 @@
 #include "interactive_semantic_runtime.hpp"
 
+#include "current_doc_semantic_runtime.hpp"
 #include "declaration_query.hpp"
 #include "document_owner.hpp"
 #include "document_runtime.hpp"
@@ -32,13 +33,6 @@
 
 namespace {
 
-uint64_t currentTimeMs() {
-  return static_cast<uint64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now().time_since_epoch())
-          .count());
-}
-
 std::string normalizeInteractiveRuntimeDebugUriKey(const std::string &uri) {
   std::string normalized = uri;
   std::transform(normalized.begin(), normalized.end(), normalized.begin(),
@@ -62,13 +56,6 @@ bool isStaleEligible(const AnalysisSnapshotKey &candidate,
                      const AnalysisSnapshotKey &current) {
   return candidate.stableContextFingerprint == current.stableContextFingerprint;
 }
-
-struct RuntimeSemanticInputs {
-  std::vector<std::string> workspaceFolders;
-  std::vector<std::string> includePaths;
-  std::vector<std::string> shaderExtensions;
-  std::unordered_map<std::string, int> defines;
-};
 
 PreprocessorIncludeContext makeInteractiveIncludeContext(
     const std::string &uri, const ServerRequestContext &ctx) {
@@ -208,26 +195,6 @@ struct ScopedPrewarmMetric {
   }
 };
 
-RuntimeSemanticInputs getRuntimeSemanticInputs(const DocumentRuntime &runtime,
-                                               const ServerRequestContext &ctx) {
-  RuntimeSemanticInputs inputs;
-  if (!runtime.activeUnitSnapshot.workspaceFolders.empty() ||
-      !runtime.activeUnitSnapshot.includePaths.empty() ||
-      !runtime.activeUnitSnapshot.shaderExtensions.empty() ||
-      !runtime.activeUnitSnapshot.defines.empty()) {
-    inputs.workspaceFolders = runtime.activeUnitSnapshot.workspaceFolders;
-    inputs.includePaths = runtime.activeUnitSnapshot.includePaths;
-    inputs.shaderExtensions = runtime.activeUnitSnapshot.shaderExtensions;
-    inputs.defines = runtime.activeUnitSnapshot.defines;
-    return inputs;
-  }
-  inputs.workspaceFolders = ctx.workspaceFolders;
-  inputs.includePaths = ctx.includePaths;
-  inputs.shaderExtensions = ctx.shaderExtensions;
-  inputs.defines = ctx.preprocessorDefines;
-  return inputs;
-}
-
 const SemanticSnapshot::FunctionInfo *
 findBestFunctionContainingLine(const SemanticSnapshot &snapshot, int line);
 
@@ -267,26 +234,6 @@ bool isEligibleIncrementalPromoteEdit(const DocumentRuntime &runtime,
   if (runtime.syntaxOnlyEditHint)
     return true;
   return isLikelySemanticNeutralEdit(runtime, doc);
-}
-
-std::shared_ptr<const InteractiveSnapshot> tryPromoteIncrementalSnapshot(
-    const std::string &uri, const Document &doc, const DocumentRuntime &runtime) {
-  if (!runtime.lastGoodInteractiveSnapshot)
-    return nullptr;
-  if (!isStaleEligible(runtime.lastGoodInteractiveSnapshot->key,
-                       runtime.analysisSnapshotKey)) {
-    return nullptr;
-  }
-  if (!isEligibleIncrementalPromoteEdit(runtime, doc))
-    return nullptr;
-
-  auto promoted =
-      std::make_shared<InteractiveSnapshot>(*runtime.lastGoodInteractiveSnapshot);
-  promoted->key = runtime.analysisSnapshotKey;
-  promoted->documentEpoch = doc.epoch;
-  promoted->documentVersion = doc.version;
-  promoted->builtAtMs = currentTimeMs();
-  return promoted;
 }
 
 const SemanticSnapshot::FunctionInfo *
@@ -990,52 +937,6 @@ bool appendCompletionItemsFromSharedVisibleShard(
   return outItems.size() > beforeCount;
 }
 
-std::shared_ptr<const InteractiveSnapshot>
-buildCurrentInteractiveSnapshot(const std::string &uri, const Document &doc,
-                                const ServerRequestContext &ctx,
-                                const DocumentRuntime &runtime) {
-  const auto buildStartedAt = std::chrono::steady_clock::now();
-  const RuntimeSemanticInputs semanticInputs =
-      getRuntimeSemanticInputs(runtime, ctx);
-  auto semanticSnapshot = getSemanticSnapshotView(
-      uri, doc.text, doc.epoch, semanticInputs.workspaceFolders,
-      semanticInputs.includePaths, semanticInputs.shaderExtensions,
-      semanticInputs.defines);
-  if (!semanticSnapshot)
-    return nullptr;
-
-  auto interactive = std::make_shared<InteractiveSnapshot>();
-  interactive->key = runtime.analysisSnapshotKey;
-  interactive->documentEpoch = doc.epoch;
-  interactive->documentVersion = doc.version;
-  interactive->semanticSnapshot = std::move(semanticSnapshot);
-  interactive->builtAtMs = currentTimeMs();
-  const double buildMs = static_cast<double>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - buildStartedAt)
-          .count());
-  recordInteractiveSnapshotWait(buildMs);
-  return interactive;
-}
-
-void collectEligibleSnapshots(
-    const DocumentRuntime &runtime,
-    std::shared_ptr<const InteractiveSnapshot> &lastGoodOut,
-    std::shared_ptr<const DeferredDocSnapshot> &deferredOut) {
-  lastGoodOut.reset();
-  deferredOut.reset();
-  if (runtime.lastGoodInteractiveSnapshot &&
-      isStaleEligible(runtime.lastGoodInteractiveSnapshot->key,
-                      runtime.analysisSnapshotKey)) {
-    lastGoodOut = runtime.lastGoodInteractiveSnapshot;
-  }
-  if (runtime.deferredDocSnapshot &&
-      isStaleEligible(runtime.deferredDocSnapshot->key,
-                      runtime.analysisSnapshotKey)) {
-    deferredOut = runtime.deferredDocSnapshot;
-  }
-}
-
 } // namespace
 
 void recordInteractiveRequestQueueWait(double waitMs) {
@@ -1084,33 +985,53 @@ std::shared_ptr<const InteractiveSnapshot> getOrBuildInteractiveSnapshot(
     });
     return nullptr;
   }
-  if (runtime.interactiveSnapshot &&
-      runtime.interactiveSnapshot->key.fullFingerprint ==
-          runtime.analysisSnapshotKey.fullFingerprint &&
-      runtime.interactiveSnapshot->documentEpoch == doc.epoch &&
-      runtime.interactiveSnapshot->documentVersion == doc.version) {
+  if (auto current =
+          currentDocSemanticRuntimeGetCurrentSnapshot(runtime, doc)) {
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.analysisKeyHits++;
       state.mergeCurrentDocHits++;
     });
-    return runtime.interactiveSnapshot;
+    return current;
   }
 
-  if (runtime.lastGoodInteractiveSnapshot &&
-      isStaleEligible(runtime.lastGoodInteractiveSnapshot->key,
-                      runtime.analysisSnapshotKey)) {
+  if (isEligibleIncrementalPromoteEdit(runtime, doc)) {
+    if (auto promoted =
+            currentDocSemanticRuntimePromoteLastGoodSnapshot(doc, runtime)) {
+      documentRuntimeStoreCurrentDocSemanticSnapshot(uri, promoted);
+      if (usedLastGoodOut)
+        *usedLastGoodOut = true;
+      recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+        state.lastGoodServed++;
+        state.incrementalPromoted++;
+        state.snapshotBuildSuccess++;
+        state.mergeCurrentDocHits++;
+      });
+      return promoted;
+    }
+  }
+
+  if (auto restoredLastGood =
+          currentDocSemanticRuntimePromoteLastGoodSnapshot(doc, runtime)) {
+    documentRuntimeStoreCurrentDocSemanticSnapshot(uri, restoredLastGood);
     if (usedLastGoodOut)
       *usedLastGoodOut = true;
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.lastGoodServed++;
-      state.mergeLastGoodHits++;
+      state.mergeCurrentDocHits++;
     });
-    return runtime.lastGoodInteractiveSnapshot;
+    return restoredLastGood;
   }
   recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
     state.snapshotBuildAttempts++;
   });
-  if (auto built = buildCurrentInteractiveSnapshot(uri, doc, ctx, runtime)) {
+  const auto buildStartedAt = std::chrono::steady_clock::now();
+  if (auto built =
+          currentDocSemanticRuntimeBuildSnapshot(uri, doc, ctx, runtime)) {
+    const double buildMs = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - buildStartedAt)
+            .count());
+    recordInteractiveSnapshotWait(buildMs);
     documentOwnerStoreInteractiveSnapshot(uri, built);
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.snapshotBuildSuccess++;
@@ -1132,26 +1053,32 @@ void interactiveSemanticRuntimePrewarm(const std::string &uri,
   DocumentRuntime runtime;
   if (!documentRuntimeGet(uri, runtime))
     return;
-  if (runtime.interactiveSnapshot &&
-      runtime.interactiveSnapshot->key.fullFingerprint ==
-          runtime.analysisSnapshotKey.fullFingerprint &&
-      runtime.interactiveSnapshot->documentEpoch == doc.epoch &&
-      runtime.interactiveSnapshot->documentVersion == doc.version) {
+  if (currentDocSemanticRuntimeGetCurrentSnapshot(runtime, doc)) {
     return;
   }
-  if (auto promoted = tryPromoteIncrementalSnapshot(uri, doc, runtime)) {
-    documentRuntimeStoreInteractiveSnapshot(uri, promoted);
-    recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
-      state.incrementalPromoted++;
-      state.snapshotBuildSuccess++;
-    });
-    return;
+  if (isEligibleIncrementalPromoteEdit(runtime, doc)) {
+    if (auto promoted =
+            currentDocSemanticRuntimePromoteLastGoodSnapshot(doc, runtime)) {
+      documentRuntimeStoreCurrentDocSemanticSnapshot(uri, promoted);
+      recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
+        state.incrementalPromoted++;
+        state.snapshotBuildSuccess++;
+      });
+      return;
+    }
   }
   recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
     state.snapshotBuildAttempts++;
   });
-  if (auto built = buildCurrentInteractiveSnapshot(uri, doc, ctx, runtime)) {
-    documentRuntimeStoreInteractiveSnapshot(uri, built);
+  const auto buildStartedAt = std::chrono::steady_clock::now();
+  if (auto built =
+          currentDocSemanticRuntimeBuildSnapshot(uri, doc, ctx, runtime)) {
+    const double buildMs = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - buildStartedAt)
+            .count());
+    recordInteractiveSnapshotWait(buildMs);
+    documentRuntimeStoreCurrentDocSemanticSnapshot(uri, built);
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.snapshotBuildSuccess++;
     });
@@ -1175,9 +1102,9 @@ void interactiveCollectCompletionItems(
   std::shared_ptr<const InteractiveSnapshot> lastGood;
   std::shared_ptr<const DeferredDocSnapshot> deferred;
   if (hasRuntime)
-    collectEligibleSnapshots(runtime, lastGood, deferred);
-  if (usedLastGood && current && lastGood &&
-      current.get() == lastGood.get()) {
+    currentDocSemanticRuntimeCollectEligibleSnapshots(runtime, lastGood,
+                                                      deferred);
+  if (usedLastGood && current && lastGood) {
     lastGood.reset();
   }
 
@@ -1320,9 +1247,9 @@ bool interactiveResolveDefinitionLocation(const std::string &uri,
   std::shared_ptr<const InteractiveSnapshot> lastGood;
   std::shared_ptr<const DeferredDocSnapshot> deferred;
   if (hasRuntime)
-    collectEligibleSnapshots(runtime, lastGood, deferred);
-  if (usedLastGood && current && lastGood &&
-      current.get() == lastGood.get()) {
+    currentDocSemanticRuntimeCollectEligibleSnapshots(runtime, lastGood,
+                                                      deferred);
+  if (usedLastGood && current && lastGood) {
     lastGood.reset();
   }
 
@@ -1372,9 +1299,9 @@ TypeEvalResult interactiveResolveHoverTypeAtDeclaration(
   std::shared_ptr<const InteractiveSnapshot> lastGood;
   std::shared_ptr<const DeferredDocSnapshot> deferred;
   if (hasRuntime)
-    collectEligibleSnapshots(runtime, lastGood, deferred);
-  if (usedLastGood && current && lastGood &&
-      current.get() == lastGood.get()) {
+    currentDocSemanticRuntimeCollectEligibleSnapshots(runtime, lastGood,
+                                                      deferred);
+  if (usedLastGood && current && lastGood) {
     lastGood.reset();
   }
 
@@ -1473,11 +1400,14 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
     std::string publishedType;
     std::shared_ptr<const InteractiveSnapshot> lastGood;
     std::shared_ptr<const DeferredDocSnapshot> deferred;
-    collectEligibleSnapshots(runtime, lastGood, deferred);
-    if (runtime.interactiveSnapshot && runtime.interactiveSnapshot->semanticSnapshot &&
-        lookupTypeAtOffsetInSnapshot(*runtime.interactiveSnapshot->semanticSnapshot,
-                                     doc.text, base, cursorOffset, publishedType,
-                                     publishedIsParam) &&
+    currentDocSemanticRuntimeCollectEligibleSnapshots(runtime, lastGood,
+                                                      deferred);
+    const auto currentPublished =
+        currentDocSemanticRuntimeGetCurrentSnapshot(runtime, doc);
+    if (currentPublished && currentPublished->semanticSnapshot &&
+        lookupTypeAtOffsetInSnapshot(*currentPublished->semanticSnapshot,
+                                     doc.text, base, cursorOffset,
+                                     publishedType, publishedIsParam) &&
         !publishedType.empty()) {
       result.typeName = publishedType;
       result.resolutionPath = "published_current_snapshot";
@@ -1675,9 +1605,9 @@ bool interactiveResolveFunctionSignature(
   std::shared_ptr<const InteractiveSnapshot> lastGood;
   std::shared_ptr<const DeferredDocSnapshot> deferred;
   if (hasRuntime)
-    collectEligibleSnapshots(runtime, lastGood, deferred);
-  if (usedLastGood && current && lastGood &&
-      current.get() == lastGood.get()) {
+    currentDocSemanticRuntimeCollectEligibleSnapshots(runtime, lastGood,
+                                                      deferred);
+  if (usedLastGood && current && lastGood) {
     lastGood.reset();
   }
 
@@ -1745,9 +1675,9 @@ bool interactiveResolveFunctionOverloads(
   std::shared_ptr<const InteractiveSnapshot> lastGood;
   std::shared_ptr<const DeferredDocSnapshot> deferred;
   if (hasRuntime)
-    collectEligibleSnapshots(runtime, lastGood, deferred);
-  if (usedLastGood && current && lastGood &&
-      current.get() == lastGood.get()) {
+    currentDocSemanticRuntimeCollectEligibleSnapshots(runtime, lastGood,
+                                                      deferred);
+  if (usedLastGood && current && lastGood) {
     lastGood.reset();
   }
 
@@ -1820,9 +1750,9 @@ bool interactiveCollectMemberCompletionQuery(const std::string &uri,
   std::shared_ptr<const InteractiveSnapshot> lastGood;
   std::shared_ptr<const DeferredDocSnapshot> deferred;
   if (hasRuntime)
-    collectEligibleSnapshots(runtime, lastGood, deferred);
-  if (usedLastGood && current && lastGood &&
-      current.get() == lastGood.get()) {
+    currentDocSemanticRuntimeCollectEligibleSnapshots(runtime, lastGood,
+                                                      deferred);
+  if (usedLastGood && current && lastGood) {
     lastGood.reset();
   }
 

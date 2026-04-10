@@ -296,5 +296,70 @@ export function registerEditingRuntimeLayeredTests(): void {
 				await vscode.workspace.openTextDocument(document.uri);
 			}
 		});
+
+		it('keeps current-doc semantic answers available before global context sensitive diagnostics settle', async function () {
+			this.timeout(120000);
+			let document = await openFixture('module_completion_current_doc.nsf');
+			const position = positionOf(document, 'return Comp', 1, 'return Comp'.length);
+
+			await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
+						'vscode.executeCompletionItemProvider',
+						document.uri,
+						position
+					),
+				(value) => getCompletionItems(value).some((item) => item.label.toString() === 'CompletionDocHelper'),
+				'current-doc semantic completion'
+			);
+
+			const invalidateEdit = new vscode.WorkspaceEdit();
+			invalidateEdit.insert(document.uri, new vscode.Position(0, 0), ' ');
+			assert.ok(await vscode.workspace.applyEdit(invalidateEdit), 'Expected semantic invalidation edit to apply.');
+			document = await vscode.workspace.openTextDocument(document.uri);
+
+			try {
+				const [invalidatedRuntime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+				assert.strictEqual(invalidatedRuntime?.currentDocSemanticSnapshotReady, false);
+
+				await waitFor(
+					() =>
+						vscode.commands.executeCommand<vscode.SemanticTokens>(
+							'vscode.provideDocumentSemanticTokens',
+							document.uri
+						),
+					(value) => Boolean(value) && (value?.data.length ?? 0) > 0,
+					'deferred-only semantic tokens before current-doc semantic publish'
+				);
+
+				const [deferredOnlyRuntime] = await waitFor(
+					() => getDocumentRuntimeDebug([document.uri.toString()]),
+					(entries) =>
+						entries[0]?.deferredHasSemanticSnapshot === true &&
+						entries[0]?.currentDocSemanticSnapshotReady === false,
+					'deferred semantic current before explicit current-doc semantic publish'
+				);
+				assert.strictEqual(deferredOnlyRuntime?.deferredHasSemanticSnapshot, true);
+				assert.strictEqual(deferredOnlyRuntime?.currentDocSemanticSnapshotReady, false);
+
+				const items = await vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
+					'vscode.executeCompletionItemProvider',
+					document.uri,
+					position.translate(0, 1)
+				);
+				assert.ok(
+					getCompletionItems(items).some((item) => item.label.toString() === 'CompletionDocHelper'),
+					'Expected current-doc semantic completion to stay available immediately after invalidation.'
+				);
+
+				const [runtimeAfterCompletion] = await getDocumentRuntimeDebug([document.uri.toString()]);
+				assert.strictEqual(runtimeAfterCompletion?.currentDocSemanticSnapshotReady, true);
+			} finally {
+				const restoreEdit = new vscode.WorkspaceEdit();
+				restoreEdit.delete(document.uri, new vscode.Range(0, 0, 0, 1));
+				await vscode.workspace.applyEdit(restoreEdit);
+				await vscode.workspace.openTextDocument(document.uri);
+			}
+		});
 	});
 }

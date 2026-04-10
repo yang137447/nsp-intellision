@@ -19,6 +19,22 @@ namespace {
 std::mutex gDocumentRuntimeMutex;
 std::unordered_map<std::string, DocumentRuntime> gDocumentRuntimes;
 
+const std::shared_ptr<const InteractiveSnapshot> &
+currentDocSemanticSnapshotView(const DocumentRuntime &runtime) {
+  return runtime.currentDocSemanticSnapshot;
+}
+
+const std::shared_ptr<const InteractiveSnapshot> &
+lastGoodCurrentDocSemanticSnapshotView(const DocumentRuntime &runtime) {
+  return runtime.lastGoodCurrentDocSemanticSnapshot;
+}
+
+void syncLegacyInteractiveSnapshotMirror(DocumentRuntime &runtime) {
+  runtime.interactiveSnapshot = runtime.currentDocSemanticSnapshot;
+  runtime.lastGoodInteractiveSnapshot =
+      runtime.lastGoodCurrentDocSemanticSnapshot;
+}
+
 struct ResourceFileStamp {
   std::string normalizedPath;
   bool exists = false;
@@ -456,6 +472,10 @@ void documentRuntimeUpsert(const Document &document,
   auto existingIt = gDocumentRuntimes.find(document.uri);
   if (existingIt != gDocumentRuntimes.end()) {
     const DocumentRuntime &existing = existingIt->second;
+    const auto &existingCurrentSemantic =
+        currentDocSemanticSnapshotView(existing);
+    const auto &existingLastGoodSemantic =
+        lastGoodCurrentDocSemanticSnapshotView(existing);
     if (existing.lastDiagnosticsPublishEpoch == document.epoch &&
         existing.lastDiagnosticsPublishVersion == document.version &&
         existing.lastDiagnosticsPublishFingerprint ==
@@ -483,32 +503,32 @@ void documentRuntimeUpsert(const Document &document,
     }
     if (isSnapshotStaleEligible(existing.analysisSnapshotKey,
                                 updated.analysisSnapshotKey)) {
-      updated.lastGoodInteractiveSnapshot = existing.interactiveSnapshot
-                                                ? existing.interactiveSnapshot
-                                                : existing.lastGoodInteractiveSnapshot;
-    if (existing.deferredDocSnapshot &&
-        isSnapshotStaleEligible(existing.deferredDocSnapshot->key,
-                                updated.analysisSnapshotKey)) {
-      auto writable =
-          std::make_shared<DeferredDocSnapshot>(*existing.deferredDocSnapshot);
-      const auto [changedStartLine, changedEndLine] =
-          computeDeferredChangedWindow(document.text, changedRanges);
-      invalidateOverlappingDeferredRanges(writable->semanticTokensRangeCache,
-                                          changedStartLine, changedEndLine);
-      invalidateOverlappingDeferredRanges(writable->inlayHintsRangeCache,
-                                          changedStartLine, changedEndLine);
-      writable->semanticTokensFull = makeArray();
-      writable->hasSemanticTokensFull = false;
-      writable->inlayHintsFull = makeArray();
-      writable->hasInlayHintsFull = false;
-      updated.deferredDocSnapshot = std::move(writable);
+      updated.lastGoodCurrentDocSemanticSnapshot =
+          existingCurrentSemantic ? existingCurrentSemantic
+                                  : existingLastGoodSemantic;
+      if (existing.deferredDocSnapshot &&
+          isSnapshotStaleEligible(existing.deferredDocSnapshot->key,
+                                  updated.analysisSnapshotKey)) {
+        auto writable =
+            std::make_shared<DeferredDocSnapshot>(*existing.deferredDocSnapshot);
+        const auto [changedStartLine, changedEndLine] =
+            computeDeferredChangedWindow(document.text, changedRanges);
+        invalidateOverlappingDeferredRanges(writable->semanticTokensRangeCache,
+                                            changedStartLine, changedEndLine);
+        invalidateOverlappingDeferredRanges(writable->inlayHintsRangeCache,
+                                            changedStartLine, changedEndLine);
+        writable->semanticTokensFull = makeArray();
+        writable->hasSemanticTokensFull = false;
+        writable->inlayHintsFull = makeArray();
+        writable->hasInlayHintsFull = false;
+        updated.deferredDocSnapshot = std::move(writable);
+      }
     }
-    }
-    if (existing.interactiveSnapshot &&
-        isSnapshotStillCurrent(existing.interactiveSnapshot->key,
+    if (existingCurrentSemantic &&
+        isSnapshotStillCurrent(existingCurrentSemantic->key,
                                updated.analysisSnapshotKey)) {
-      updated.interactiveSnapshot = existing.interactiveSnapshot;
-      updated.lastGoodInteractiveSnapshot = existing.interactiveSnapshot;
+      updated.currentDocSemanticSnapshot = existingCurrentSemantic;
+      updated.lastGoodCurrentDocSemanticSnapshot = existingCurrentSemantic;
     }
     if (existing.deferredDocSnapshot &&
         isSnapshotStillCurrent(existing.deferredDocSnapshot->key,
@@ -516,6 +536,7 @@ void documentRuntimeUpsert(const Document &document,
       updated.deferredDocSnapshot = existing.deferredDocSnapshot;
     }
   }
+  syncLegacyInteractiveSnapshotMirror(updated);
   gDocumentRuntimes[document.uri] = std::move(updated);
 }
 
@@ -574,29 +595,32 @@ void refreshRuntimeAnalysisKey(DocumentRuntime &runtime,
   }
   if (!isSnapshotStaleEligible(runtime.analysisSnapshotKey, nextKey)) {
     runtime.localStructuralSnapshot = LocalStructuralSnapshot{};
-    runtime.interactiveSnapshot.reset();
-    runtime.lastGoodInteractiveSnapshot.reset();
+    runtime.currentDocSemanticSnapshot.reset();
+    runtime.lastGoodCurrentDocSemanticSnapshot.reset();
     runtime.deferredDocSnapshot.reset();
   } else {
     if (runtime.localStructuralSnapshot.contextFingerprint !=
         nextKey.stableContextFingerprint) {
       runtime.localStructuralSnapshot = LocalStructuralSnapshot{};
     }
-    if (runtime.interactiveSnapshot &&
-        !isSnapshotStillCurrent(runtime.interactiveSnapshot->key, nextKey)) {
-      runtime.lastGoodInteractiveSnapshot = runtime.interactiveSnapshot;
-      runtime.interactiveSnapshot.reset();
+    if (currentDocSemanticSnapshotView(runtime) &&
+        !isSnapshotStillCurrent(currentDocSemanticSnapshotView(runtime)->key,
+                               nextKey)) {
+      runtime.lastGoodCurrentDocSemanticSnapshot =
+          currentDocSemanticSnapshotView(runtime);
+      runtime.currentDocSemanticSnapshot.reset();
     }
-    if (runtime.lastGoodInteractiveSnapshot &&
-        !isSnapshotStaleEligible(runtime.lastGoodInteractiveSnapshot->key,
-                                 nextKey)) {
-      runtime.lastGoodInteractiveSnapshot.reset();
+    if (lastGoodCurrentDocSemanticSnapshotView(runtime) &&
+        !isSnapshotStaleEligible(
+            lastGoodCurrentDocSemanticSnapshotView(runtime)->key, nextKey)) {
+      runtime.lastGoodCurrentDocSemanticSnapshot.reset();
     }
     if (runtime.deferredDocSnapshot &&
         !isSnapshotStaleEligible(runtime.deferredDocSnapshot->key, nextKey)) {
       runtime.deferredDocSnapshot.reset();
     }
   }
+  syncLegacyInteractiveSnapshotMirror(runtime);
   runtime.globalContextSnapshot = globalContextSnapshot;
   runtime.analysisSnapshotKey = nextKey;
   runtime.interactiveVisibilityKey = nextVisibilityKey;
@@ -674,7 +698,7 @@ void documentRuntimeUpdateLastDiagnosticsPublishLayer(
                                             it->second.analysisSnapshotKey);
 }
 
-void documentRuntimeStoreInteractiveSnapshot(
+void documentRuntimeStoreCurrentDocSemanticSnapshot(
     const std::string &uri,
     const std::shared_ptr<const InteractiveSnapshot> &snapshot) {
   if (!snapshot)
@@ -688,8 +712,15 @@ void documentRuntimeStoreInteractiveSnapshot(
       !isSnapshotStillCurrent(snapshot->key, it->second.analysisSnapshotKey)) {
     return;
   }
-  it->second.interactiveSnapshot = snapshot;
-  it->second.lastGoodInteractiveSnapshot = snapshot;
+  it->second.currentDocSemanticSnapshot = snapshot;
+  it->second.lastGoodCurrentDocSemanticSnapshot = snapshot;
+  syncLegacyInteractiveSnapshotMirror(it->second);
+}
+
+void documentRuntimeStoreInteractiveSnapshot(
+    const std::string &uri,
+    const std::shared_ptr<const InteractiveSnapshot> &snapshot) {
+  documentRuntimeStoreCurrentDocSemanticSnapshot(uri, snapshot);
 }
 
 void documentRuntimeStoreDeferredSnapshot(

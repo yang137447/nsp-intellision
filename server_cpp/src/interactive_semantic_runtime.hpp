@@ -16,6 +16,8 @@ struct ServerRequestContext;
 //
 // Responsibilities:
 // - answer hot-path semantic requests from current-doc state first
+// - consume the explicit current_doc_semantic_runtime boundary instead of
+//   inferring readiness purely from ad-hoc interactive snapshot checks
 // - expose last-good snapshot reuse only while stable context is unchanged
 // - merge deferred/workspace information only after current-doc misses
 //
