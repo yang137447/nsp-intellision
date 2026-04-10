@@ -1,0 +1,11 @@
+#define LAYERED_RUNTIME_ENABLE_SHARED 1
+#include "layered_runtime_macro_shared.ush"
+
+float4 layeredRuntimeEntry() : SV_Target
+{
+#if LAYERED_RUNTIME_SHARED_BRANCH
+    return layeredRuntimeSharedColor();
+#else
+    return float4(0.0, 0.0, 0.0, 1.0);
+#endif
+}

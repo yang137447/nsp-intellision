@@ -1,12 +1,22 @@
 #pragma once
 
-#include "document_runtime.hpp"
+#include "global_context_runtime.hpp"
 #include "json.hpp"
 
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+// Low-level changed-window structural analysis used by
+// local_structural_runtime.*.
+//
+// Responsibilities:
+// - scan the current document text for cheap structural diagnostics
+// - stay independent from runtime ownership / publish-layer policy
+//
+// Non-goals:
+// - it does not own snapshot state
+// - it does not decide which diagnostics layer currently owns publication
 struct ImmediateSyntaxDiagnosticsOptions {
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;

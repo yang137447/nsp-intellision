@@ -112,7 +112,9 @@ void documentOwnerRefreshAnalysisContext(
     const DocumentRuntimeUpdateOptions &options,
     const ServerRequestContext &ctx) {
   interactiveVisibilityRuntimeInvalidateAll();
-  documentRuntimeRefreshAnalysisKeys(options);
+  const auto globalContextSnapshot =
+      globalContextRuntimeRefresh(options.globalContextOptions);
+  documentRuntimeRefreshAnalysisKeys(options, globalContextSnapshot);
   for (const auto &entry : ctx.documents) {
     auto owner = getOrCreateOwnerState(entry.first);
     std::lock_guard<std::mutex> ownerLock(owner->mutex);
@@ -142,7 +144,10 @@ void documentOwnerRefreshAnalysisContextForUris(
     staleVisibilityKeys.push_back(runtime.interactiveVisibilityKey);
   }
 
-  documentRuntimeRefreshAnalysisKeysForUris(uris, options);
+  const auto globalContextSnapshot =
+      globalContextRuntimeRefresh(options.globalContextOptions);
+  documentRuntimeRefreshAnalysisKeysForUris(uris, options,
+                                            globalContextSnapshot);
   for (const auto &key : staleVisibilityKeys)
     interactiveVisibilityRuntimeInvalidateKey(key);
 
@@ -178,6 +183,20 @@ void documentOwnerUpdateImmediateSyntaxSnapshot(
     return;
   }
   documentRuntimeUpdateImmediateSyntaxSnapshot(uri, snapshot);
+}
+
+void documentOwnerUpdateLastDiagnosticsPublishLayer(
+    const std::string &uri, uint64_t documentEpoch, int documentVersion,
+    const std::string &layer) {
+  auto owner = findOwnerState(uri);
+  if (owner) {
+    std::lock_guard<std::mutex> ownerLock(owner->mutex);
+    documentRuntimeUpdateLastDiagnosticsPublishLayer(uri, documentEpoch,
+                                                     documentVersion, layer);
+    return;
+  }
+  documentRuntimeUpdateLastDiagnosticsPublishLayer(uri, documentEpoch,
+                                                   documentVersion, layer);
 }
 
 void documentOwnerStoreInteractiveSnapshot(

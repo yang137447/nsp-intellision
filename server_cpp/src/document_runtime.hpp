@@ -1,6 +1,8 @@
 #pragma once
 
+#include "global_context_runtime.hpp"
 #include "json.hpp"
+#include "local_structural_runtime.hpp"
 #include "semantic_cache.hpp"
 #include "server_documents.hpp"
 
@@ -32,15 +34,6 @@
 // - this header does not build semantic results itself
 // - it does not schedule request lanes or background workers
 
-struct ChangedRange {
-  int startLine = 0;
-  int startCharacter = 0;
-  int endLine = 0;
-  int endCharacter = 0;
-  int newEndLine = 0;
-  int newEndCharacter = 0;
-};
-
 struct HlslAstDocument;
 
 // Immutable current-document analysis context key shared across runtime layers.
@@ -66,61 +59,9 @@ struct AnalysisSnapshotKey {
   std::string fullFingerprint;
 };
 
-// Shared active-unit analysis preconditions for one opened document.
-//
-// These fields are the single fact source for interactive/deferred builds when
-// an active unit exists, so callers should not rebuild include closure or
-// branch context independently. `documentVersion/documentEpoch` track the open
-// active-unit text that produced this snapshot so non-active documents can
-// safely reuse the cached context only while the active unit itself is unchanged.
-struct ActiveUnitSnapshot {
-  std::string uri;
-  std::string path;
-  int documentVersion = 0;
-  uint64_t documentEpoch = 0;
-  // Active-line state for the active unit document when the current document
-  // is that same unit. Interactive current-doc queries reuse this instead of
-  // rebuilding one-off preprocessor views on every local edit.
-  std::vector<char> activeLineStates;
-  std::vector<std::string> includeClosureUris;
-  std::string includeClosureFingerprint;
-  std::string activeBranchFingerprint;
-  std::vector<std::string> workspaceFolders;
-  std::vector<std::string> includePaths;
-  std::vector<std::string> shaderExtensions;
-  std::unordered_map<std::string, int> defines;
-  std::string workspaceFoldersFingerprint;
-  std::string definesFingerprint;
-  std::string includePathsFingerprint;
-  std::string shaderExtensionsFingerprint;
-  uint64_t workspaceSummaryVersion = 0;
-};
-
-// Shared key that scopes cross-file interactive visibility shards.
-//
-// This key is derived from the active-unit/include/branch/defines/workspace
-// summary context that determines which cross-file symbols are visible to the
-// current document.
-struct InteractiveVisibilityKey {
-  std::string activeUnitPath;
-  std::string includeClosureFingerprint;
-  std::string activeBranchFingerprint;
-  std::string definesFingerprint;
-  uint64_t workspaceSummaryVersion = 0;
-  // Task-2 skeleton identity/debug string only; not yet a durable cache-key
-  // contract for long-term persistence or cross-version compatibility.
-  std::string fullFingerprint;
-};
-
-// Latest immediate-syntax result published for the current document version.
-struct ImmediateSyntaxSnapshot {
-  uint64_t documentEpoch = 0;
-  int documentVersion = 0;
-  Json diagnostics;
-  int changedWindowStartLine = 0;
-  int changedWindowEndLine = 0;
-  bool changedWindowOnly = false;
-};
+// Legacy owner/update APIs still use the ImmediateSyntaxSnapshot name, but the
+// stored runtime truth is now the explicit local-structural layer.
+using ImmediateSyntaxSnapshot = LocalStructuralSnapshot;
 
 // Published interactive semantic snapshot for the current document.
 struct InteractiveSnapshot {
@@ -168,47 +109,52 @@ struct DeferredDocSnapshot {
 // Input bundle used to rebuild analysis keys after didOpen/didChange or shared
 // context refresh.
 //
-// `activeUnitText/documentVersion/documentEpoch` describe the currently open
-// active unit when available. They let document_runtime.* distinguish
-// "same active-unit context, safe to reuse" from "active unit text changed and
-// this snapshot must be rebuilt".
+// `globalContextOptions` are forwarded to global_context_runtime.* which owns
+// the single fact source for active unit/include/macro/branch/workspace-summary
+// context. `resourceModelHash` stays local here because it participates only in
+// document analysis-key invalidation.
 struct DocumentRuntimeUpdateOptions {
-  std::vector<std::string> workspaceFolders;
-  std::vector<std::string> includePaths;
-  std::vector<std::string> shaderExtensions;
-  std::unordered_map<std::string, int> defines;
-  std::string activeUnitText;
-  int activeUnitDocumentVersion = 0;
-  uint64_t activeUnitDocumentEpoch = 0;
-  uint64_t workspaceSummaryVersion = 0;
+  GlobalContextRuntimeOptions globalContextOptions;
   std::string resourceModelHash;
 };
 
 // Stored runtime state for one opened document.
 //
-// `analysisSnapshotKey` and `activeUnitSnapshot` are the current shared context.
+// `globalContextSnapshot` is the shared global-context source published by
+// global_context_runtime.*. `activeUnitSnapshot` and `interactiveVisibilityKey`
+// mirror its data so existing interactive/deferred consumers can keep reading a
+// document-local runtime view without rebuilding global context themselves.
 // `interactiveSnapshot` / `lastGoodInteractiveSnapshot` / `deferredDocSnapshot`
 // are published results keyed off that context.
 //
 // `semanticNeutralEditHint` marks whitespace/comment-like edits that can safely
 // reuse last-good semantic state.
-// `syntaxOnlyEditHint` marks small punctuation-only edits where immediate syntax
-// feedback should win over synchronous interactive prewarm on didChange.
+// `syntaxOnlyEditHint` marks small punctuation-only edits where local
+// structural feedback should win over synchronous interactive prewarm on
+// didChange.
 struct DocumentRuntime {
   std::string uri;
   std::string text;
   int version = 0;
   uint64_t epoch = 0;
+  std::shared_ptr<const GlobalContextSnapshot> globalContextSnapshot;
   AnalysisSnapshotKey analysisSnapshotKey;
   InteractiveVisibilityKey interactiveVisibilityKey;
   ActiveUnitSnapshot activeUnitSnapshot;
   std::vector<ChangedRange> changedRanges;
   bool semanticNeutralEditHint = false;
   bool syntaxOnlyEditHint = false;
-  ImmediateSyntaxSnapshot immediateSyntaxSnapshot;
+  LocalStructuralSnapshot localStructuralSnapshot;
   std::shared_ptr<const InteractiveSnapshot> interactiveSnapshot;
   std::shared_ptr<const InteractiveSnapshot> lastGoodInteractiveSnapshot;
   std::shared_ptr<const DeferredDocSnapshot> deferredDocSnapshot;
+  // The diagnostics layer that currently owns the visible publish result for
+  // this analysis key. Full diagnostics should not steal ownership when they
+  // merely reproduce the same local-structural truth.
+  std::string lastDiagnosticsPublishLayer;
+  uint64_t lastDiagnosticsPublishEpoch = 0;
+  int lastDiagnosticsPublishVersion = 0;
+  std::string lastDiagnosticsPublishFingerprint;
 };
 
 // Builds the shared analysis key for one document/version/context tuple.
@@ -220,10 +166,6 @@ AnalysisSnapshotKey buildAnalysisSnapshotKey(
 // Returns the current resource model hash that participates in analysis-key
 // invalidation.
 std::string getDocumentRuntimeResourceModelHash();
-
-// Returns / bumps the document-runtime view of workspace summary version.
-uint64_t documentRuntimeGetWorkspaceSummaryVersion();
-uint64_t documentRuntimeBumpWorkspaceSummaryVersion();
 
 // Upserts one opened document runtime, recomputes shared context, and preserves
 // only stale-eligible snapshots.
@@ -244,17 +186,26 @@ void documentRuntimeErase(const std::string &uri);
 
 // Refreshes analysis keys for all opened documents after shared context changes.
 void documentRuntimeRefreshAnalysisKeys(
-    const DocumentRuntimeUpdateOptions &options);
+    const DocumentRuntimeUpdateOptions &options,
+    const std::shared_ptr<const GlobalContextSnapshot> &globalContextSnapshot =
+        nullptr);
 
 // Same as documentRuntimeRefreshAnalysisKeys, but scoped to the affected uris.
 void documentRuntimeRefreshAnalysisKeysForUris(
     const std::vector<std::string> &uris,
-    const DocumentRuntimeUpdateOptions &options);
+    const DocumentRuntimeUpdateOptions &options,
+    const std::shared_ptr<const GlobalContextSnapshot> &globalContextSnapshot =
+        nullptr);
 
 // Stores the latest immediate-syntax snapshot if it still matches the current
 // document version.
 void documentRuntimeUpdateImmediateSyntaxSnapshot(
     const std::string &uri, const ImmediateSyntaxSnapshot &snapshot);
+
+// Stores the last diagnostics publish layer for the matching document version.
+void documentRuntimeUpdateLastDiagnosticsPublishLayer(
+    const std::string &uri, uint64_t documentEpoch, int documentVersion,
+    const std::string &layer);
 
 // Stores a published interactive snapshot only if it still matches the current
 // full analysis key.

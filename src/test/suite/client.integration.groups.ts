@@ -44,3 +44,5 @@ export { registerInteractiveUiMetadataTests } from './integration/ui-metadata';
 
 export { registerInteractiveVisibilityTests } from './integration/interactive-visibility';
 
+export { registerEditingRuntimeLayeredTests } from './integration/editing-runtime-layered';
+

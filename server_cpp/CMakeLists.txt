@@ -16,7 +16,9 @@ add_executable(nsf_lsp
   src/deferred_doc_runtime.cpp
   src/document_owner.cpp
   src/document_runtime.cpp
+  src/global_context_runtime.cpp
   src/inlay_hints_runtime.cpp
+  src/local_structural_runtime.cpp
   src/workspace/workspace_index.cpp
   src/workspace/workspace_index_cache.cpp
   src/workspace/workspace_index_extract.cpp

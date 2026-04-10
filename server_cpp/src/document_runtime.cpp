@@ -1,18 +1,13 @@
 #include "document_runtime.hpp"
 
-#include "active_unit.hpp"
-#include "include_resolver.hpp"
-#include "preprocessor_view.hpp"
+#include "global_context_runtime.hpp"
 #include "resource_registry.hpp"
 #include "lsp_helpers.hpp"
 #include "server_documents.hpp"
 #include "text_utils.hpp"
-#include "uri_utils.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <cctype>
-#include <chrono>
 #include <filesystem>
 #include <mutex>
 #include <sstream>
@@ -23,14 +18,6 @@ namespace {
 
 std::mutex gDocumentRuntimeMutex;
 std::unordered_map<std::string, DocumentRuntime> gDocumentRuntimes;
-std::atomic<uint64_t> gWorkspaceSummaryVersion{1};
-
-struct RuntimeContextFingerprints {
-  std::string workspaceFoldersFingerprint;
-  std::string definesFingerprint;
-  std::string includePathsFingerprint;
-  std::string shaderExtensionsFingerprint;
-};
 
 struct ResourceFileStamp {
   std::string normalizedPath;
@@ -53,48 +40,22 @@ std::string toHex(uint64_t value) {
   return oss.str();
 }
 
-std::string fingerprintStringList(const std::vector<std::string> &values) {
-  std::vector<std::string> ordered = values;
-  std::sort(ordered.begin(), ordered.end());
-  uint64_t hash = 1469598103934665603ull;
-  for (const auto &value : ordered) {
-    hash = fnv1aStep(hash, std::to_string(value.size()));
-    hash = fnv1aStep(hash, ":");
-    hash = fnv1aStep(hash, value);
-    hash = fnv1aStep(hash, ";");
+std::string trimLeftCopy(const std::string &value) {
+  size_t index = 0;
+  while (index < value.size() &&
+         std::isspace(static_cast<unsigned char>(value[index]))) {
+    index++;
   }
-  return toHex(hash);
+  return value.substr(index);
 }
 
-std::string
-fingerprintDefines(const std::unordered_map<std::string, int> &defines) {
-  std::vector<std::pair<std::string, int>> ordered(defines.begin(),
-                                                   defines.end());
-  std::sort(ordered.begin(), ordered.end(),
-            [](const auto &lhs, const auto &rhs) {
-              return lhs.first < rhs.first;
-            });
-  uint64_t hash = 1469598103934665603ull;
-  for (const auto &entry : ordered) {
-    hash = fnv1aStep(hash, entry.first);
-    hash = fnv1aStep(hash, "=");
-    hash = fnv1aStep(hash, std::to_string(entry.second));
-    hash = fnv1aStep(hash, ";");
+std::string trimRightCopy(const std::string &value) {
+  size_t end = value.size();
+  while (end > 0 &&
+         std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+    end--;
   }
-  return toHex(hash);
-}
-
-RuntimeContextFingerprints
-buildRuntimeContextFingerprints(const DocumentRuntimeUpdateOptions &options) {
-  RuntimeContextFingerprints fingerprints;
-  fingerprints.workspaceFoldersFingerprint =
-      fingerprintStringList(options.workspaceFolders);
-  fingerprints.definesFingerprint = fingerprintDefines(options.defines);
-  fingerprints.includePathsFingerprint =
-      fingerprintStringList(options.includePaths);
-  fingerprints.shaderExtensionsFingerprint =
-      fingerprintStringList(options.shaderExtensions);
-  return fingerprints;
+  return value.substr(0, end);
 }
 
 ResourceFileStamp makeResourceFileStamp(const std::filesystem::path &path) {
@@ -118,41 +79,6 @@ bool resourceFileStampsEqual(const ResourceFileStamp &lhs,
   return lhs.normalizedPath == rhs.normalizedPath && lhs.exists == rhs.exists &&
          lhs.fileSize == rhs.fileSize &&
          lhs.lastWriteTime == rhs.lastWriteTime;
-}
-
-bool buildActiveUnitPreprocessorView(const std::string &rootUri,
-                                     const std::string &rootText,
-                                     const DocumentRuntimeUpdateOptions &options,
-                                     PreprocessorView &out) {
-  out = PreprocessorView{};
-  if (rootUri.empty() || rootText.empty())
-    return false;
-  PreprocessorIncludeContext includeContext;
-  includeContext.currentUri = rootUri;
-  includeContext.workspaceFolders = options.workspaceFolders;
-  includeContext.includePaths = options.includePaths;
-  includeContext.shaderExtensions = options.shaderExtensions;
-  includeContext.loadText = [](const std::string &uri,
-                               std::string &textOut) -> bool {
-    const std::string path = uriToPath(uri);
-    return !path.empty() && readFileText(path, textOut);
-  };
-  out = buildPreprocessorView(rootText, options.defines, includeContext);
-  return true;
-}
-
-std::string buildActiveUnitBranchFingerprint(
-    const PreprocessorView &preprocessorView) {
-  std::ostringstream branchFingerprint;
-  branchFingerprint << preprocessorView.lineActive.size() << "|";
-  for (size_t line = 0; line < preprocessorView.branchSigs.size(); line++) {
-    branchFingerprint << line << ":";
-    for (const auto &entry : preprocessorView.branchSigs[line]) {
-      branchFingerprint << entry.first << "," << entry.second << ";";
-    }
-    branchFingerprint << "|";
-  }
-  return branchFingerprint.str();
 }
 
 std::string stripWhitespaceForSemanticNeutralCompare(const std::string &text) {
@@ -251,40 +177,6 @@ bool lineLooksSemanticNeutral(const std::string &lineText) {
          trimmed.rfind("*", 0) == 0 || trimmed.rfind("*/", 0) == 0;
 }
 
-bool lineMayAffectPreprocessorState(const std::string &lineText) {
-  const std::string trimmed = trimRightCopy(trimLeftCopy(lineText));
-  if (trimmed.empty())
-    return false;
-  if (trimmed[0] == '#')
-    return true;
-  return !trimmed.empty() && trimmed.back() == '\\';
-}
-
-bool isPreprocessorNeutralEditAgainstPrevious(
-    const std::string &oldText, const std::string &newText,
-    const std::vector<ChangedRange> &changedRanges) {
-  if (changedRanges.empty() || changedRanges.size() > 8)
-    return false;
-  int inspectedLines = 0;
-  for (const auto &range : changedRanges) {
-    const int startLine = std::max(0, range.startLine);
-    const int oldEndLine = std::max(startLine, range.endLine);
-    const int newEndLine =
-        std::max(startLine, range.startLine + range.newEndLine);
-    const int scanStartLine = std::max(0, startLine - 1);
-    const int scanEndLine = std::max(oldEndLine, newEndLine) + 1;
-    inspectedLines += (scanEndLine - scanStartLine + 1) * 2;
-    if (inspectedLines > 48)
-      return false;
-    for (int line = scanStartLine; line <= scanEndLine; line++) {
-      if (lineMayAffectPreprocessorState(getLineAt(oldText, line)) ||
-          lineMayAffectPreprocessorState(getLineAt(newText, line))) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
 
 bool isCommentOnlyEditInNewText(const std::string &newText,
                                 const std::vector<ChangedRange> &changedRanges) {
@@ -344,64 +236,6 @@ bool isSyntaxOnlyEditAgainstPrevious(const std::string &oldText,
   return inspectedLines > 0;
 }
 
-ActiveUnitSnapshot buildActiveUnitSnapshot(
-    const DocumentRuntimeUpdateOptions &options,
-    const std::string &activeUnitUri, const std::string &activeUnitPath,
-    const RuntimeContextFingerprints &contextFingerprints) {
-  ActiveUnitSnapshot snapshot;
-  snapshot.uri = activeUnitUri;
-  snapshot.path = activeUnitPath;
-  snapshot.documentVersion = options.activeUnitDocumentVersion;
-  snapshot.documentEpoch = options.activeUnitDocumentEpoch;
-  snapshot.workspaceFolders = options.workspaceFolders;
-  snapshot.includePaths = options.includePaths;
-  snapshot.shaderExtensions = options.shaderExtensions;
-  snapshot.defines = options.defines;
-  snapshot.workspaceFoldersFingerprint =
-      contextFingerprints.workspaceFoldersFingerprint;
-  snapshot.definesFingerprint = contextFingerprints.definesFingerprint;
-  snapshot.includePathsFingerprint =
-      contextFingerprints.includePathsFingerprint;
-  snapshot.shaderExtensionsFingerprint =
-      contextFingerprints.shaderExtensionsFingerprint;
-  snapshot.workspaceSummaryVersion = options.workspaceSummaryVersion;
-  std::string activeUnitText = options.activeUnitText;
-  if (activeUnitText.empty() && !snapshot.path.empty())
-    readFileText(snapshot.path, activeUnitText);
-  PreprocessorView activeUnitPreprocessorView;
-  if (buildActiveUnitPreprocessorView(snapshot.uri, activeUnitText, options,
-                                      activeUnitPreprocessorView)) {
-    snapshot.activeLineStates = activeUnitPreprocessorView.lineActive;
-    snapshot.includeClosureUris = activeUnitPreprocessorView.activeIncludeUris;
-    snapshot.includeClosureFingerprint =
-        fingerprintStringList(snapshot.includeClosureUris);
-    snapshot.activeBranchFingerprint =
-        buildActiveUnitBranchFingerprint(activeUnitPreprocessorView);
-  }
-  return snapshot;
-}
-
-static InteractiveVisibilityKey buildInteractiveVisibilityKey(
-    const ActiveUnitSnapshot &activeUnitSnapshot) {
-  InteractiveVisibilityKey key;
-  key.activeUnitPath = activeUnitSnapshot.path;
-  key.includeClosureFingerprint = activeUnitSnapshot.includeClosureFingerprint;
-  key.activeBranchFingerprint = activeUnitSnapshot.activeBranchFingerprint;
-  key.definesFingerprint = activeUnitSnapshot.definesFingerprint;
-  key.workspaceSummaryVersion = activeUnitSnapshot.workspaceSummaryVersion;
-  key.fullFingerprint = key.activeUnitPath + "|" + key.includeClosureFingerprint +
-                        "|" + key.activeBranchFingerprint + "|" +
-                        key.definesFingerprint + "|" +
-                        std::to_string(key.workspaceSummaryVersion);
-  return key;
-}
-
-uint64_t currentTimeMs() {
-  return static_cast<uint64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now().time_since_epoch())
-          .count());
-}
 
 bool isSnapshotStillCurrent(const AnalysisSnapshotKey &candidate,
                             const AnalysisSnapshotKey &current) {
@@ -411,6 +245,19 @@ bool isSnapshotStillCurrent(const AnalysisSnapshotKey &candidate,
 bool isSnapshotStaleEligible(const AnalysisSnapshotKey &candidate,
                              const AnalysisSnapshotKey &current) {
   return candidate.stableContextFingerprint == current.stableContextFingerprint;
+}
+
+bool isLocalStructuralContextStillCurrent(const AnalysisSnapshotKey &candidate,
+                                          const AnalysisSnapshotKey &current) {
+  return candidate.stableContextFingerprint ==
+         current.stableContextFingerprint;
+}
+
+std::string diagnosticsPublishFingerprintForLayer(
+    const std::string &layer, const AnalysisSnapshotKey &key) {
+  if (layer == "local-structural")
+    return key.stableContextFingerprint;
+  return key.fullFingerprint;
 }
 
 static int countLines(const std::string &text) {
@@ -455,63 +302,15 @@ static void invalidateOverlappingDeferredRanges(
       entries.end());
 }
 
-bool activeUnitContextMatches(
-    const ActiveUnitSnapshot &snapshot, const std::string &activeUnitUri,
-    const std::string &activeUnitPath,
-    const RuntimeContextFingerprints &contextFingerprints,
-    const DocumentRuntimeUpdateOptions &options) {
-  return snapshot.uri == activeUnitUri && snapshot.path == activeUnitPath &&
-         snapshot.documentVersion == options.activeUnitDocumentVersion &&
-         snapshot.documentEpoch == options.activeUnitDocumentEpoch &&
-         snapshot.workspaceSummaryVersion == options.workspaceSummaryVersion &&
-         snapshot.workspaceFoldersFingerprint ==
-             contextFingerprints.workspaceFoldersFingerprint &&
-         snapshot.definesFingerprint ==
-             contextFingerprints.definesFingerprint &&
-         snapshot.includePathsFingerprint ==
-             contextFingerprints.includePathsFingerprint &&
-         snapshot.shaderExtensionsFingerprint ==
-             contextFingerprints.shaderExtensionsFingerprint;
-}
-
-bool shouldReuseExistingActiveUnitSnapshot(
-    const DocumentRuntime &existing, const Document &document,
-    const std::string &activeUnitUri, const std::string &activeUnitPath,
-    const RuntimeContextFingerprints &contextFingerprints,
+std::shared_ptr<const GlobalContextSnapshot> resolveGlobalContextSnapshot(
     const DocumentRuntimeUpdateOptions &options,
-    const std::vector<ChangedRange> &changedRanges) {
-  const bool sameStableContext =
-      existing.activeUnitSnapshot.uri == activeUnitUri &&
-      existing.activeUnitSnapshot.path == activeUnitPath &&
-      existing.activeUnitSnapshot.workspaceSummaryVersion ==
-          options.workspaceSummaryVersion &&
-      existing.activeUnitSnapshot.workspaceFoldersFingerprint ==
-          contextFingerprints.workspaceFoldersFingerprint &&
-      existing.activeUnitSnapshot.definesFingerprint ==
-          contextFingerprints.definesFingerprint &&
-      existing.activeUnitSnapshot.includePathsFingerprint ==
-          contextFingerprints.includePathsFingerprint &&
-      existing.activeUnitSnapshot.shaderExtensionsFingerprint ==
-          contextFingerprints.shaderExtensionsFingerprint;
-  if (!sameStableContext) {
-    return false;
-  }
-
-  const std::string documentPath = uriToPath(document.uri);
-  const bool documentIsActiveUnit =
-      (!activeUnitUri.empty() && document.uri == activeUnitUri) ||
-      (!activeUnitPath.empty() && !documentPath.empty() &&
-       documentPath == activeUnitPath);
-  if (!documentIsActiveUnit)
-    return activeUnitContextMatches(existing.activeUnitSnapshot, activeUnitUri,
-                                    activeUnitPath, contextFingerprints,
-                                    options);
-
-  if (existing.version == document.version && existing.epoch == document.epoch)
-    return true;
-
-  return isPreprocessorNeutralEditAgainstPrevious(existing.text, document.text,
-                                                  changedRanges);
+    const std::shared_ptr<const GlobalContextSnapshot> &providedSnapshot,
+    const std::string &changedDocumentUri = std::string(),
+    const std::vector<ChangedRange> *changedRanges = nullptr) {
+  if (providedSnapshot)
+    return providedSnapshot;
+  return globalContextRuntimeRefresh(options.globalContextOptions,
+                                     changedDocumentUri, changedRanges);
 }
 
 } // namespace
@@ -628,65 +427,60 @@ std::string getDocumentRuntimeResourceModelHash() {
   return hash;
 }
 
-uint64_t documentRuntimeGetWorkspaceSummaryVersion() {
-  return gWorkspaceSummaryVersion.load(std::memory_order_relaxed);
-}
-
-uint64_t documentRuntimeBumpWorkspaceSummaryVersion() {
-  return gWorkspaceSummaryVersion.fetch_add(1, std::memory_order_relaxed) + 1;
-}
-
 void documentRuntimeUpsert(const Document &document,
                            const std::vector<ChangedRange> &changedRanges,
                            const DocumentRuntimeUpdateOptions &options) {
-  const std::string activeUnitUri = getActiveUnitUri();
-  const std::string activeUnitPath = getActiveUnitPath();
-  const RuntimeContextFingerprints contextFingerprints =
-      buildRuntimeContextFingerprints(options);
+  const auto globalContextSnapshot =
+      resolveGlobalContextSnapshot(options, nullptr, document.uri,
+                                   &changedRanges);
 
   DocumentRuntime updated;
   updated.uri = document.uri;
   updated.text = document.text;
   updated.version = document.version;
   updated.epoch = document.epoch;
-  bool reusedActiveUnitSnapshot = false;
-  {
-    std::lock_guard<std::mutex> lock(gDocumentRuntimeMutex);
-    auto existingIt = gDocumentRuntimes.find(document.uri);
-    if (existingIt != gDocumentRuntimes.end() &&
-        shouldReuseExistingActiveUnitSnapshot(existingIt->second, document,
-                                             activeUnitUri, activeUnitPath,
-                                             contextFingerprints, options,
-                                             changedRanges)) {
-      updated.activeUnitSnapshot = existingIt->second.activeUnitSnapshot;
-      updated.activeUnitSnapshot.documentVersion =
-          options.activeUnitDocumentVersion;
-      updated.activeUnitSnapshot.documentEpoch = options.activeUnitDocumentEpoch;
-      reusedActiveUnitSnapshot = true;
-    }
+  updated.globalContextSnapshot = globalContextSnapshot;
+  if (globalContextSnapshot) {
+    updated.activeUnitSnapshot = globalContextSnapshot->activeUnitSnapshot;
+    updated.interactiveVisibilityKey =
+        globalContextSnapshot->interactiveVisibilityKey;
   }
-  if (!reusedActiveUnitSnapshot) {
-    updated.activeUnitSnapshot = buildActiveUnitSnapshot(
-        options, activeUnitUri, activeUnitPath, contextFingerprints);
-  }
-  updated.interactiveVisibilityKey =
-      buildInteractiveVisibilityKey(updated.activeUnitSnapshot);
   updated.analysisSnapshotKey =
       buildAnalysisSnapshotKey(document.uri, document.version, document.epoch,
                                updated.activeUnitSnapshot,
                                options.resourceModelHash);
   updated.changedRanges = changedRanges;
-  updated.immediateSyntaxSnapshot = ImmediateSyntaxSnapshot{};
+  updated.localStructuralSnapshot = LocalStructuralSnapshot{};
 
   std::lock_guard<std::mutex> lock(gDocumentRuntimeMutex);
   auto existingIt = gDocumentRuntimes.find(document.uri);
   if (existingIt != gDocumentRuntimes.end()) {
     const DocumentRuntime &existing = existingIt->second;
+    if (existing.lastDiagnosticsPublishEpoch == document.epoch &&
+        existing.lastDiagnosticsPublishVersion == document.version &&
+        existing.lastDiagnosticsPublishFingerprint ==
+            diagnosticsPublishFingerprintForLayer(
+                existing.lastDiagnosticsPublishLayer,
+                updated.analysisSnapshotKey)) {
+      updated.lastDiagnosticsPublishLayer =
+          existing.lastDiagnosticsPublishLayer;
+      updated.lastDiagnosticsPublishEpoch = existing.lastDiagnosticsPublishEpoch;
+      updated.lastDiagnosticsPublishVersion =
+          existing.lastDiagnosticsPublishVersion;
+      updated.lastDiagnosticsPublishFingerprint =
+          existing.lastDiagnosticsPublishFingerprint;
+    }
     updated.semanticNeutralEditHint = isSemanticNeutralEditAgainstPrevious(
         existing.text, document.text, changedRanges);
     updated.syntaxOnlyEditHint =
         isSyntaxOnlyEditAgainstPrevious(existing.text, document.text,
                                         changedRanges);
+    if (existing.localStructuralSnapshot.documentEpoch == document.epoch &&
+        existing.localStructuralSnapshot.documentVersion == document.version &&
+        existing.localStructuralSnapshot.contextFingerprint ==
+            updated.analysisSnapshotKey.stableContextFingerprint) {
+      updated.localStructuralSnapshot = existing.localStructuralSnapshot;
+    }
     if (isSnapshotStaleEligible(existing.analysisSnapshotKey,
                                 updated.analysisSnapshotKey)) {
       updated.lastGoodInteractiveSnapshot = existing.interactiveSnapshot
@@ -709,11 +503,6 @@ void documentRuntimeUpsert(const Document &document,
       writable->hasInlayHintsFull = false;
       updated.deferredDocSnapshot = std::move(writable);
     }
-      if (existing.immediateSyntaxSnapshot.documentEpoch == document.epoch &&
-          existing.immediateSyntaxSnapshot.documentVersion ==
-              document.version) {
-        updated.immediateSyntaxSnapshot = existing.immediateSyntaxSnapshot;
-      }
     }
     if (existing.interactiveSnapshot &&
         isSnapshotStillCurrent(existing.interactiveSnapshot->key,
@@ -762,20 +551,37 @@ void documentRuntimeErase(const std::string &uri) {
 
 void refreshRuntimeAnalysisKey(DocumentRuntime &runtime,
                                const DocumentRuntimeUpdateOptions &options,
-                               const std::string &activeUnitUri,
-                               const std::string &activeUnitPath,
-                               const RuntimeContextFingerprints &contextFingerprints) {
-  const ActiveUnitSnapshot nextActive = buildActiveUnitSnapshot(
-      options, activeUnitUri, activeUnitPath, contextFingerprints);
+                               const std::shared_ptr<const GlobalContextSnapshot>
+                                   &globalContextSnapshot) {
+  ActiveUnitSnapshot nextActive;
+  InteractiveVisibilityKey nextVisibilityKey;
+  if (globalContextSnapshot) {
+    nextActive = globalContextSnapshot->activeUnitSnapshot;
+    nextVisibilityKey = globalContextSnapshot->interactiveVisibilityKey;
+  }
   const AnalysisSnapshotKey nextKey =
       buildAnalysisSnapshotKey(runtime.uri, runtime.version, runtime.epoch,
                                nextActive, options.resourceModelHash);
+  if (!runtime.lastDiagnosticsPublishLayer.empty() &&
+      runtime.lastDiagnosticsPublishLayer != "local-structural" &&
+      runtime.lastDiagnosticsPublishFingerprint !=
+          diagnosticsPublishFingerprintForLayer(
+              runtime.lastDiagnosticsPublishLayer, nextKey)) {
+    runtime.lastDiagnosticsPublishLayer.clear();
+    runtime.lastDiagnosticsPublishEpoch = 0;
+    runtime.lastDiagnosticsPublishVersion = 0;
+    runtime.lastDiagnosticsPublishFingerprint.clear();
+  }
   if (!isSnapshotStaleEligible(runtime.analysisSnapshotKey, nextKey)) {
+    runtime.localStructuralSnapshot = LocalStructuralSnapshot{};
     runtime.interactiveSnapshot.reset();
     runtime.lastGoodInteractiveSnapshot.reset();
     runtime.deferredDocSnapshot.reset();
-    runtime.immediateSyntaxSnapshot = ImmediateSyntaxSnapshot{};
   } else {
+    if (runtime.localStructuralSnapshot.contextFingerprint !=
+        nextKey.stableContextFingerprint) {
+      runtime.localStructuralSnapshot = LocalStructuralSnapshot{};
+    }
     if (runtime.interactiveSnapshot &&
         !isSnapshotStillCurrent(runtime.interactiveSnapshot->key, nextKey)) {
       runtime.lastGoodInteractiveSnapshot = runtime.interactiveSnapshot;
@@ -790,29 +596,28 @@ void refreshRuntimeAnalysisKey(DocumentRuntime &runtime,
         !isSnapshotStaleEligible(runtime.deferredDocSnapshot->key, nextKey)) {
       runtime.deferredDocSnapshot.reset();
     }
-    runtime.immediateSyntaxSnapshot = ImmediateSyntaxSnapshot{};
   }
+  runtime.globalContextSnapshot = globalContextSnapshot;
   runtime.analysisSnapshotKey = nextKey;
-  runtime.interactiveVisibilityKey = buildInteractiveVisibilityKey(nextActive);
+  runtime.interactiveVisibilityKey = nextVisibilityKey;
   runtime.activeUnitSnapshot = nextActive;
 }
 
 void documentRuntimeRefreshAnalysisKeys(
-    const DocumentRuntimeUpdateOptions &options) {
-  const std::string activeUnitUri = getActiveUnitUri();
-  const std::string activeUnitPath = getActiveUnitPath();
-  const RuntimeContextFingerprints contextFingerprints =
-      buildRuntimeContextFingerprints(options);
+    const DocumentRuntimeUpdateOptions &options,
+    const std::shared_ptr<const GlobalContextSnapshot> &globalContextSnapshot) {
+  const auto resolvedSnapshot =
+      resolveGlobalContextSnapshot(options, globalContextSnapshot);
   std::lock_guard<std::mutex> lock(gDocumentRuntimeMutex);
   for (auto &entry : gDocumentRuntimes) {
-    refreshRuntimeAnalysisKey(entry.second, options, activeUnitUri,
-                              activeUnitPath, contextFingerprints);
+    refreshRuntimeAnalysisKey(entry.second, options, resolvedSnapshot);
   }
 }
 
 void documentRuntimeRefreshAnalysisKeysForUris(
     const std::vector<std::string> &uris,
-    const DocumentRuntimeUpdateOptions &options) {
+    const DocumentRuntimeUpdateOptions &options,
+    const std::shared_ptr<const GlobalContextSnapshot> &globalContextSnapshot) {
   if (uris.empty())
     return;
   std::unordered_set<std::string> targets;
@@ -823,17 +628,14 @@ void documentRuntimeRefreshAnalysisKeysForUris(
   }
   if (targets.empty())
     return;
-  const std::string activeUnitUri = getActiveUnitUri();
-  const std::string activeUnitPath = getActiveUnitPath();
-  const RuntimeContextFingerprints contextFingerprints =
-      buildRuntimeContextFingerprints(options);
+  const auto resolvedSnapshot =
+      resolveGlobalContextSnapshot(options, globalContextSnapshot);
   std::lock_guard<std::mutex> lock(gDocumentRuntimeMutex);
   for (const auto &uri : targets) {
     auto it = gDocumentRuntimes.find(uri);
     if (it == gDocumentRuntimes.end())
       continue;
-    refreshRuntimeAnalysisKey(it->second, options, activeUnitUri,
-                              activeUnitPath, contextFingerprints);
+    refreshRuntimeAnalysisKey(it->second, options, resolvedSnapshot);
   }
 }
 
@@ -844,10 +646,32 @@ void documentRuntimeUpdateImmediateSyntaxSnapshot(
   if (it == gDocumentRuntimes.end())
     return;
   if (it->second.epoch != snapshot.documentEpoch ||
-      it->second.version != snapshot.documentVersion) {
+      it->second.version != snapshot.documentVersion ||
+      snapshot.contextFingerprint.empty() ||
+      snapshot.contextFingerprint !=
+          it->second.analysisSnapshotKey.stableContextFingerprint) {
     return;
   }
-  it->second.immediateSyntaxSnapshot = snapshot;
+  it->second.localStructuralSnapshot = snapshot;
+}
+
+void documentRuntimeUpdateLastDiagnosticsPublishLayer(
+    const std::string &uri, uint64_t documentEpoch, int documentVersion,
+    const std::string &layer) {
+  std::lock_guard<std::mutex> lock(gDocumentRuntimeMutex);
+  auto it = gDocumentRuntimes.find(uri);
+  if (it == gDocumentRuntimes.end())
+    return;
+  if (it->second.epoch != documentEpoch ||
+      it->second.version != documentVersion) {
+    return;
+  }
+  it->second.lastDiagnosticsPublishLayer = layer;
+  it->second.lastDiagnosticsPublishEpoch = documentEpoch;
+  it->second.lastDiagnosticsPublishVersion = documentVersion;
+  it->second.lastDiagnosticsPublishFingerprint =
+      diagnosticsPublishFingerprintForLayer(layer,
+                                            it->second.analysisSnapshotKey);
 }
 
 void documentRuntimeStoreInteractiveSnapshot(

@@ -48,8 +48,20 @@ export type MetricsHistoryEntry = {
 	receivedAtMs: number;
 };
 
+export type RuntimeDebugDocumentEntry = {
+	uri: string;
+	exists: boolean;
+	analysisFullFingerprint?: string;
+	interactiveVisibilityFingerprint?: string;
+	globalContextReady?: boolean;
+	localStructuralSnapshotReady?: boolean;
+	currentDocSemanticSnapshotReady?: boolean;
+	lastDiagnosticsPublishLayer?: string;
+	[key: string]: unknown;
+};
+
 export type RuntimeDebugResponse = {
-	documents: unknown[];
+	documents: RuntimeDebugDocumentEntry[];
 };
 
 export type InteractiveRuntimeDebugResponse = {

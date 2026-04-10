@@ -36,6 +36,7 @@ struct PendingDiagnosticsJob {
   uint64_t documentEpoch = 0;
   uint64_t latestOnlySerial = 0;
   std::string analysisFingerprint;
+  std::string analysisStableFingerprint;
   std::string uri;
   std::string text;
   std::vector<std::string> workspaceFolders;

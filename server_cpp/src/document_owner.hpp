@@ -69,6 +69,11 @@ bool documentOwnerGetRuntime(const std::string &uri, DocumentRuntime &runtimeOut
 void documentOwnerUpdateImmediateSyntaxSnapshot(
     const std::string &uri, const ImmediateSyntaxSnapshot &snapshot);
 
+// Publishes the last diagnostics layer for the matching document version.
+void documentOwnerUpdateLastDiagnosticsPublishLayer(
+    const std::string &uri, uint64_t documentEpoch, int documentVersion,
+    const std::string &layer);
+
 // Publishes an already-built interactive snapshot for the matching analysis key.
 void documentOwnerStoreInteractiveSnapshot(
     const std::string &uri,

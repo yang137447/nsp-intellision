@@ -36,11 +36,11 @@
 #include "full_ast.hpp"
 #include "hlsl_builtin_docs.hpp"
 #include "hover_docs.hpp"
-#include "immediate_syntax_diagnostics.hpp"
 #include "include_resolver.hpp"
 #include "indeterminate_reasons.hpp"
 #include "interactive_semantic_runtime.hpp"
 #include "json.hpp"
+#include "local_structural_runtime.hpp"
 #include "lsp_helpers.hpp"
 #include "lsp_io.hpp"
 #include "main_background_refresh.hpp"
@@ -110,21 +110,39 @@ int main(int argc, char **argv) {
     DocumentRuntimeUpdateOptions options;
     const std::string activeUnitUri = getActiveUnitUri();
     std::lock_guard<std::mutex> lock(coreMutex);
-    options.workspaceFolders = core.workspaceFolders;
-    options.includePaths = core.includePaths;
-    options.shaderExtensions = core.shaderExtensions;
-    options.defines = preprocessorDefines;
-    options.workspaceSummaryVersion = workspaceSummaryRuntimeGetVersion();
+    options.globalContextOptions.workspaceFolders = core.workspaceFolders;
+    options.globalContextOptions.includePaths = core.includePaths;
+    options.globalContextOptions.shaderExtensions = core.shaderExtensions;
+    options.globalContextOptions.defines = preprocessorDefines;
+    options.globalContextOptions.workspaceSummaryVersion =
+        workspaceSummaryRuntimeGetVersion();
     options.resourceModelHash = getDocumentRuntimeResourceModelHash();
     if (!activeUnitUri.empty()) {
       auto it = core.documents.find(activeUnitUri);
       if (it != core.documents.end()) {
-        options.activeUnitText = it->second.text;
-        options.activeUnitDocumentVersion = it->second.version;
-        options.activeUnitDocumentEpoch = it->second.epoch;
+        options.globalContextOptions.activeUnitText = it->second.text;
+        options.globalContextOptions.activeUnitDocumentVersion =
+            it->second.version;
+        options.globalContextOptions.activeUnitDocumentEpoch = it->second.epoch;
       }
     }
     return options;
+  };
+  auto makeLocalStructuralOptions = [&]() {
+    ImmediateSyntaxDiagnosticsOptions syntaxOptions;
+    const std::string activeUnitUri = getActiveUnitUri();
+    std::lock_guard<std::mutex> lock(coreMutex);
+    syntaxOptions.workspaceFolders = core.workspaceFolders;
+    syntaxOptions.includePaths = core.includePaths;
+    syntaxOptions.shaderExtensions = core.shaderExtensions;
+    syntaxOptions.defines = preprocessorDefines;
+    syntaxOptions.activeUnitUri = activeUnitUri;
+    if (!activeUnitUri.empty()) {
+      auto it = core.documents.find(activeUnitUri);
+      if (it != core.documents.end())
+        syntaxOptions.activeUnitText = it->second.text;
+    }
+    return syntaxOptions;
   };
   auto makeDeferredDocBuildContext = [&]() {
     DeferredDocBuildContext context;
@@ -337,9 +355,9 @@ int main(int argc, char **argv) {
       };
   auto buildFastPublishDiagnostics =
       [&](const PendingDiagnosticsJob &job,
-          const ImmediateSyntaxDiagnosticsResult &immediateResult) {
-        Json merged = immediateResult.diagnostics;
-        if (!immediateResult.changedWindowOnly)
+          const LocalStructuralSnapshot &localStructuralSnapshot) {
+        Json merged = localStructuralSnapshot.diagnostics;
+        if (!localStructuralSnapshot.changedWindowOnly)
           return merged;
         DocumentRuntime runtime;
         if (!documentOwnerGetRuntime(job.uri, runtime) ||
@@ -349,12 +367,20 @@ int main(int argc, char **argv) {
         }
         appendLastGoodDiagnosticsOutsideChangedWindow(
             merged, runtime.deferredDocSnapshot->fullDiagnostics,
-            immediateResult.changedWindowStartLine,
-            immediateResult.changedWindowEndLine);
+            localStructuralSnapshot.changedWindowStartLine,
+            localStructuralSnapshot.changedWindowEndLine);
         return merged;
       };
 
   DiagnosticsBackgroundRuntime *diagnosticsRuntime = nullptr;
+
+  auto isLocalStructuralSnapshotCurrent = [&](const DocumentRuntime &runtime) {
+    return runtime.localStructuralSnapshot.ready &&
+           runtime.localStructuralSnapshot.documentEpoch == runtime.epoch &&
+           runtime.localStructuralSnapshot.documentVersion == runtime.version &&
+           runtime.localStructuralSnapshot.contextFingerprint ==
+               runtime.analysisSnapshotKey.stableContextFingerprint;
+  };
 
   auto publishDiagnosticsNow = [&](const PendingDiagnosticsJob &job) {
     if (!isDocumentEpochCurrent(job.uri, job.documentEpoch)) {
@@ -384,25 +410,28 @@ int main(int argc, char **argv) {
       syntaxOptions.activeUnitUri = job.activeUnitUri;
       syntaxOptions.activeUnitText = job.activeUnitText;
       syntaxOptions.maxItems = job.diagnosticsOptions.maxItems;
-      const ImmediateSyntaxDiagnosticsResult immediateResult =
-          buildImmediateSyntaxDiagnostics(job.uri, job.text, job.changedRanges,
-                                          syntaxOptions);
-      diagnosticsResult.diagnostics = immediateResult.diagnostics;
-      diagnosticsResult.truncated = immediateResult.truncated;
-      diagnosticsResult.elapsedMs = immediateResult.elapsedMs;
-      params.o["diagnostics"] =
-          buildFastPublishDiagnostics(job, immediateResult);
-
-      ImmediateSyntaxSnapshot syntaxSnapshot;
-      syntaxSnapshot.documentEpoch = job.documentEpoch;
-      syntaxSnapshot.documentVersion = job.documentVersion;
-      syntaxSnapshot.diagnostics = immediateResult.diagnostics;
-      syntaxSnapshot.changedWindowOnly = immediateResult.changedWindowOnly;
-      syntaxSnapshot.changedWindowStartLine =
-          immediateResult.changedWindowStartLine;
-      syntaxSnapshot.changedWindowEndLine =
-          immediateResult.changedWindowEndLine;
-      documentOwnerUpdateImmediateSyntaxSnapshot(job.uri, syntaxSnapshot);
+      const LocalStructuralSnapshot localStructuralSnapshot =
+          buildLocalStructuralSnapshot(job.uri, job.text, job.changedRanges,
+                                       job.documentEpoch, job.documentVersion,
+                                       syntaxOptions);
+      if (!job.analysisFingerprint.empty()) {
+        auto writableSnapshot = localStructuralSnapshot;
+        writableSnapshot.contextFingerprint = job.analysisStableFingerprint;
+        diagnosticsResult.diagnostics = writableSnapshot.diagnostics;
+        diagnosticsResult.truncated = writableSnapshot.truncated;
+        diagnosticsResult.elapsedMs = writableSnapshot.elapsedMs;
+        params.o["diagnostics"] =
+            buildFastPublishDiagnostics(job, writableSnapshot);
+        documentOwnerUpdateImmediateSyntaxSnapshot(job.uri, writableSnapshot);
+      } else {
+        diagnosticsResult.diagnostics = localStructuralSnapshot.diagnostics;
+        diagnosticsResult.truncated = localStructuralSnapshot.truncated;
+        diagnosticsResult.elapsedMs = localStructuralSnapshot.elapsedMs;
+        params.o["diagnostics"] =
+            buildFastPublishDiagnostics(job, localStructuralSnapshot);
+        documentOwnerUpdateImmediateSyntaxSnapshot(job.uri,
+                                                   localStructuralSnapshot);
+      }
     } else {
       Document currentDoc;
       bool hasCurrentDoc = false;
@@ -457,6 +486,21 @@ int main(int argc, char **argv) {
       recordDiagnosticsStaleDropBeforePublish();
       return;
     }
+    std::string diagnosticsPublishLayer =
+        job.kind == DiagnosticsJobKind::Fast ? "local-structural" : "full";
+    if (job.kind == DiagnosticsJobKind::Full) {
+      DocumentRuntime runtime;
+      if (documentOwnerGetRuntime(job.uri, runtime) &&
+          isLocalStructuralSnapshotCurrent(runtime) &&
+          runtime.localStructuralSnapshot.ownsDiagnosticsPublish &&
+          !runtime.localStructuralSnapshot.diagnosticsPublishLayer.empty()) {
+        diagnosticsPublishLayer =
+            runtime.localStructuralSnapshot.diagnosticsPublishLayer;
+      }
+    }
+    documentOwnerUpdateLastDiagnosticsPublishLayer(
+        job.uri, job.documentEpoch, job.documentVersion,
+        diagnosticsPublishLayer);
     writeNotification("textDocument/publishDiagnostics", params);
   };
 
@@ -470,12 +514,16 @@ int main(int argc, char **argv) {
         PendingDiagnosticsJob fullJob;
         bool queueFull = false;
         std::string analysisFingerprint;
+        std::string analysisStableFingerprint;
         std::string activeUnitUri;
         std::string activeUnitText;
         {
           DocumentRuntime runtime;
-          if (documentOwnerGetRuntime(document.uri, runtime))
+          if (documentOwnerGetRuntime(document.uri, runtime)) {
             analysisFingerprint = runtime.analysisSnapshotKey.fullFingerprint;
+            analysisStableFingerprint =
+                runtime.analysisSnapshotKey.stableContextFingerprint;
+          }
         }
         {
           std::lock_guard<std::mutex> lock(coreMutex);
@@ -494,7 +542,8 @@ int main(int argc, char **argv) {
           if (scheduleFast && core.diagnosticsFastEnabled) {
             fastJob.kind = DiagnosticsJobKind::Fast;
             fastJob.hasPairedFull = scheduleFull && core.diagnosticsFullEnabled;
-            fastJob.analysisFingerprint.clear();
+            fastJob.analysisFingerprint = analysisFingerprint;
+            fastJob.analysisStableFingerprint = analysisStableFingerprint;
             fastJob.uri = document.uri;
             fastJob.text = document.text;
             fastJob.documentVersion = document.version;
@@ -532,6 +581,7 @@ int main(int argc, char **argv) {
           if (scheduleFull && core.diagnosticsFullEnabled) {
             fullJob.kind = DiagnosticsJobKind::Full;
             fullJob.analysisFingerprint = analysisFingerprint;
+            fullJob.analysisStableFingerprint = analysisStableFingerprint;
             fullJob.uri = document.uri;
             fullJob.text = document.text;
             fullJob.documentVersion = document.version;
@@ -1741,7 +1791,6 @@ int main(int argc, char **argv) {
       invalidateAllFullAstCaches();
       semanticCacheInvalidateAll();
       workspaceSummaryRuntimeRebuild(reason, clearDiskCache);
-      documentRuntimeBumpWorkspaceSummaryVersion();
       documentOwnerRefreshAnalysisContext(makeDocumentRuntimeOptions(),
                                           makeRuntimeRequestContext());
       if (id.type != Json::Type::Null)
@@ -1856,7 +1905,6 @@ int main(int argc, char **argv) {
           }
         }
         if (!refreshUris.empty()) {
-          documentRuntimeBumpWorkspaceSummaryVersion();
           documentOwnerRefreshAnalysisContextForUris(
               refreshUris, makeDocumentRuntimeOptions(),
               makeRuntimeRequestContext());
@@ -1964,12 +2012,72 @@ int main(int argc, char **argv) {
             runtime.analysisSnapshotKey.workspaceSummaryVersion));
         item.o["activeUnitPath"] =
             makeString(runtime.analysisSnapshotKey.activeUnitPath);
+        const GlobalContextSnapshot *globalContext =
+            runtime.globalContextSnapshot.get();
+        const ActiveUnitSnapshot &globalActive =
+            globalContext ? globalContext->activeUnitSnapshot
+                          : runtime.activeUnitSnapshot;
+        const InteractiveVisibilityKey &globalVisibility =
+            globalContext ? globalContext->interactiveVisibilityKey
+                          : runtime.interactiveVisibilityKey;
         item.o["activeUnitIncludeClosureFingerprint"] =
-            makeString(runtime.activeUnitSnapshot.includeClosureFingerprint);
+            makeString(globalActive.includeClosureFingerprint);
         item.o["activeUnitBranchFingerprint"] =
-            makeString(runtime.activeUnitSnapshot.activeBranchFingerprint);
+            makeString(globalActive.activeBranchFingerprint);
         item.o["interactiveVisibilityFingerprint"] =
-            makeString(runtime.interactiveVisibilityKey.fullFingerprint);
+            makeString(globalVisibility.fullFingerprint);
+        item.o["globalContextSnapshotId"] =
+            makeString(globalContext
+                           ? std::to_string(globalContext->debugLogicalId)
+                           : std::string());
+        item.o["globalContextReady"] = makeBool(
+            globalContext ? globalContextRuntimeIsReady(*globalContext)
+                          : runtime.analysisSnapshotKey.activeUnitPath.empty());
+        const bool localStructuralCurrent =
+            isLocalStructuralSnapshotCurrent(runtime);
+        const bool interactiveCurrent =
+            runtime.interactiveSnapshot &&
+            runtime.interactiveSnapshot->documentEpoch == runtime.epoch &&
+            runtime.interactiveSnapshot->documentVersion == runtime.version &&
+            runtime.interactiveSnapshot->key.fullFingerprint ==
+                runtime.analysisSnapshotKey.fullFingerprint;
+        const bool deferredCurrent =
+            runtime.deferredDocSnapshot &&
+            runtime.deferredDocSnapshot->documentEpoch == runtime.epoch &&
+            runtime.deferredDocSnapshot->documentVersion == runtime.version &&
+            runtime.deferredDocSnapshot->key.fullFingerprint ==
+                runtime.analysisSnapshotKey.fullFingerprint;
+        const bool hasInteractiveSemantic =
+            interactiveCurrent &&
+            runtime.interactiveSnapshot->semanticSnapshot;
+        const bool hasDeferredSemantic =
+            deferredCurrent && runtime.deferredDocSnapshot->semanticSnapshot;
+        item.o["currentDocSemanticSnapshotReady"] =
+            makeBool(hasInteractiveSemantic || hasDeferredSemantic);
+        const bool diagnosticsLayerCurrent =
+            runtime.lastDiagnosticsPublishEpoch == runtime.epoch &&
+            runtime.lastDiagnosticsPublishVersion == runtime.version &&
+            !runtime.lastDiagnosticsPublishLayer.empty();
+        item.o["localStructuralSnapshotReady"] =
+            makeBool(localStructuralCurrent ||
+                     (diagnosticsLayerCurrent &&
+                      runtime.lastDiagnosticsPublishLayer ==
+                          "local-structural"));
+        item.o["localStructuralChangedWindowOnly"] = makeBool(
+            localStructuralCurrent &&
+            runtime.localStructuralSnapshot.changedWindowOnly);
+        item.o["localStructuralChangedWindowStartLine"] = makeNumber(
+            static_cast<double>(localStructuralCurrent
+                                    ? runtime.localStructuralSnapshot
+                                          .changedWindowStartLine
+                                    : -1));
+        item.o["localStructuralChangedWindowEndLine"] = makeNumber(
+            static_cast<double>(localStructuralCurrent
+                                    ? runtime.localStructuralSnapshot
+                                          .changedWindowEndLine
+                                    : -1));
+        item.o["lastDiagnosticsPublishLayer"] = makeString(
+            diagnosticsLayerCurrent ? runtime.lastDiagnosticsPublishLayer : "");
         item.o["activeUnitWorkspaceSummaryVersion"] =
             makeNumber(static_cast<double>(
                 runtime.activeUnitSnapshot.workspaceSummaryVersion));
@@ -2256,6 +2364,17 @@ int main(int argc, char **argv) {
           }
           documentOwnerDidOpen(document, makeDocumentRuntimeOptions(),
                                makeRuntimeRequestContext());
+          documentOwnerUpdateImmediateSyntaxSnapshot(
+              document.uri, [&]() {
+                auto snapshot = buildLocalStructuralSnapshot(
+                    document.uri, document.text, {}, document.epoch,
+                    document.version, makeLocalStructuralOptions());
+                DocumentRuntime runtime;
+                if (documentOwnerGetRuntime(document.uri, runtime))
+                  snapshot.contextFingerprint =
+                      runtime.analysisSnapshotKey.stableContextFingerprint;
+                return snapshot;
+              }());
           deferredDocRuntimeSchedule(document, makeDeferredDocBuildContext());
           primeDocumentTextCache(document.uri, document.text);
           invalidateFullAstByUri(document.uri);
@@ -2384,11 +2503,23 @@ int main(int argc, char **argv) {
             latestDocumentVersionByUri[updatedDocument.uri] =
                 updatedDocument.version;
           }
-          scheduleDiagnosticsForText(updatedDocument, true, false, 0, -1,
-                                     &changedRanges);
           documentOwnerDidChange(updatedDocument, changedRanges,
                                  makeDocumentRuntimeOptions(),
                                  makeRuntimeRequestContext());
+          documentOwnerUpdateImmediateSyntaxSnapshot(
+              updatedDocument.uri, [&]() {
+                auto snapshot = buildLocalStructuralSnapshot(
+                    updatedDocument.uri, updatedDocument.text, changedRanges,
+                    updatedDocument.epoch, updatedDocument.version,
+                    makeLocalStructuralOptions());
+                DocumentRuntime runtime;
+                if (documentOwnerGetRuntime(updatedDocument.uri, runtime))
+                  snapshot.contextFingerprint =
+                      runtime.analysisSnapshotKey.stableContextFingerprint;
+                return snapshot;
+              }());
+          scheduleDiagnosticsForText(updatedDocument, true, false, 0, -1,
+                                     &changedRanges);
           bool skipExpensivePostChangeWork = false;
           {
             DocumentRuntime runtime;

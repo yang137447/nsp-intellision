@@ -146,6 +146,10 @@ export type DocumentRuntimeDebugEntry = {
 	deferredInlayRangeCacheCount?: number;
 	changedRangesCount?: number;
 	interactiveVisibilityFingerprint?: string;
+	globalContextReady?: boolean;
+	localStructuralSnapshotReady?: boolean;
+	currentDocSemanticSnapshotReady?: boolean;
+	lastDiagnosticsPublishLayer?: string;
 };
 
 export type InteractiveRuntimeDebugResponse = {

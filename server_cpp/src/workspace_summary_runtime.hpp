@@ -13,7 +13,8 @@
 // Responsibilities:
 // - expose summary-first query APIs used by request handlers and runtimes
 // - own the externally visible workspace summary version that open documents use
-//   in their analysis key
+//   in their analysis key and global_context_runtime.* uses as shared context
+//   identity
 // - translate file-watch / rebuild / reconfigure events into workspace-index
 //   updates plus version bumps
 //
