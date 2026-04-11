@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 
 import {
 	diagnosticCodeText,
+	getDocumentRuntimeDebug,
 	getWorkspaceRoot,
 	hoverToText,
 	openFixture,
@@ -389,6 +390,69 @@ export function registerDiagnosticsTests(): void {
 			const messages = diagnostics.map((diag) => diag.message).join('\n');
 			assert.ok(!messages.includes('Undefined identifier: u_wind_tex_factors.'));
 			assert.ok(messages.includes('Assignment type mismatch: float3 = float4.'));
+		});
+	});
+
+	it('keeps last-good global-context diagnostics while macro context for the new edit is not yet ready', async function () {
+		this.timeout(120000);
+		await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+			const rootPath = path.join(getWorkspaceRoot(), 'test_files', 'layered_runtime_macro_root.nsf');
+			const rootUri = vscode.Uri.file(rootPath);
+			const transientWrongPublishes: string[] = [];
+			const observerTasks: Promise<void>[] = [];
+			const diagnosticsSubscription = vscode.languages.onDidChangeDiagnostics((event) => {
+				if (!event.uris.some((uri) => uri.toString() === rootUri.toString())) {
+					return;
+				}
+				const currentDiagnostics = vscode.languages.getDiagnostics(rootUri);
+				const messages = currentDiagnostics.map((diag) => diag.message).join('\n');
+				const sawWrongPublish =
+					messages.includes('Undefined macro in preprocessor expression: LAYERED_RUNTIME_SHARED_BRANCH.') ||
+					messages.includes('Undefined identifier: layeredRuntimeSharedColor.');
+				if (!sawWrongPublish) {
+					return;
+				}
+				observerTasks.push(
+					getDocumentRuntimeDebug([rootUri.toString()]).then(([runtime]) => {
+						if (runtime?.globalContextReady === true) {
+							return;
+						}
+						transientWrongPublishes.push(
+							`${runtime?.globalContextReady ?? 'unknown'}:${messages}`
+						);
+					})
+				);
+			});
+			try {
+				const root = await openFixture('layered_runtime_macro_root.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+
+				const diagnostics = await waitForDiagnosticsWithTouches(
+					root,
+					(value) => {
+						const messages = value.map((diag) => diag.message).join('\n');
+						return (
+							!messages.includes('Undefined macro in preprocessor expression: LAYERED_RUNTIME_SHARED_BRANCH.') &&
+							!messages.includes('Undefined identifier: layeredRuntimeSharedColor.')
+						);
+					},
+					'macro-sensitive diagnostics after global context readiness'
+				);
+
+				const messages = diagnostics.map((diag) => diag.message).join('\n');
+				assert.ok(!messages.includes('Undefined macro in preprocessor expression: LAYERED_RUNTIME_SHARED_BRANCH.'));
+				assert.ok(!messages.includes('Undefined identifier: layeredRuntimeSharedColor.'));
+				await waitForClientQuiescent('macro-sensitive diagnostics continuity settled');
+				await Promise.all(observerTasks);
+				assert.deepStrictEqual(
+					transientWrongPublishes,
+					[],
+					`Expected no transient macro-sensitive wrong publish before global context readiness, got ${transientWrongPublishes.join('\n')}`
+				);
+			} finally {
+				diagnosticsSubscription.dispose();
+				await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+			}
 		});
 	});
 

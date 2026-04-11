@@ -269,8 +269,29 @@ bool isLocalStructuralContextStillCurrent(const AnalysisSnapshotKey &candidate,
          current.stableContextFingerprint;
 }
 
+bool diagnosticsGlobalContextReadyForRuntime(const DocumentRuntime &runtime) {
+  const GlobalContextSnapshot *globalContext = runtime.globalContextSnapshot.get();
+  if (globalContext)
+    return globalContextRuntimeIsReady(*globalContext);
+  return runtime.analysisSnapshotKey.activeUnitPath.empty();
+}
+
+void stripDeferredFullDiagnosticsIfGlobalContextNotReady(
+    const DocumentRuntime &runtime, DeferredDocSnapshot &snapshot) {
+  if (!snapshot.hasFullDiagnostics)
+    return;
+  if (diagnosticsGlobalContextReadyForRuntime(runtime))
+    return;
+  snapshot.fullDiagnostics = makeArray();
+  snapshot.hasFullDiagnostics = false;
+  snapshot.fullDiagnosticsFingerprint.clear();
+}
+
 std::string diagnosticsPublishFingerprintForLayer(
     const std::string &layer, const AnalysisSnapshotKey &key) {
+  // Local-structural publishes are allowed to survive same-stable-context
+  // edits. Current-doc/global-context publishes are version/epoch specific and
+  // therefore tracked against the full analysis fingerprint.
   if (layer == "local-structural")
     return key.stableContextFingerprint;
   return key.fullFingerprint;
@@ -489,6 +510,10 @@ void documentRuntimeUpsert(const Document &document,
           existing.lastDiagnosticsPublishVersion;
       updated.lastDiagnosticsPublishFingerprint =
           existing.lastDiagnosticsPublishFingerprint;
+      updated.lastLocalStructuralPublishEpoch =
+          existing.lastLocalStructuralPublishEpoch;
+      updated.lastLocalStructuralPublishVersion =
+          existing.lastLocalStructuralPublishVersion;
     }
     updated.semanticNeutralEditHint = isSemanticNeutralEditAgainstPrevious(
         existing.text, document.text, changedRanges);
@@ -696,6 +721,10 @@ void documentRuntimeUpdateLastDiagnosticsPublishLayer(
   it->second.lastDiagnosticsPublishFingerprint =
       diagnosticsPublishFingerprintForLayer(layer,
                                             it->second.analysisSnapshotKey);
+  if (layer == "local-structural") {
+    it->second.lastLocalStructuralPublishEpoch = documentEpoch;
+    it->second.lastLocalStructuralPublishVersion = documentVersion;
+  }
 }
 
 void documentRuntimeStoreCurrentDocSemanticSnapshot(
@@ -737,7 +766,9 @@ void documentRuntimeStoreDeferredSnapshot(
       !isSnapshotStillCurrent(snapshot->key, it->second.analysisSnapshotKey)) {
     return;
   }
-  it->second.deferredDocSnapshot = snapshot;
+  auto sanitized = std::make_shared<DeferredDocSnapshot>(*snapshot);
+  stripDeferredFullDiagnosticsIfGlobalContextNotReady(it->second, *sanitized);
+  it->second.deferredDocSnapshot = std::move(sanitized);
 }
 
 void documentRuntimeMergeAndStoreDeferredSnapshot(
@@ -756,6 +787,7 @@ void documentRuntimeMergeAndStoreDeferredSnapshot(
   }
 
   auto merged = std::make_shared<DeferredDocSnapshot>(*snapshot);
+  stripDeferredFullDiagnosticsIfGlobalContextNotReady(it->second, *merged);
   const auto &current = it->second.deferredDocSnapshot;
   if (current && current->key.fullFingerprint == merged->key.fullFingerprint &&
       current->documentEpoch == merged->documentEpoch &&

@@ -29,6 +29,7 @@
 #include "deferred_doc_runtime.hpp"
 #include "definition_location.hpp"
 #include "diagnostics.hpp"
+#include "diagnostics_runtime.hpp"
 #include "document_owner.hpp"
 #include "document_runtime.hpp"
 #include "expanded_source.hpp"
@@ -306,72 +307,6 @@ int main(int argc, char **argv) {
            job.analysisFingerprint;
   };
 
-  auto tryGetDiagnosticLineSpan = [&](const Json &diagnostic, int &startLineOut,
-                                      int &endLineOut) {
-    const Json *rangeValue = getObjectValue(diagnostic, "range");
-    if (!rangeValue || rangeValue->type != Json::Type::Object)
-      return false;
-    const Json *startValue = getObjectValue(*rangeValue, "start");
-    const Json *endValue = getObjectValue(*rangeValue, "end");
-    if (!startValue || startValue->type != Json::Type::Object || !endValue ||
-        endValue->type != Json::Type::Object) {
-      return false;
-    }
-    const Json *startLineValue = getObjectValue(*startValue, "line");
-    const Json *endLineValue = getObjectValue(*endValue, "line");
-    if (!startLineValue || startLineValue->type != Json::Type::Number ||
-        !endLineValue || endLineValue->type != Json::Type::Number) {
-      return false;
-    }
-    startLineOut = static_cast<int>(startLineValue->n);
-    endLineOut = static_cast<int>(endLineValue->n);
-    return true;
-  };
-
-  auto appendLastGoodDiagnosticsOutsideChangedWindow =
-      [&](Json &target, const Json &source, int changedWindowStartLine,
-          int changedWindowEndLine) {
-        if (target.type != Json::Type::Array)
-          target = makeArray();
-        if (source.type != Json::Type::Array)
-          return;
-        std::unordered_set<std::string> seen;
-        seen.reserve(target.a.size() + source.a.size());
-        for (const auto &item : target.a)
-          seen.insert(serializeJson(item));
-        for (const auto &item : source.a) {
-          int diagnosticStartLine = 0;
-          int diagnosticEndLine = 0;
-          if (tryGetDiagnosticLineSpan(item, diagnosticStartLine,
-                                       diagnosticEndLine) &&
-              diagnosticEndLine >= changedWindowStartLine &&
-              diagnosticStartLine <= changedWindowEndLine) {
-            continue;
-          }
-          const std::string key = serializeJson(item);
-          if (seen.insert(key).second)
-            target.a.push_back(item);
-        }
-      };
-  auto buildFastPublishDiagnostics =
-      [&](const PendingDiagnosticsJob &job,
-          const LocalStructuralSnapshot &localStructuralSnapshot) {
-        Json merged = localStructuralSnapshot.diagnostics;
-        if (!localStructuralSnapshot.changedWindowOnly)
-          return merged;
-        DocumentRuntime runtime;
-        if (!documentOwnerGetRuntime(job.uri, runtime) ||
-            !runtime.deferredDocSnapshot ||
-            !runtime.deferredDocSnapshot->hasFullDiagnostics) {
-          return merged;
-        }
-        appendLastGoodDiagnosticsOutsideChangedWindow(
-            merged, runtime.deferredDocSnapshot->fullDiagnostics,
-            localStructuralSnapshot.changedWindowStartLine,
-            localStructuralSnapshot.changedWindowEndLine);
-        return merged;
-      };
-
   DiagnosticsBackgroundRuntime *diagnosticsRuntime = nullptr;
 
   auto isLocalStructuralSnapshotCurrent = [&](const DocumentRuntime &runtime) {
@@ -401,6 +336,10 @@ int main(int argc, char **argv) {
     Json params = makeObject();
     params.o["uri"] = makeString(job.uri);
     DiagnosticsBuildResult diagnosticsResult;
+    DocumentRuntime runtimeBeforeBuild;
+    const bool hasRuntimeBeforeBuild =
+        documentOwnerGetRuntime(job.uri, runtimeBeforeBuild);
+    DiagnosticsPublishDecision publishDecision;
     if (job.kind == DiagnosticsJobKind::Fast) {
       ImmediateSyntaxDiagnosticsOptions syntaxOptions;
       syntaxOptions.workspaceFolders = job.workspaceFolders;
@@ -420,15 +359,17 @@ int main(int argc, char **argv) {
         diagnosticsResult.diagnostics = writableSnapshot.diagnostics;
         diagnosticsResult.truncated = writableSnapshot.truncated;
         diagnosticsResult.elapsedMs = writableSnapshot.elapsedMs;
-        params.o["diagnostics"] =
-            buildFastPublishDiagnostics(job, writableSnapshot);
+        publishDecision = diagnosticsRuntimeBuildLocalStructuralPublish(
+            hasRuntimeBeforeBuild ? &runtimeBeforeBuild : nullptr,
+            writableSnapshot);
         documentOwnerUpdateImmediateSyntaxSnapshot(job.uri, writableSnapshot);
       } else {
         diagnosticsResult.diagnostics = localStructuralSnapshot.diagnostics;
         diagnosticsResult.truncated = localStructuralSnapshot.truncated;
         diagnosticsResult.elapsedMs = localStructuralSnapshot.elapsedMs;
-        params.o["diagnostics"] =
-            buildFastPublishDiagnostics(job, localStructuralSnapshot);
+        publishDecision = diagnosticsRuntimeBuildLocalStructuralPublish(
+            hasRuntimeBeforeBuild ? &runtimeBeforeBuild : nullptr,
+            localStructuralSnapshot);
         documentOwnerUpdateImmediateSyntaxSnapshot(job.uri,
                                                    localStructuralSnapshot);
       }
@@ -452,7 +393,6 @@ int main(int argc, char **argv) {
             job.uri, job.text, job.workspaceFolders, job.includePaths,
             job.shaderExtensions, job.defines, job.diagnosticsOptions);
       }
-      params.o["diagnostics"] = diagnosticsResult.diagnostics;
 
       auto semanticSnapshot = getSemanticSnapshotView(
           job.uri, job.text, job.documentEpoch, job.workspaceFolders,
@@ -472,7 +412,19 @@ int main(int argc, char **argv) {
           documentOwnerMergeAndStoreDeferredSnapshot(job.uri, deferred);
         }
       }
+
+      DocumentRuntime runtimeAfterBuild;
+      if (documentOwnerGetRuntime(job.uri, runtimeAfterBuild)) {
+        publishDecision = diagnosticsRuntimeBuildSemanticPublish(
+            runtimeAfterBuild,
+            hasRuntimeBeforeBuild ? &runtimeBeforeBuild : nullptr,
+            diagnosticsResult.diagnostics);
+      } else {
+        publishDecision.layer = DiagnosticsPublishLayer::GlobalContext;
+        publishDecision.diagnostics = diagnosticsResult.diagnostics;
+      }
     }
+    params.o["diagnostics"] = publishDecision.diagnostics;
     recordDiagnosticsMetric(diagnosticsResult);
     if (!isDocumentEpochCurrent(job.uri, job.documentEpoch)) {
       recordDiagnosticsStaleDropBeforePublish();
@@ -486,21 +438,9 @@ int main(int argc, char **argv) {
       recordDiagnosticsStaleDropBeforePublish();
       return;
     }
-    std::string diagnosticsPublishLayer =
-        job.kind == DiagnosticsJobKind::Fast ? "local-structural" : "full";
-    if (job.kind == DiagnosticsJobKind::Full) {
-      DocumentRuntime runtime;
-      if (documentOwnerGetRuntime(job.uri, runtime) &&
-          isLocalStructuralSnapshotCurrent(runtime) &&
-          runtime.localStructuralSnapshot.ownsDiagnosticsPublish &&
-          !runtime.localStructuralSnapshot.diagnosticsPublishLayer.empty()) {
-        diagnosticsPublishLayer =
-            runtime.localStructuralSnapshot.diagnosticsPublishLayer;
-      }
-    }
     documentOwnerUpdateLastDiagnosticsPublishLayer(
         job.uri, job.documentEpoch, job.documentVersion,
-        diagnosticsPublishLayer);
+        diagnosticsRuntimePublishLayerName(publishDecision.layer));
     writeNotification("textDocument/publishDiagnostics", params);
   };
 
@@ -2050,10 +1990,8 @@ int main(int argc, char **argv) {
         const bool hasInteractiveSemantic =
             interactiveCurrent &&
             runtime.interactiveSnapshot->semanticSnapshot;
-        const bool hasDeferredSemantic =
-            deferredCurrent && runtime.deferredDocSnapshot->semanticSnapshot;
         item.o["currentDocSemanticSnapshotReady"] =
-            makeBool(hasInteractiveSemantic || hasDeferredSemantic);
+            makeBool(hasInteractiveSemantic);
         const bool diagnosticsLayerCurrent =
             runtime.lastDiagnosticsPublishEpoch == runtime.epoch &&
             runtime.lastDiagnosticsPublishVersion == runtime.version &&
@@ -2063,6 +2001,9 @@ int main(int argc, char **argv) {
                      (diagnosticsLayerCurrent &&
                       runtime.lastDiagnosticsPublishLayer ==
                           "local-structural"));
+        item.o["localStructuralPublishObserved"] = makeBool(
+            runtime.lastLocalStructuralPublishEpoch == runtime.epoch &&
+            runtime.lastLocalStructuralPublishVersion == runtime.version);
         item.o["localStructuralChangedWindowOnly"] = makeBool(
             localStructuralCurrent &&
             runtime.localStructuralSnapshot.changedWindowOnly);

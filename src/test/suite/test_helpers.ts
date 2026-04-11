@@ -148,6 +148,10 @@ export type DocumentRuntimeDebugEntry = {
 	interactiveVisibilityFingerprint?: string;
 	globalContextReady?: boolean;
 	localStructuralSnapshotReady?: boolean;
+	localStructuralPublishObserved?: boolean;
+	localStructuralChangedWindowOnly?: boolean;
+	localStructuralChangedWindowStartLine?: number;
+	localStructuralChangedWindowEndLine?: number;
 	currentDocSemanticSnapshotReady?: boolean;
 	lastDiagnosticsPublishLayer?: string;
 };
