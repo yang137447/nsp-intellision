@@ -13,6 +13,7 @@ import {
 	waitForClientReady,
 	waitForClientQuiescent,
 	waitForDiagnostics,
+	waitForDiagnosticsWithTouches,
 	waitForIndexingIdle,
 	withTemporaryIntellisionPath
 } from '../test_helpers';
@@ -221,6 +222,7 @@ export function registerEditingRuntimeLayeredTests(): void {
 						`Expected shared global context identity after neutral active-unit edit, got root=${JSON.stringify(runtime[0])} shared=${JSON.stringify(runtime[1])}`
 					);
 				} finally {
+					await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
 					const sharedRestoreEdit = new vscode.WorkspaceEdit();
 					sharedRestoreEdit.delete(
 						shared.uri,
@@ -262,31 +264,35 @@ export function registerEditingRuntimeLayeredTests(): void {
 					(value) => value.filter((diag) => diag.message.includes('Missing semicolon.')).length === 2,
 					'changed-window structural diagnostics'
 				);
-				await waitForIndexingIdle('changed-window structural indexing idle');
-				await waitForClientQuiescent('client quiescent before changed-window structural debug');
 				await waitForClientReady('client ready before changed-window structural debug');
 
 				let lastChangedWindowDebug: unknown;
-				const [runtime] = await waitFor(
-					() =>
-						getDocumentRuntimeDebug([document.uri.toString()]).then((entries) => {
-							lastChangedWindowDebug = entries[0];
-							return entries;
-						}),
-					(entries) =>
-						entries[0]?.localStructuralSnapshotReady === true &&
-						entries[0]?.lastDiagnosticsPublishLayer === 'local-structural' &&
-						(entries[0] as any)?.localStructuralChangedWindowOnly === true,
-					`changed-window local structural runtime debug. last=${JSON.stringify(lastChangedWindowDebug)}`
+				let runtime = undefined as Awaited<ReturnType<typeof getDocumentRuntimeDebug>>[number] | undefined;
+				for (let attempt = 0; attempt < 60; attempt++) {
+					const entries = await getDocumentRuntimeDebug([document.uri.toString()]);
+					const internalStatus = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
+					lastChangedWindowDebug = { entries, internalStatus };
+					runtime = entries[0];
+					if (
+						runtime?.localStructuralSnapshotReady === true &&
+						runtime?.localStructuralChangedWindowOnly === true
+					) {
+						break;
+					}
+					await new Promise((resolve) => setTimeout(resolve, 500));
+				}
+				assert.ok(
+					runtime?.localStructuralSnapshotReady === true &&
+						runtime?.localStructuralChangedWindowOnly === true,
+					`Timed out waiting for changed-window local structural runtime debug. last=${JSON.stringify(lastChangedWindowDebug)}`
 				);
 				assert.strictEqual(runtime?.localStructuralSnapshotReady, true);
-				assert.strictEqual(runtime?.lastDiagnosticsPublishLayer, 'local-structural');
-				assert.strictEqual((runtime as any)?.localStructuralChangedWindowOnly, true);
-				assert.strictEqual(typeof (runtime as any)?.localStructuralChangedWindowStartLine, 'number');
-				assert.strictEqual(typeof (runtime as any)?.localStructuralChangedWindowEndLine, 'number');
+				assert.strictEqual(runtime?.localStructuralChangedWindowOnly, true);
+				assert.strictEqual(typeof runtime?.localStructuralChangedWindowStartLine, 'number');
+				assert.strictEqual(typeof runtime?.localStructuralChangedWindowEndLine, 'number');
 				assert.ok(
-					((runtime as any)?.localStructuralChangedWindowStartLine ?? 0) <=
-						((runtime as any)?.localStructuralChangedWindowEndLine ?? 0),
+					(runtime?.localStructuralChangedWindowStartLine ?? 0) <=
+						(runtime?.localStructuralChangedWindowEndLine ?? 0),
 					`Expected a valid changed-window range, got ${JSON.stringify(runtime)}`
 				);
 			} finally {
@@ -295,6 +301,78 @@ export function registerEditingRuntimeLayeredTests(): void {
 				await vscode.workspace.applyEdit(restoreEdit);
 				await vscode.workspace.openTextDocument(document.uri);
 			}
+		});
+
+		it('publishes macro-sensitive diagnostics through the global-context layer once context is ready', async function () {
+			this.timeout(120000);
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+				const rootPath = path.join(getWorkspaceRoot(), 'test_files', 'layered_runtime_macro_root.nsf');
+				const rootUri = vscode.Uri.file(rootPath);
+				const transientWrongPublishes: string[] = [];
+				const observerTasks: Promise<void>[] = [];
+				const diagnosticsSubscription = vscode.languages.onDidChangeDiagnostics((event) => {
+					if (!event.uris.some((uri) => uri.toString() === rootUri.toString())) {
+						return;
+					}
+					const currentDiagnostics = vscode.languages.getDiagnostics(rootUri);
+					const messages = currentDiagnostics.map((diag) => diag.message).join('\n');
+					const sawWrongPublish =
+						messages.includes('Undefined macro in preprocessor expression: LAYERED_RUNTIME_SHARED_BRANCH.') ||
+						messages.includes('Undefined identifier: layeredRuntimeSharedColor.');
+					if (!sawWrongPublish) {
+						return;
+					}
+					observerTasks.push(
+						getDocumentRuntimeDebug([rootUri.toString()]).then(([runtime]) => {
+							if (runtime?.globalContextReady === true) {
+								return;
+							}
+							transientWrongPublishes.push(
+								`${runtime?.globalContextReady ?? 'unknown'}:${messages}`
+							);
+						})
+					);
+				});
+				try {
+					const root = await openFixture('layered_runtime_macro_root.nsf');
+					await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+
+					await waitForDiagnosticsWithTouches(
+						root,
+						(value) => {
+							const messages = value.map((diag) => diag.message).join('\n');
+							return (
+								!messages.includes('Undefined macro in preprocessor expression: LAYERED_RUNTIME_SHARED_BRANCH.') &&
+								!messages.includes('Undefined identifier: layeredRuntimeSharedColor.')
+							);
+						},
+						'layered macro diagnostics settled'
+					);
+
+					const [runtime] = await waitFor(
+						() => getDocumentRuntimeDebug([root.uri.toString()]),
+						(entries) =>
+							entries[0]?.globalContextReady === true &&
+							(entries[0]?.lastDiagnosticsPublishLayer ?? '').length > 0,
+						'layered macro diagnostics publish layer'
+					);
+					assert.strictEqual(
+						runtime?.lastDiagnosticsPublishLayer,
+						'global-context',
+						`Expected macro-sensitive diagnostics to publish through global-context, got ${JSON.stringify(runtime)}`
+					);
+					await waitForClientQuiescent('layered macro diagnostics continuity settled');
+					await Promise.all(observerTasks);
+					assert.deepStrictEqual(
+						transientWrongPublishes,
+						[],
+						`Expected no transient macro-sensitive wrong publish before global context readiness, got ${transientWrongPublishes.join('\n')}`
+					);
+				} finally {
+					diagnosticsSubscription.dispose();
+					await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+				}
+			});
 		});
 
 		it('keeps current-doc semantic answers available before global context sensitive diagnostics settle', async function () {
@@ -311,6 +389,20 @@ export function registerEditingRuntimeLayeredTests(): void {
 					),
 				(value) => getCompletionItems(value).some((item) => item.label.toString() === 'CompletionDocHelper'),
 				'current-doc semantic completion'
+			);
+			await waitFor(
+				() =>
+					vscode.commands.executeCommand<vscode.SemanticTokens>(
+						'vscode.provideDocumentSemanticTokens',
+						document.uri
+					),
+				(value) => Boolean(value) && (value?.data.length ?? 0) > 0,
+				'seed deferred semantic snapshot before invalidation'
+			);
+			await waitFor(
+				() => getDocumentRuntimeDebug([document.uri.toString()]),
+				(entries) => entries[0]?.deferredHasSemanticSnapshot === true,
+				'deferred semantic snapshot seeded before invalidation'
 			);
 
 			const invalidateEdit = new vscode.WorkspaceEdit();

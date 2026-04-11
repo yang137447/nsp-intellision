@@ -156,12 +156,19 @@ struct DocumentRuntime {
   std::shared_ptr<const InteractiveSnapshot> lastGoodInteractiveSnapshot;
   std::shared_ptr<const DeferredDocSnapshot> deferredDocSnapshot;
   // The diagnostics layer that currently owns the visible publish result for
-  // this analysis key. Full diagnostics should not steal ownership when they
-  // merely reproduce the same local-structural truth.
+  // this analysis key. Valid layers are `local-structural`,
+  // `current-doc-semantic`, and `global-context`.
+  //
+  // `current-doc-semantic` is the continuity layer used while a new
+  // global-context snapshot is not yet ready; callers may preserve the previous
+  // last-good full diagnostics truth instead of letting a not-ready
+  // global-context publish replace it prematurely.
   std::string lastDiagnosticsPublishLayer;
   uint64_t lastDiagnosticsPublishEpoch = 0;
   int lastDiagnosticsPublishVersion = 0;
   std::string lastDiagnosticsPublishFingerprint;
+  uint64_t lastLocalStructuralPublishEpoch = 0;
+  int lastLocalStructuralPublishVersion = 0;
 };
 
 // Builds the shared analysis key for one document/version/context tuple.
