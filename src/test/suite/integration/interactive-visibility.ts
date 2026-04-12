@@ -11,6 +11,7 @@ import {
 	openFixture,
 	positionOf,
 	repoDescribe,
+	resolveMemberBaseForTests,
 	withTemporaryIntellisionPath,
 	waitForCompletionLabels,
 	waitForClientReady,
@@ -201,6 +202,41 @@ export function registerInteractiveVisibilityTests(): void {
 					'shared-visible signature help'
 				);
 				assert.ok(sig.signatures.some((item) => item.label.includes('SharedVisibleHelper')));
+			});
+		});
+
+		it('reports include_closure_decl when member-base resolution comes from the active unit include closure', async function () {
+			this.timeout(120000);
+
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+				const root = await openFixture('visibility_member_closure_root.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+				const fragment = await openFixture('visibility_member_closure_fragment.hlsli');
+				await waitFor(
+					() => getDocumentRuntimeDebug([fragment.uri.toString()]),
+					(value) =>
+						Array.isArray(value) &&
+						value[0]?.activeUnitPath?.toLowerCase().endsWith('visibility_member_closure_root.nsf'),
+					'fragment runtime bound to closure root active unit'
+				);
+
+				const resolution = await resolveMemberBaseForTests(
+					fragment.uri.toString(),
+					positionOf(fragment, 'SharedVisibleField', 1, 1).line,
+					positionOf(fragment, 'SharedVisibleField', 1, 1).character
+				);
+				assert.strictEqual(resolution.resolved, true, JSON.stringify(resolution));
+				assert.strictEqual(resolution.base, 'closureValue');
+				assert.strictEqual(resolution.typeName, 'SharedVisibleStruct');
+				assert.strictEqual(resolution.resolutionPath, 'include_closure_decl');
+
+				const debug = await getInteractiveRuntimeDebug(fragment.uri.toString());
+				assert.strictEqual(debug.lastMemberBaseSymbol, 'closureValue', JSON.stringify(debug));
+				assert.strictEqual(
+					debug.lastMemberBaseResolutionPath,
+					'include_closure_decl',
+					JSON.stringify(debug)
+				);
 			});
 		});
 

@@ -161,6 +161,8 @@ export type InteractiveRuntimeDebugResponse = {
 	lastQueryKind?: string;
 	lastResolvedLayer?: string;
 	lastSymbol?: string;
+	lastMemberBaseSymbol?: string;
+	lastMemberBaseResolutionPath?: string;
 };
 
 export async function getDocumentRuntimeDebug(
@@ -393,6 +395,29 @@ export async function getInteractiveRuntimeDebug(
 			),
 		(value) => typeof value?.uri === 'string' && value.uri.toLowerCase() === expectedUri,
 		'interactive runtime debug'
+	);
+}
+
+export type MemberBaseResolutionDebugResponse = {
+	resolved?: boolean;
+	typeName?: string;
+	resolutionPath?: string;
+	base?: string;
+};
+
+export async function resolveMemberBaseForTests(
+	uri: string,
+	line: number,
+	character: number
+): Promise<MemberBaseResolutionDebugResponse> {
+	return waitFor(
+		() =>
+			vscode.commands.executeCommand<MemberBaseResolutionDebugResponse>(
+				'nsf._resolveMemberBaseForTests',
+				{ uri, line, character }
+			),
+		(value) => typeof value === 'object' && value !== null,
+		'member-base resolution debug'
 	);
 }
 

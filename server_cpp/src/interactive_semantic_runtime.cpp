@@ -1443,6 +1443,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       !result.typeName.empty()) {
     result.resolutionPath = "nearby_decl";
     result.resolved = true;
+    recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                               result.resolutionPath);
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
@@ -1466,6 +1468,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       result.typeName = publishedType;
       result.resolutionPath = "published_current_snapshot";
       result.resolved = true;
+      recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                                 result.resolutionPath);
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeCurrentDocHits++;
       });
@@ -1480,6 +1484,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       result.typeName = publishedType;
       result.resolutionPath = "published_last_good_snapshot";
       result.resolved = true;
+      recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                                 result.resolutionPath);
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeLastGoodHits++;
       });
@@ -1494,6 +1500,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       result.typeName = publishedType;
       result.resolutionPath = "published_deferred_snapshot";
       result.resolved = true;
+      recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                                 result.resolutionPath);
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeDeferredDocHits++;
       });
@@ -1505,6 +1513,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       result.typeName = publishedType;
       result.resolutionPath = "shared_visible_shard";
       result.resolved = true;
+      recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                                 result.resolutionPath);
       recordInteractiveRuntimeDebug(uri, "member-base", "shared-visible", base);
       return result;
     }
@@ -1521,6 +1531,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       !result.typeName.empty()) {
     result.resolutionPath = "cached_active_lines_decl";
     result.resolved = true;
+    recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                               result.resolutionPath);
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
@@ -1538,6 +1550,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       !result.typeName.empty()) {
     result.resolutionPath = "include_aware_decl";
     result.resolved = true;
+    recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                               result.resolutionPath);
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
@@ -1551,6 +1565,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       !result.typeName.empty()) {
     result.resolutionPath = "raw_decl";
     result.resolved = true;
+    recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                               result.resolutionPath);
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
@@ -1564,8 +1580,11 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
   if (!result.typeName.empty())
     result.resolutionPath = "interactive_hover_type";
   result.resolved = !result.typeName.empty();
-  if (result.resolved)
+  if (result.resolved) {
+    recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                               result.resolutionPath);
     return result;
+  }
 
   const PreprocessorView preprocessorView =
       buildPreprocessorView(doc.text, ctx.preprocessorDefines, includeContext);
@@ -1590,6 +1609,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
     }
     result.resolutionPath = "active_include_decl";
     result.resolved = true;
+    recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                               result.resolutionPath);
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeCurrentDocHits++;
     });
@@ -1618,6 +1639,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       }
       result.resolutionPath = "include_closure_decl";
       result.resolved = true;
+      recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                                 result.resolutionPath);
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeCurrentDocHits++;
       });
@@ -1630,6 +1653,8 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
     result.resolved = !result.typeName.empty();
     if (result.resolved) {
       result.resolutionPath = "workspace_symbol_type";
+      recordInteractiveMemberBaseResolutionDebug(uri, base,
+                                                 result.resolutionPath);
       recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
         state.mergeWorkspaceSummaryHits++;
       });
@@ -1923,8 +1948,43 @@ void recordInteractiveRuntimeDebug(const std::string &uri,
       gInteractiveRuntimeDebugByUri.erase(evictKey);
     }
   }
-  gInteractiveRuntimeDebugByUri[key] =
-      InteractiveRuntimeDebugSnapshot{uri, queryKind, layer, symbol};
+  InteractiveRuntimeDebugSnapshot snapshot;
+  auto existing = gInteractiveRuntimeDebugByUri.find(key);
+  if (existing != gInteractiveRuntimeDebugByUri.end()) {
+    snapshot = existing->second;
+  }
+  snapshot.uri = uri;
+  snapshot.lastQueryKind = queryKind;
+  snapshot.lastResolvedLayer = layer;
+  snapshot.lastSymbol = symbol;
+  gInteractiveRuntimeDebugByUri[key] = std::move(snapshot);
+}
+
+void recordInteractiveMemberBaseResolutionDebug(
+    const std::string &uri, const std::string &base,
+    const std::string &resolutionPath) {
+  std::lock_guard<std::mutex> lock(gInteractiveRuntimeDebugMutex);
+  const std::string key = normalizeInteractiveRuntimeDebugUriKey(uri);
+  if (gInteractiveRuntimeDebugByUri.find(key) ==
+      gInteractiveRuntimeDebugByUri.end()) {
+    gInteractiveRuntimeDebugInsertionOrder.push_back(key);
+    while (gInteractiveRuntimeDebugInsertionOrder.size() >
+           kInteractiveRuntimeDebugMaxEntries) {
+      const std::string evictKey =
+          gInteractiveRuntimeDebugInsertionOrder.front();
+      gInteractiveRuntimeDebugInsertionOrder.pop_front();
+      gInteractiveRuntimeDebugByUri.erase(evictKey);
+    }
+  }
+  InteractiveRuntimeDebugSnapshot snapshot;
+  auto existing = gInteractiveRuntimeDebugByUri.find(key);
+  if (existing != gInteractiveRuntimeDebugByUri.end()) {
+    snapshot = existing->second;
+  }
+  snapshot.uri = uri;
+  snapshot.lastMemberBaseSymbol = base;
+  snapshot.lastMemberBaseResolutionPath = resolutionPath;
+  gInteractiveRuntimeDebugByUri[key] = std::move(snapshot);
 }
 
 InteractiveRuntimeDebugSnapshot

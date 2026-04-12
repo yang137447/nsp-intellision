@@ -1,0 +1,2 @@
+    return closureValue.SharedVisibleField;
+}

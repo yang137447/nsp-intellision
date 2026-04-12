@@ -1,0 +1,8 @@
+#include "visibility_member_types.hlsli"
+#include "visibility_member_closure_decl.hlsli"
+#include "visibility_member_closure_fragment.hlsli"
+
+float4 main_ps() : SV_Target
+{
+    return closureHelper(float4(1, 1, 1, 1));
+}

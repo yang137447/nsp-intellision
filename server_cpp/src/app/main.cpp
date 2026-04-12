@@ -2082,6 +2082,10 @@ int main(int argc, char **argv) {
           result.o["lastResolvedLayer"] =
               makeString(snapshot.lastResolvedLayer);
           result.o["lastSymbol"] = makeString(snapshot.lastSymbol);
+          result.o["lastMemberBaseSymbol"] =
+              makeString(snapshot.lastMemberBaseSymbol);
+          result.o["lastMemberBaseResolutionPath"] =
+              makeString(snapshot.lastMemberBaseResolutionPath);
         }
       }
       if (id.type != Json::Type::Null)
@@ -2237,6 +2241,10 @@ int main(int argc, char **argv) {
           result.o["lastResolvedLayer"] =
               makeString(snapshot.lastResolvedLayer);
           result.o["lastSymbol"] = makeString(snapshot.lastSymbol);
+          result.o["lastMemberBaseSymbol"] =
+              makeString(snapshot.lastMemberBaseSymbol);
+          result.o["lastMemberBaseResolutionPath"] =
+              makeString(snapshot.lastMemberBaseResolutionPath);
         }
       }
       if (id.type != Json::Type::Null)

@@ -27,7 +27,11 @@ struct ServerRequestContext;
 //   shared-visible shard -> deferred document snapshot -> workspace summary
 // - member-access base-type:
 //   current interactive snapshot -> last-good interactive snapshot ->
-//   deferred document snapshot -> shared-visible shard -> workspace summary
+//   deferred document snapshot -> shared-visible shard ->
+//   active-include-decl helper -> workspace summary
+//   where active-include-decl is the bounded active include / active-unit
+//   include-closure declaration scan used only for symbols not yet materialized
+//   into typed shared-visible data
 // Completion merge contract:
 // - layers are appended in the priority order above
 // - candidates are deduped by label across layers
@@ -82,12 +86,17 @@ struct InteractiveRuntimeDebugSnapshot {
   std::string lastResolvedLayer;
   // For completion queries this stores the query/prefix text.
   std::string lastSymbol;
+  std::string lastMemberBaseSymbol;
+  std::string lastMemberBaseResolutionPath;
 };
 
 void recordInteractiveRuntimeDebug(const std::string &uri,
                                    const std::string &queryKind,
                                    const std::string &layer,
                                    const std::string &symbol);
+void recordInteractiveMemberBaseResolutionDebug(
+    const std::string &uri, const std::string &base,
+    const std::string &resolutionPath);
 InteractiveRuntimeDebugSnapshot
 getInteractiveRuntimeDebugSnapshot(const std::string &uri);
 

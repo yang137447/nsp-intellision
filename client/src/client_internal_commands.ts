@@ -69,6 +69,8 @@ export type InteractiveRuntimeDebugResponse = {
 	lastQueryKind?: string;
 	lastResolvedLayer?: string;
 	lastSymbol?: string;
+	lastMemberBaseSymbol?: string;
+	lastMemberBaseResolutionPath?: string;
 };
 
 export type InternalCommandDeps = {
@@ -170,6 +172,20 @@ export function registerInternalCommands(
 	context.subscriptions.push(
 		commands.registerCommand('nsf._getInteractiveRuntimeDebug', async (args?: { uri?: string }) =>
 			deps.getInteractiveRuntimeDebug(args ?? {})
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand(
+			'nsf._resolveMemberBaseForTests',
+			async (args?: { uri?: string; line?: number; character?: number }) => {
+				const response = await deps.sendServerRequest('nsf/_debugMemberCompletion', args ?? {});
+				return {
+					resolved: Boolean(response?.resolved),
+					typeName: String(response?.resolvedType ?? ''),
+					resolutionPath: String(response?.resolutionPath ?? ''),
+					base: String(response?.base ?? '')
+				};
+			}
 		)
 	);
 	context.subscriptions.push(
