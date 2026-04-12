@@ -187,7 +187,7 @@ realDescribe('NSF real workspace smoke', () => {
 		assert.ok(
 			directIncludeBasenames.includes('base_pass_vertex_shader.hlsl') ||
 				directIncludeBasenames.includes('cloud.nsf'),
-			'Expected direct include definition to resolve to base_pass_vertex_shader.hlsl or cloud.nsf.'
+			`Expected direct include definition to resolve to base_pass_vertex_shader.hlsl or cloud.nsf. Actual=${directIncludeBasenames.join(', ')}`
 		);
 
 		const localDefinitionPosition = positionOf(buildingDocument, 'diffuse_color', 4, 3);

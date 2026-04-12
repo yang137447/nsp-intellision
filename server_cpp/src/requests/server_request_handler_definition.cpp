@@ -140,6 +140,26 @@ bool request_definition_handlers::handleDefinitionRequest(
       return true;
     }
   }
+  if (!looksLikeCall) {
+    const auto currentUnitStartedAt = std::chrono::steady_clock::now();
+    std::vector<CurrentUnitFunctionTarget> currentUnitTargets;
+    if (collectCurrentUnitFunctionTargets(uri, word, ctx,
+                                          currentUnitTargets)) {
+      recordDefinitionCurrentUnitCall(
+          std::chrono::duration<double, std::milli>(
+              std::chrono::steady_clock::now() - currentUnitStartedAt)
+              .count());
+      Json locations = makeArray();
+      for (const auto &target : currentUnitTargets) {
+        locations.a.push_back(makeLocationRange(target.definition.uri,
+                                                target.definition.line,
+                                                target.definition.start,
+                                                target.definition.end));
+      }
+      writeDefinitionResponse(locations);
+      return true;
+    }
+  }
   {
     DefinitionLocation workspaceLocation;
     if (pickBestWorkspaceDefinitionForCurrentContext(uri, word,

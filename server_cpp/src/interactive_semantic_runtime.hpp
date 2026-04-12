@@ -121,7 +121,7 @@ void interactiveCollectCompletionItems(
     const std::string &prefix, const ServerRequestContext &ctx,
     std::vector<InteractiveCompletionItem> &outItems);
 
-// Resolves a current-document definition target through interactive -> last-good
+// Resolves a definition target through current -> last-good -> shared-visible
 // -> deferred snapshots before considering workspace summary.
 bool interactiveResolveDefinitionLocation(const std::string &uri,
                                           const Document &doc,

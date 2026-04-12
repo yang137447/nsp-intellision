@@ -695,6 +695,53 @@ bool makeDefinitionLocationFromOffset(const std::string &uri,
   return true;
 }
 
+bool makeDefinitionLocationFromIndexedDefinition(
+    const IndexedDefinition &def, const std::string &symbol,
+    DefinitionLocation &outLocation) {
+  if (def.uri.empty() || def.line < 0 || def.start < 0)
+    return false;
+  outLocation.uri = def.uri;
+  outLocation.line = def.line;
+  outLocation.start = def.start;
+  outLocation.end = def.end > def.start
+                        ? def.end
+                        : def.start + static_cast<int>(symbol.size());
+  return true;
+}
+
+bool tryResolveDefinitionFromSharedVisible(
+    const InteractiveVisibilityKey &key, const std::string &symbol,
+    DefinitionLocation &outLocation) {
+  InteractiveVisibleSymbolShard shard;
+  if (!interactiveVisibilityRuntimeGet(key, shard))
+    return false;
+
+  std::vector<const IndexedDefinition *> matches;
+  std::unordered_set<std::string> seen;
+  auto appendMatches = [&](const std::vector<IndexedDefinition> &defs) {
+    for (const auto &def : defs) {
+      if (def.name != symbol || def.uri.empty() || def.line < 0 ||
+          def.start < 0) {
+        continue;
+      }
+      const std::string keyStr =
+          def.uri + "|" + std::to_string(def.line) + "|" +
+          std::to_string(def.start) + "|" + std::to_string(def.end);
+      if (!seen.insert(keyStr).second)
+        continue;
+      matches.push_back(&def);
+    }
+  };
+  appendMatches(shard.functions);
+  appendMatches(shard.globals);
+  appendMatches(shard.types);
+
+  if (matches.size() != 1)
+    return false;
+  return makeDefinitionLocationFromIndexedDefinition(*matches.front(), symbol,
+                                                     outLocation);
+}
+
 bool findFunctionParameterDefinition(const std::string &uri,
                                      const std::string &docText,
                                      const SemanticSnapshot::FunctionInfo &fn,
@@ -1268,6 +1315,13 @@ bool interactiveResolveDefinitionLocation(const std::string &uri,
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.mergeLastGoodHits++;
     });
+    return true;
+  }
+  if (hasRuntime &&
+      tryResolveDefinitionFromSharedVisible(runtime.interactiveVisibilityKey,
+                                           symbol, outLocation)) {
+    recordInteractiveRuntimeDebug(uri, "definition", "shared-visible",
+                                  symbol);
     return true;
   }
   if (deferred && deferred->semanticSnapshot &&

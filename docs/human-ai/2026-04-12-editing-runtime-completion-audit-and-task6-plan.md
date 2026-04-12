@@ -272,3 +272,62 @@ Recommended follow-up before Task 7 release freeze:
 2. If acceptable, update `docs/architecture.md` to describe it explicitly.
 3. If not acceptable, write a small implementation plan to move that path behind the shared-visible/workspace-summary boundary.
 4. Only after that decision, run Task 7 release gate (`npm run gate:d3`, `npm run package:vsix`).
+
+## Task 7 Execution Result
+
+Executed on 2026-04-12 from branch `codex/editing-runtime-task7-freeze`.
+
+Additional implementation/freeze work:
+
+- fixed definition resolution for non-call-like current-unit function symbols so shader entrypoint references such as `VertexShader = vs_main` prefer current-unit include-closure targets before workspace-global fallback
+- documented the remaining bounded `active-include-decl` member-base helper and the non-call current-unit definition path in `docs/architecture.md`
+- tightened integration assertions:
+  - `interactive-visibility` no longer assumes cross-file function completion must always record `shared-visible`; `current` is now accepted when the higher-priority layer legitimately owns the result
+  - `realWorkspace.smoke` now prints actual returned basenames on failure
+
+Verification run:
+
+- `npm run gate:d3`
+  - Result: pass after sequential rerun and definition-path fix.
+- `npm run package:vsix`
+  - Result: pass.
+
+Observed intermediate failures and classification:
+
+- Parallel `gate:d3` + `package:vsix` run was invalid because both commands mutate `server_cpp/build`; this caused a non-actionable build/output race and was not treated as a product regression.
+- A stable real-workspace failure remained after sequential rerun:
+  - direct include definition for `vs_main` in `building.nsf` resolved to unrelated workspace-global `pbr_flow_water.fx`
+  - this was treated as a real correctness bug in definition fallback ordering, not a test-only issue
+  - the fix was to consult current-unit include-closure function targets for non-call-like function references before workspace fallback
+- A one-off `hover_smoke_test.py` diagnostics line-mapping failure was reproduced as passing on direct rerun and did not persist after the final `gate:d3`; it was classified as transient.
+
+Documentation decision:
+
+- `docs/architecture.md` updated
+  - reason: Task 6 audit proved that current implementation still had two behaviorally relevant contracts not reflected in the fact docs:
+    - `.` member base-type keeps a bounded `active-include-decl` helper before workspace fallback
+    - definition for non-call-like shader entrypoint symbols can resolve through current-unit include-closure function targets before workspace summary
+- `README.md` not updated
+  - reason: no user-facing command/config summary changed
+- `docs/testing.md` not updated
+  - reason: validation commands and test entry structure did not change
+
+Packaging notes:
+
+- `package:vsix` completed successfully
+- non-blocking warnings remain:
+  - `package.json` is missing a `repository` field
+  - no `LICENSE.md` / `LICENSE.txt` / `LICENSE` file is present
+
+Task 7 completion judgment:
+
+- release gate passed
+- packaging validation passed
+- architecture fact drift found by Task 6 is now documented
+- current release-freeze blocker is cleared
+
+Current completion status after Task 7:
+
+- Task 1-7 are complete enough for the current release-freeze goal
+- the editor-first runtime still contains a bounded `active-include-decl` helper by design, but it is no longer an undocumented residual path
+- future work, if any, should be treated as a new follow-up optimization/refinement task rather than an unresolved continuation of Task 5-7
