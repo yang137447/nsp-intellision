@@ -29,24 +29,50 @@ type ReplayRecordingState = {
 	active: boolean;
 	meta: Record<string, unknown>;
 	rawEvents: RawReplayEvent[];
+	lastNormalizedTarget?: ReplayRecordingTarget;
+	lastRawEventKind?: RawReplayEvent['kind'];
+	suppressSelectionAfterEdit: boolean;
 };
 
+function buildWorkspaceFolderSuffix(folder: vscode.WorkspaceFolder): string {
+	const normalizedPath = folder.uri.fsPath.replace(/\\/g, '/');
+	const parts = normalizedPath.split('/').filter((segment) => segment.length > 0);
+	const worktreesIndex = parts.lastIndexOf('.worktrees');
+	if (worktreesIndex > 0) {
+		return parts[worktreesIndex - 1];
+	}
+	return folder.name;
+}
+
 function buildSelectionTarget(document: vscode.TextDocument, position: vscode.Position): ReplayRecordingTarget | undefined {
+	const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+	if (!folder) {
+		return undefined;
+	}
+	const relativePathRaw = path.relative(folder.uri.fsPath, document.uri.fsPath);
+	const relativePath = relativePathRaw.replace(/\\/g, '/');
+	if (relativePath.startsWith('..')) {
+		return undefined;
+	}
 	const lineIndex = Math.min(Math.max(position.line, 0), Math.max(document.lineCount - 1, 0));
 	const lineText = document.lineAt(lineIndex).text;
-	const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-	const workspaceFolderSuffix =
-		folder?.uri.fsPath.replace(/\\/g, '/') ?? document.uri.fsPath.replace(/\\/g, '/');
-	const relativePath = folder
-		? path.relative(folder.uri.fsPath, document.uri.fsPath).replace(/\\/g, '/')
-		: document.uri.fsPath.replace(/\\/g, '/');
 	return {
-		workspaceFolderSuffix,
+		workspaceFolderSuffix: buildWorkspaceFolderSuffix(folder),
 		relativePath,
 		anchorText: lineText,
 		occurrence: 1,
 		characterOffset: position.character
 	};
+}
+
+function areTargetsEqual(a: ReplayRecordingTarget, b: ReplayRecordingTarget): boolean {
+	return (
+		a.workspaceFolderSuffix === b.workspaceFolderSuffix &&
+		a.relativePath === b.relativePath &&
+		a.anchorText === b.anchorText &&
+		(a.characterOffset ?? 0) === (b.characterOffset ?? 0) &&
+		(a.occurrence ?? 1) === (b.occurrence ?? 1)
+	);
 }
 
 function normalizeEvent(event: RawReplayEvent): ReplayRecordingStep | null {
@@ -63,13 +89,59 @@ function normalizeEvent(event: RawReplayEvent): ReplayRecordingStep | null {
 }
 
 export function createRealWorkspaceReplayRecorder() {
-	const state: ReplayRecordingState = { active: false, meta: {}, rawEvents: [] };
+	const state: ReplayRecordingState = {
+		active: false,
+		meta: {},
+		rawEvents: [],
+		lastNormalizedTarget: undefined,
+		lastRawEventKind: undefined,
+		suppressSelectionAfterEdit: false
+	};
 
 	const pushEvent = (event: RawReplayEvent): void => {
 		if (!state.active) {
 			return;
 		}
 		state.rawEvents.push(event);
+		state.lastRawEventKind = event.kind;
+		if (event.kind === 'insert' || event.kind === 'delete') {
+			state.suppressSelectionAfterEdit = true;
+		} else if (event.kind === 'selection') {
+			state.suppressSelectionAfterEdit = false;
+		}
+	};
+
+	const recordSelectionTarget = (target: ReplayRecordingTarget): void => {
+		if (!state.active) {
+			return;
+		}
+		if (state.suppressSelectionAfterEdit) {
+			state.suppressSelectionAfterEdit = false;
+			return;
+		}
+		const sameTarget =
+			state.lastNormalizedTarget !== undefined && areTargetsEqual(target, state.lastNormalizedTarget);
+		if (sameTarget) {
+			if (state.lastRawEventKind === 'insert' || state.lastRawEventKind === 'delete') {
+				return;
+			}
+			if (state.lastRawEventKind === 'selection') {
+				return;
+			}
+		}
+		state.lastNormalizedTarget = target;
+		pushEvent({ kind: 'selection', target });
+	};
+
+	const captureInitialSelection = (): void => {
+		const windowEditor = vscode.window.activeTextEditor;
+		if (!windowEditor) {
+			return;
+		}
+		const selectionTarget = buildSelectionTarget(windowEditor.document, windowEditor.selection.active);
+		if (selectionTarget) {
+			recordSelectionTarget(selectionTarget);
+		}
 	};
 
 	const disposables = [
@@ -80,7 +152,7 @@ export function createRealWorkspaceReplayRecorder() {
 			}
 			const target = buildSelectionTarget(event.textEditor.document, selection.active);
 			if (target) {
-				pushEvent({ kind: 'selection', target });
+				recordSelectionTarget(target);
 			}
 		}),
 		vscode.workspace.onDidChangeTextDocument((event) => {
@@ -102,6 +174,10 @@ export function createRealWorkspaceReplayRecorder() {
 			state.active = true;
 			state.meta = { ...(meta ?? {}) };
 			state.rawEvents = [];
+			state.lastNormalizedTarget = undefined;
+			state.lastRawEventKind = undefined;
+			state.suppressSelectionAfterEdit = false;
+			captureInitialSelection();
 		},
 		stop(): ReplayRecordingDraft {
 			state.active = false;
@@ -115,6 +191,9 @@ export function createRealWorkspaceReplayRecorder() {
 			};
 			state.meta = {};
 			state.rawEvents = [];
+			state.lastNormalizedTarget = undefined;
+			state.lastRawEventKind = undefined;
+			state.suppressSelectionAfterEdit = false;
 			return draft;
 		},
 		dispose() {

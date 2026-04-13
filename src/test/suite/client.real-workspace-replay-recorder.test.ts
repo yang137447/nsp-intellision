@@ -18,12 +18,29 @@ repoDescribe('NSF real workspace replay recorder', () => {
 		await vscode.commands.executeCommand('type', { text: 'X' });
 		await vscode.commands.executeCommand('deleteLeft');
 
-		const recorded = await vscode.commands.executeCommand<{ steps?: Array<{ kind: string }> }>(
-			'nsf._stopReplayRecording'
-		);
+		const recorded = await vscode.commands.executeCommand<{
+			workspaceHint?: string;
+			steps?: Array<{
+				kind: string;
+				target?: { workspaceFolderSuffix?: string; relativePath?: string; anchorText?: string };
+				payload?: { text?: string; count?: number };
+			}>;
+		}>('nsf._stopReplayRecording');
 
+		assert.strictEqual(recorded?.workspaceHint, 'repo-fixture');
 		assert.ok(Array.isArray(recorded?.steps));
-		assert.ok(recorded!.steps!.some((step) => step.kind === 'typeText'));
-		assert.ok(recorded!.steps!.some((step) => step.kind === 'deleteLeft'));
+		const steps = recorded!.steps!;
+		assert.strictEqual(steps.length, 3);
+		assert.strictEqual(steps[0].kind, 'placeCursor');
+		assert.strictEqual(
+			steps[0].target?.workspaceFolderSuffix?.toLowerCase(),
+			'nsp-intellision'
+		);
+		assert.strictEqual(steps[0].target?.relativePath, 'test_files/module_completion_current_doc.nsf');
+		assert.strictEqual(steps[0].target?.anchorText, document.lineAt(0).text);
+		assert.strictEqual(steps[1].kind, 'typeText');
+		assert.strictEqual(steps[1].payload?.text, 'X');
+		assert.strictEqual(steps[2].kind, 'deleteLeft');
+		assert.strictEqual(steps[2].payload?.count, 1);
 	});
 });
