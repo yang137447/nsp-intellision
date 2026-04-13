@@ -72,6 +72,7 @@ export type ReplayScript = {
 export type ReplaySampleSnapshot = {
 	offsetMs: number;
 	internalStatus?: any;
+	baselineInternalStatus?: any;
 	latestMetrics?: any;
 	runtimeDebug?: any;
 	interactiveDebug?: any;

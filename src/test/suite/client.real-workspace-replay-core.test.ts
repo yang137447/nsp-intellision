@@ -10,8 +10,8 @@ import { detectReplayAnomalies } from '../replay/real_workspace_replay_analyzer'
 repoDescribe('NSF real workspace replay core', () => {
 	it('resolves an anchor against a repository fixture', async () => {
 		const document = await openFixture('module_completion_current_doc.nsf');
-			const anchor: ReplayAnchor = {
-				workspaceFolderSuffix: 'nsp-intellision',
+		const anchor: ReplayAnchor = {
+			workspaceFolderSuffix: 'nsp-intellision',
 			relativePath: 'test_files/module_completion_current_doc.nsf',
 			anchorText: 'CompletionDocHelper',
 			occurrence: 1,
@@ -106,5 +106,55 @@ repoDescribe('NSF real workspace replay core', () => {
 		};
 		const anomalies = detectReplayAnomalies(step, []);
 		assert.deepStrictEqual(anomalies, []);
+	});
+
+	it('succeeds when baseline/nodal sample shows a new completion request', () => {
+		const step: ReplayStep = {
+			kind: 'typeText',
+			label: 'type prefix',
+			payload: { text: 'Pix' },
+			afterActionPauseMs: 0,
+			samplingWindow: {
+				label: 'completion-window',
+				delaysMs: [0]
+			}
+		};
+
+		const anomalies = detectReplayAnomalies(step, [
+			{
+				offsetMs: 0,
+				baselineInternalStatus: { completionRequestCount: 0 },
+				internalStatus: { completionRequestCount: 1 }
+			}
+		]);
+
+		assert.ok(!anomalies.includes('completion-request-not-observed'));
+	});
+
+	it('reports anomaly when counts stay at or below the baseline', () => {
+		const step: ReplayStep = {
+			kind: 'typeText',
+			label: 'type prefix',
+			payload: { text: 'Pix' },
+			afterActionPauseMs: 0,
+			samplingWindow: {
+				label: 'completion-window',
+				delaysMs: [0, 30]
+			}
+		};
+
+		const anomalies = detectReplayAnomalies(step, [
+			{
+				offsetMs: 0,
+				baselineInternalStatus: { completionRequestCount: 3 },
+				internalStatus: { completionRequestCount: 3 }
+			},
+			{
+				offsetMs: 30,
+				internalStatus: { completionRequestCount: 3 }
+			}
+		]);
+
+		assert.ok(anomalies.includes('completion-request-not-observed'));
 	});
 });

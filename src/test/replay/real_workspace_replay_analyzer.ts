@@ -9,9 +9,16 @@ export function detectReplayAnomalies(step: ReplayStep, samples: ReplaySampleSna
 	const windowLabel = step.samplingWindow?.label.toLowerCase() ?? '';
 
 	const counterObserved = (field: string) => {
-		const baselineCount = samples[0].internalStatus?.[field];
-		const baselineIsNumber = typeof baselineCount === 'number';
-		if (baselineIsNumber && baselineCount > 0) {
+		const baselineCount = samples[0].baselineInternalStatus?.[field];
+		if (typeof baselineCount === 'number') {
+			return samples.some((sample) => {
+				const current = sample.internalStatus?.[field];
+				return typeof current === 'number' && current > baselineCount;
+			});
+		}
+
+		const firstCount = samples[0].internalStatus?.[field];
+		if (typeof firstCount === 'number' && firstCount > 0) {
 			return true;
 		}
 		if (samples.length <= 1) {
