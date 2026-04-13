@@ -136,6 +136,25 @@
 - `M4` shared analysis context / deferred-doc：active unit 切换下的 interactive 延迟，以及 medium / large 文档 semantic tokens 与 inlay hints 预算
 - `M5` workspace summary / reverse-include smoke：idle references / prepareRename / rename，以及 `Load-WS` 下的 completion 隔离
 
+### `npm run test:client:real:replay`
+
+用途：
+
+- 运行真实 workspace 的 replay suite，在真实项目输入路径上回放短交互脚本
+- 采集每一步的 wall-clock、`nsf._getInternalStatus` / `nsf._getLatestMetrics` snapshot 以及 anomaly 判断
+- 将 JSON 报告写到 repo 拥有的 `out/test/perf-reports/real-replay/` 目录，便于追踪趋势
+
+适用场景：
+
+- 排查持续真实输入下 completion、signature help、member completion、diagnostics 等交互阶段的延迟与阻塞
+- 对比架构改造前后的真实交互时序差异，或做长期分析而非硬性 gating
+
+说明：
+
+- 该 suite 目前保持 analysis-first 策略，只输出 soft anomaly 报告，不设硬性 perf gate
+- 可通过环境变量 `NSF_TEST_REAL_REPLAY_SCRIPT_FILTER` 只运行特定脚本子集，便于聚焦页面或能力
+- 报告都会落在 repo-owned 的 `out/test/perf-reports/real-replay/` 目录，方便后续审计与对齐
+
 ### `npm run gate:d3`
 
 用途：
