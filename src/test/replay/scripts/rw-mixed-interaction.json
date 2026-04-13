@@ -9,7 +9,7 @@
     "occurrence": 1,
     "characterOffset": 0
   },
-  "intent": "Measure chained completion, signature-help, and hover timing inside one short editing flow.",
+  "intent": "Measure chained completion and signature-help timing inside one short editing flow.",
   "tags": ["interactive", "mixed", "real-workspace"],
   "steps": [
     {

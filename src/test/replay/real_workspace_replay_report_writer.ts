@@ -1,10 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { getWorkspaceRoot } from '../suite/test_helpers';
-
 export function writeReplayReport(reportName: string, report: unknown): string {
-	const reportDir = path.join(getWorkspaceRoot(), 'out', 'test', 'perf-reports', 'real-replay');
+	const repoRoot = path.resolve(__dirname, '..', '..', '..');
+	const reportDir = path.join(repoRoot, 'out', 'test', 'perf-reports', 'real-replay');
 	fs.mkdirSync(reportDir, { recursive: true });
 	const safeName = reportName.replace(/[^a-z0-9._-]+/gi, '_').toLowerCase();
 	const reportPath = path.join(reportDir, `${safeName}.json`);
