@@ -5,6 +5,7 @@ import { repoDescribe } from './test_helpers';
 import type { ReplayScript } from '../replay/real_workspace_replay_types';
 import { runReplayScript } from '../replay/real_workspace_replay_runner';
 import { resolveReplayAnchor } from '../replay/real_workspace_replay_targets';
+import { sampleReplayWindow } from '../replay/real_workspace_replay_sampler';
 
 repoDescribe('NSF real workspace replay runner', () => {
     it('replays a short script, samples properly, and restores documents', async function () {
@@ -92,5 +93,19 @@ repoDescribe('NSF real workspace replay runner', () => {
 
         const afterCleanup = await vscode.workspace.openTextDocument(resolvedAnchor.uri);
         assert.strictEqual(afterCleanup.getText(anchorRange), anchor.anchorText);
+    });
+
+    it('passes through an explicit baseline to sampled windows', async function () {
+        const baseline = { completionRequestCount: 12345, signatureHelpRequestCount: 98765 };
+        const step: ReplayScript['steps'][number] = {
+            kind: 'typeText',
+            label: 'inspect baseline',
+            payload: { text: 'A' },
+            samplingWindow: { label: 'baseline-window', delaysMs: [0] }
+        };
+        const samples = await sampleReplayWindow(step, undefined, baseline);
+        assert.strictEqual(samples.length, 1);
+        assert.strictEqual(samples[0].baselineInternalStatus?.completionRequestCount, baseline.completionRequestCount);
+        assert.strictEqual(samples[0].baselineInternalStatus?.signatureHelpRequestCount, baseline.signatureHelpRequestCount);
     });
 });
