@@ -72,12 +72,22 @@ repoDescribe('NSF real workspace replay runner', () => {
         );
         await vscode.workspace.applyEdit(restoreEdit);
 
+        const baselineStatus = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
+        assert.ok(baselineStatus, 'expected pre-step internal status');
+
         const report = await runReplayScript(scriptBase);
         assert.strictEqual(report.scriptId, 'repo-runner-smoke');
         assert.strictEqual(report.steps.length, 2);
         assert.strictEqual(report.steps[1].samples.length, 3);
         report.steps[1].samples.forEach((sample) => {
-            assert.ok(sample.baselineInternalStatus !== undefined);
+            assert.strictEqual(
+                sample.baselineInternalStatus?.completionRequestCount,
+                baselineStatus.completionRequestCount
+            );
+            assert.strictEqual(
+                sample.baselineInternalStatus?.signatureHelpRequestCount,
+                baselineStatus.signatureHelpRequestCount
+            );
         });
 
         const afterCleanup = await vscode.workspace.openTextDocument(resolvedAnchor.uri);
