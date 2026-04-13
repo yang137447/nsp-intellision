@@ -1,0 +1,59 @@
+{
+  "id": "rw-diagnostics-delete-restore",
+  "title": "Real workspace diagnostics delete and restore",
+  "workspaceHint": "shader-source",
+  "targetDocument": {
+    "workspaceFolderSuffix": "shader-source",
+    "relativePath": "base/building.nsf",
+    "anchorText": "half4 diffuse_color = (half4)0;",
+    "occurrence": 1,
+    "characterOffset": 0
+  },
+  "intent": "Measure diagnostics timing after deleting and restoring a terminating token.",
+  "tags": ["diagnostics", "edit-latency", "real-workspace"],
+  "steps": [
+    {
+      "kind": "openDocument",
+      "label": "open diagnostics document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "base/building.nsf",
+        "anchorText": "half4 diffuse_color = (half4)0;",
+        "occurrence": 1,
+        "characterOffset": 0
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor near semicolon",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "base/building.nsf",
+        "anchorText": ";",
+        "occurrence": 1,
+        "characterOffset": 1
+      }
+    },
+    {
+      "kind": "deleteLeft",
+      "label": "delete semicolon",
+      "payload": { "count": 1 },
+      "samplingWindow": {
+        "label": "diagnostics-delete-window",
+        "delaysMs": [0, 30, 80, 160, 320],
+        "captureRuntimeDebug": true
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "restore semicolon",
+      "payload": { "text": ";" },
+      "samplingWindow": {
+        "label": "diagnostics-restore-window",
+        "delaysMs": [0, 30, 80, 160, 320],
+        "captureRuntimeDebug": true
+      }
+    }
+  ],
+  "cleanup": { "restoreTouchedDocuments": true }
+}

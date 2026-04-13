@@ -1,0 +1,46 @@
+{
+  "id": "rw-member-chain",
+  "title": "Real workspace member completion chain",
+  "workspaceHint": "shader-source",
+  "targetDocument": {
+    "workspaceFolderSuffix": "shader-source",
+    "relativePath": "sfx/uber_fx_common.nsf",
+    "anchorText": "addmaskdistort2UV.x",
+    "occurrence": 1,
+    "characterOffset": 0
+  },
+  "intent": "Measure member completion latency after trimming a member access down to base-dot.",
+  "tags": ["interactive", "member-completion", "real-workspace"],
+  "steps": [
+    {
+      "kind": "openDocument",
+      "label": "open member completion document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": "addmaskdistort2UV.x",
+        "occurrence": 1,
+        "characterOffset": 0
+      }
+    },
+    {
+      "kind": "selectRange",
+      "label": "select member suffix",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": ".x",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": { "startOffset": 0, "endOffset": 2 }
+    },
+    {
+      "kind": "typeText",
+      "label": "type member prefix",
+      "payload": { "text": ".x" },
+      "samplingWindow": { "label": "member-window", "delaysMs": [0, 30, 80, 160, 320] }
+    }
+  ],
+  "cleanup": { "restoreTouchedDocuments": true }
+}

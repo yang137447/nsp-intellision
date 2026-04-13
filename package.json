@@ -25,6 +25,7 @@
 		"test:client:repo": "npm run compile && node .\\out\\test\\runCodeTests.js --mode repo",
 		"test:client:repo:m4": "npm run compile && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-shared-key && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-active-unit && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-defines && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-include && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-workspace",
 		"test:client:real": "npm run compile && node .\\out\\test\\runCodeTests.js --mode real --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\"",
+		"test:client:real:replay": "npm run compile && node .\\out\\test\\runCodeTests.js --mode real --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\" --file-filter realWorkspace.replay",
 		"test:client:real:perf": "npm run compile && node .\\out\\test\\runCodeTests.js --mode perf --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\" --file-filter realWorkspace.perf",
 		"test:client:all": "npm run compile && node .\\out\\test\\runCodeTests.js --mode repo && node .\\out\\test\\runCodeTests.js --mode real --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\"",
 		"test:client:perf": "npm run compile && node .\\out\\test\\runCodeTests.js --mode perf --file-filter perf",
