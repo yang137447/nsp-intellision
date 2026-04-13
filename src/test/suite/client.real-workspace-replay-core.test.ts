@@ -7,8 +7,8 @@ import { resolveReplayAnchor } from '../replay/real_workspace_replay_targets';
 import { detectReplayAnomalies } from '../replay/real_workspace_replay_analyzer';
 
 repoDescribe('NSF real workspace replay core', () => {
-		it('resolves an anchor against a repository fixture', async () => {
-			const document = await openFixture('module_completion_current_doc.nsf');
+	it('resolves an anchor against a repository fixture', async () => {
+		const document = await openFixture('module_completion_current_doc.nsf');
 			const anchor: ReplayAnchor = {
 				workspaceFolderSuffix: 'nsp-intellision',
 			relativePath: 'test_files/module_completion_current_doc.nsf',
@@ -23,6 +23,24 @@ repoDescribe('NSF real workspace replay core', () => {
 		);
 
 		assert.strictEqual(text, 'CompletionDocHelper');
+		assert.ok(
+			resolved.uri.fsPath.replace(/\\/g, '/').toLowerCase().endsWith(
+				'test_files/module_completion_current_doc.nsf'
+			)
+		);
+	});
+
+	it('resolves when the suffix is provided with Windows separators', async () => {
+		const document = await openFixture('module_completion_current_doc.nsf');
+		const anchor: ReplayAnchor = {
+			workspaceFolderSuffix: 'nsp-intellision\\.worktrees\\real-workspace-replay-testing',
+			relativePath: 'test_files/module_completion_current_doc.nsf',
+			anchorText: 'CompletionDocHelper',
+			occurrence: 1,
+			characterOffset: 0
+		};
+
+		const resolved = await resolveReplayAnchor(anchor);
 		assert.ok(
 			resolved.uri.fsPath.replace(/\\/g, '/').toLowerCase().endsWith(
 				'test_files/module_completion_current_doc.nsf'

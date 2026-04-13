@@ -6,7 +6,7 @@ import type { ReplayAnchor } from './real_workspace_replay_types';
 export async function resolveReplayAnchor(
 	anchor: ReplayAnchor
 ): Promise<{ uri: vscode.Uri; position: vscode.Position }> {
-	const normalizedSuffix = anchor.workspaceFolderSuffix.toLowerCase();
+	const normalizedSuffix = anchor.workspaceFolderSuffix.replace(/\\/g, '/').toLowerCase();
 	const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
 	let folder: vscode.WorkspaceFolder | undefined;
 	for (const item of workspaceFolders) {
