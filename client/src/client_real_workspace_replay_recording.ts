@@ -41,7 +41,7 @@ function buildWorkspaceFolderSuffix(folder: vscode.WorkspaceFolder): string {
 	if (worktreesIndex > 0) {
 		return parts[worktreesIndex - 1];
 	}
-	return folder.name;
+	return parts.length > 0 ? parts[parts.length - 1] : folder.name;
 }
 
 function buildSelectionTarget(document: vscode.TextDocument, position: vscode.Position): ReplayRecordingTarget | undefined {

@@ -22,7 +22,13 @@ repoDescribe('NSF real workspace replay recorder', () => {
 			workspaceHint?: string;
 			steps?: Array<{
 				kind: string;
-				target?: { workspaceFolderSuffix?: string; relativePath?: string; anchorText?: string };
+				target?: {
+					workspaceFolderSuffix?: string;
+					relativePath?: string;
+					anchorText?: string;
+					characterOffset?: number;
+					occurrence?: number;
+				};
 				payload?: { text?: string; count?: number };
 			}>;
 		}>('nsf._stopReplayRecording');
@@ -38,6 +44,8 @@ repoDescribe('NSF real workspace replay recorder', () => {
 		);
 		assert.strictEqual(steps[0].target?.relativePath, 'test_files/module_completion_current_doc.nsf');
 		assert.strictEqual(steps[0].target?.anchorText, document.lineAt(0).text);
+		assert.strictEqual(steps[0].target?.characterOffset, 0);
+		assert.strictEqual(steps[0].target?.occurrence, 1);
 		assert.strictEqual(steps[1].kind, 'typeText');
 		assert.strictEqual(steps[1].payload?.text, 'X');
 		assert.strictEqual(steps[2].kind, 'deleteLeft');
