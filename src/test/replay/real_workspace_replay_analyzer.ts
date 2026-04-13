@@ -8,28 +8,32 @@ export function detectReplayAnomalies(step: ReplayStep, samples: ReplaySampleSna
 
 	const windowLabel = step.samplingWindow?.label.toLowerCase() ?? '';
 
-	const counterIncreased = (field: string) => {
-		let previous: number | undefined;
-		for (const sample of samples) {
-			const current = sample.internalStatus?.[field];
-			if (typeof current !== 'number') {
-				continue;
-			}
-			if (previous !== undefined && current > previous) {
+	const counterObserved = (field: string) => {
+		const baselineCount = samples[0].internalStatus?.[field];
+		const baselineIsNumber = typeof baselineCount === 'number';
+		if (baselineIsNumber && baselineCount > 0) {
+			return true;
+		}
+		if (samples.length <= 1) {
+			return true;
+		}
+		for (let index = 1; index < samples.length; index++) {
+			const previous = samples[index - 1].internalStatus?.[field];
+			const current = samples[index].internalStatus?.[field];
+			if (typeof previous === 'number' && typeof current === 'number' && current > previous) {
 				return true;
 			}
-			previous = current;
 		}
 		return false;
 	};
 
 	if (windowLabel.includes('completion') || windowLabel.includes('member')) {
-		if (!counterIncreased('completionRequestCount')) {
+		if (!counterObserved('completionRequestCount')) {
 			anomalies.push('completion-request-not-observed');
 		}
 	}
 	if (windowLabel.includes('signature') || (step.kind === 'typeText' && step.payload.text.includes('('))) {
-		if (!counterIncreased('signatureHelpRequestCount')) {
+		if (!counterObserved('signatureHelpRequestCount')) {
 			anomalies.push('signature-help-request-not-observed');
 		}
 	}

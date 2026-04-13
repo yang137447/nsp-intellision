@@ -1,7 +1,8 @@
 import * as assert from 'assert';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { repoDescribe, openFixture } from './test_helpers';
+import { getWorkspaceRoot, repoDescribe, openFixture } from './test_helpers';
 import type { ReplayAnchor, ReplayStep } from '../replay/real_workspace_replay_types';
 import { resolveReplayAnchor } from '../replay/real_workspace_replay_targets';
 import { detectReplayAnomalies } from '../replay/real_workspace_replay_analyzer';
@@ -27,6 +28,10 @@ repoDescribe('NSF real workspace replay core', () => {
 			resolved.uri.fsPath.replace(/\\/g, '/').toLowerCase().endsWith(
 				'test_files/module_completion_current_doc.nsf'
 			)
+		);
+		assert.strictEqual(
+			resolved.uri.fsPath,
+			path.join(getWorkspaceRoot(), anchor.relativePath)
 		);
 	});
 
