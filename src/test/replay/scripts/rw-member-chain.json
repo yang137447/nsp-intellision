@@ -29,11 +29,11 @@
       "target": {
         "workspaceFolderSuffix": "shader-source",
         "relativePath": "sfx/uber_fx_common.nsf",
-        "anchorText": ".x",
+        "anchorText": "addmaskdistort2UV.x",
         "occurrence": 1,
         "characterOffset": 0
       },
-      "payload": { "startOffset": 0, "endOffset": 2 }
+      "payload": { "startOffset": 17, "endOffset": 19 }
     },
     {
       "kind": "typeText",

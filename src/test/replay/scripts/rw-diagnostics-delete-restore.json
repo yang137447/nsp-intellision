@@ -29,9 +29,9 @@
       "target": {
         "workspaceFolderSuffix": "shader-source",
         "relativePath": "base/building.nsf",
-        "anchorText": ";",
+        "anchorText": "half4 diffuse_color = (half4)0;",
         "occurrence": 1,
-        "characterOffset": 1
+        "characterOffset": 31
       }
     },
     {
