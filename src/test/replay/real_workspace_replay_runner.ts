@@ -23,89 +23,107 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
     const originalContents = new Map<string, string>();
     let activeEditor: vscode.TextEditor | undefined;
     const stepReports: ReplayStepReport[] = [];
-
-    for (const step of script.steps) {
-        const actionStartedAtMs = Date.now();
-
-        switch (step.kind) {
-            case 'openDocument': {
-                const resolved = await resolveReplayAnchor(step.target);
-                const document = await vscode.workspace.openTextDocument(resolved.uri);
-                activeEditor = await vscode.window.showTextDocument(document, { preview: false });
-                if (!originalContents.has(document.uri.toString())) {
-                    originalContents.set(document.uri.toString(), document.getText());
-                }
-                break;
-            }
-            case 'placeCursor': {
-                const resolved = await resolveReplayAnchor(step.target);
-                const document = await vscode.workspace.openTextDocument(resolved.uri);
-                activeEditor = await vscode.window.showTextDocument(document, { preview: false });
-                activeEditor.selection = new vscode.Selection(resolved.position, resolved.position);
-                if (!originalContents.has(document.uri.toString())) {
-                    originalContents.set(document.uri.toString(), document.getText());
-                }
-                break;
-            }
-            case 'selectRange': {
-                const resolved = await resolveReplayAnchor(step.target);
-                const document = await vscode.workspace.openTextDocument(resolved.uri);
-                activeEditor = await vscode.window.showTextDocument(document, { preview: false });
-                const start = resolved.position.translate(0, step.payload.startOffset);
-                const end = resolved.position.translate(0, step.payload.endOffset);
-                activeEditor.selection = new vscode.Selection(start, end);
-                if (!originalContents.has(document.uri.toString())) {
-                    originalContents.set(document.uri.toString(), document.getText());
-                }
-                break;
-            }
-            case 'typeText': {
-                await vscode.commands.executeCommand('type', { text: step.payload.text });
-                break;
-            }
-            case 'deleteLeft': {
-                const deleteCount = Math.max(1, step.payload?.count ?? 1);
-                for (let index = 0; index < deleteCount; index++) {
-                    await vscode.commands.executeCommand('deleteLeft');
-                }
-                break;
-            }
-            case 'invokeCommand': {
-                await vscode.commands.executeCommand(step.payload.command, ...(step.payload.args ?? []));
-                break;
-            }
-            default:
-                throw new Error(`Unsupported replay step kind: ${(step as ReplayStep).kind}`);
+    const recordDocumentSnapshot = (document?: vscode.TextDocument) => {
+        if (!document) {
+            return;
         }
-
-        if (step.afterActionPauseMs && step.afterActionPauseMs > 0) {
-            await delay(step.afterActionPauseMs);
+        const key = document.uri.toString();
+        if (!originalContents.has(key)) {
+            originalContents.set(key, document.getText());
         }
+    };
 
-        const documentUri = activeEditor?.document.uri.toString();
-        const samples = await sampleReplayWindow(step, documentUri);
-        stepReports.push({
-            stepLabel: step.label,
-            stepKind: step.kind,
-            actionStartedAtMs,
-            actionEndedAtMs: Date.now(),
-            documentUri,
-            samples,
-            anomalies: detectReplayAnomalies(step, samples)
-        });
-    }
+    try {
+        for (const step of script.steps) {
+            const actionStartedAtMs = Date.now();
+            const delaysMs = step.samplingWindow?.delaysMs?.length ?? 0;
+            let baselineInternalStatus: unknown | undefined;
+            if (delaysMs > 0) {
+                baselineInternalStatus = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
+            }
 
-    if (script.cleanup?.restoreTouchedDocuments) {
-        for (const [uriText, originalText] of originalContents.entries()) {
-            const uri = vscode.Uri.parse(uriText);
-            const document = await vscode.workspace.openTextDocument(uri);
-            const fullRange = new vscode.Range(
-                document.positionAt(0),
-                document.positionAt(document.getText().length)
-            );
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(uri, fullRange, originalText);
-            await vscode.workspace.applyEdit(edit);
+            switch (step.kind) {
+                case 'openDocument': {
+                    const resolved = await resolveReplayAnchor(step.target);
+                    const document = await vscode.workspace.openTextDocument(resolved.uri);
+                    activeEditor = await vscode.window.showTextDocument(document, { preview: false });
+                    activeEditor.selection = new vscode.Selection(resolved.position, resolved.position);
+                    recordDocumentSnapshot(document);
+                    break;
+                }
+                case 'placeCursor': {
+                    const resolved = await resolveReplayAnchor(step.target);
+                    const document = await vscode.workspace.openTextDocument(resolved.uri);
+                    activeEditor = await vscode.window.showTextDocument(document, { preview: false });
+                    activeEditor.selection = new vscode.Selection(resolved.position, resolved.position);
+                    recordDocumentSnapshot(document);
+                    break;
+                }
+                case 'selectRange': {
+                    const resolved = await resolveReplayAnchor(step.target);
+                    const document = await vscode.workspace.openTextDocument(resolved.uri);
+                    activeEditor = await vscode.window.showTextDocument(document, { preview: false });
+                    const start = resolved.position.translate(0, step.payload.startOffset);
+                    const end = resolved.position.translate(0, step.payload.endOffset);
+                    activeEditor.selection = new vscode.Selection(start, end);
+                    recordDocumentSnapshot(document);
+                    break;
+                }
+                case 'typeText': {
+                    await vscode.commands.executeCommand('type', { text: step.payload.text });
+                    break;
+                }
+                case 'deleteLeft': {
+                    const deleteCount = Math.max(1, step.payload?.count ?? 1);
+                    for (let index = 0; index < deleteCount; index++) {
+                        await vscode.commands.executeCommand('deleteLeft');
+                    }
+                    break;
+                }
+                case 'invokeCommand': {
+                    await vscode.commands.executeCommand(step.payload.command, ...(step.payload.args ?? []));
+                    activeEditor = vscode.window.activeTextEditor ?? activeEditor;
+                    recordDocumentSnapshot(activeEditor?.document);
+                    break;
+                }
+                default:
+                    throw new Error(`Unsupported replay step kind: ${(step as ReplayStep).kind}`);
+            }
+
+            if (step.afterActionPauseMs && step.afterActionPauseMs > 0) {
+                await delay(step.afterActionPauseMs);
+            }
+
+            activeEditor = vscode.window.activeTextEditor ?? activeEditor;
+            const documentUri = activeEditor?.document.uri.toString();
+            const samples = await sampleReplayWindow(step, documentUri, baselineInternalStatus);
+            stepReports.push({
+                stepLabel: step.label,
+                stepKind: step.kind,
+                actionStartedAtMs,
+                actionEndedAtMs: Date.now(),
+                documentUri,
+                samples,
+                anomalies: detectReplayAnomalies(step, samples)
+            });
+        }
+    } finally {
+        if (script.cleanup?.restoreTouchedDocuments) {
+            for (const [uriText, originalText] of originalContents.entries()) {
+                try {
+                    const uri = vscode.Uri.parse(uriText);
+                    const document = await vscode.workspace.openTextDocument(uri);
+                    const fullRange = new vscode.Range(
+                        document.positionAt(0),
+                        document.positionAt(document.getText().length)
+                    );
+                    const edit = new vscode.WorkspaceEdit();
+                    edit.replace(uri, fullRange, originalText);
+                    await vscode.workspace.applyEdit(edit);
+                } catch (error) {
+                    console.error(`[real-replay] failed to restore ${uriText}:`, error);
+                }
+            }
         }
     }
 

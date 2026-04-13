@@ -6,7 +6,11 @@ function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function sampleReplayWindow(step: ReplayStep, documentUri?: string): Promise<ReplaySampleSnapshot[]> {
+export async function sampleReplayWindow(
+    step: ReplayStep,
+    documentUri?: string,
+    baselineInternalStatus?: unknown
+): Promise<ReplaySampleSnapshot[]> {
     const delaysMs = step.samplingWindow?.delaysMs ?? [];
     if (delaysMs.length === 0) {
         return [];
@@ -14,7 +18,6 @@ export async function sampleReplayWindow(step: ReplayStep, documentUri?: string)
 
     const samples: ReplaySampleSnapshot[] = [];
     const startedAt = Date.now();
-    let baselineInternalStatus: unknown | undefined;
 
     for (const targetDelay of delaysMs) {
         const elapsed = Date.now() - startedAt;
@@ -38,14 +41,10 @@ export async function sampleReplayWindow(step: ReplayStep, documentUri?: string)
             internalStatus,
             latestMetrics,
             runtimeDebug,
-            interactiveDebug
+            interactiveDebug,
+            baselineInternalStatus
         };
 
-        if (baselineInternalStatus === undefined) {
-            baselineInternalStatus = internalStatus;
-        }
-
-        sample.baselineInternalStatus = baselineInternalStatus;
         samples.push(sample);
     }
 
