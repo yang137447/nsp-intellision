@@ -8,13 +8,23 @@ export async function resolveReplayAnchor(
 ): Promise<{ uri: vscode.Uri; position: vscode.Position }> {
 	const normalizedSuffix = anchor.workspaceFolderSuffix.toLowerCase();
 	const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
-	let folder = workspaceFolders.find((item) =>
-		item.uri.fsPath.replace(/\\/g, '/').toLowerCase().endsWith(normalizedSuffix)
-	);
-	if (!folder) {
-		folder = workspaceFolders.find((item) =>
-			item.uri.fsPath.replace(/\\/g, '/').toLowerCase().includes(normalizedSuffix)
-		);
+	let folder: vscode.WorkspaceFolder | undefined;
+	for (const item of workspaceFolders) {
+		const normalizedPath = item.uri.fsPath.replace(/\\/g, '/').toLowerCase();
+		const candidates = [normalizedPath];
+		const worktreeIndex = normalizedPath.indexOf('/.worktrees/');
+		if (worktreeIndex >= 0) {
+			candidates.push(normalizedPath.slice(0, worktreeIndex));
+		}
+		for (const candidate of candidates) {
+			if (candidate.endsWith(normalizedSuffix)) {
+				folder = item;
+				break;
+			}
+		}
+		if (folder) {
+			break;
+		}
 	}
 	if (!folder) {
 		throw new Error(`Unable to find workspace folder ending with '${anchor.workspaceFolderSuffix}'.`);
