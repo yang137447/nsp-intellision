@@ -128,10 +128,6 @@ struct DocumentRuntimeUpdateOptions {
 // `deferredDocSnapshot` are the explicit layered runtime state keyed off that
 // context.
 //
-// `interactiveSnapshot` / `lastGoodInteractiveSnapshot` remain as compatibility
-// mirrors for existing request/debug surfaces that have not yet been migrated to
-// the explicit current-doc semantic boundary.
-//
 // `semanticNeutralEditHint` marks whitespace/comment-like edits that can safely
 // reuse last-good semantic state.
 // `syntaxOnlyEditHint` marks small punctuation-only edits where local
@@ -152,8 +148,6 @@ struct DocumentRuntime {
   LocalStructuralSnapshot localStructuralSnapshot;
   std::shared_ptr<const InteractiveSnapshot> currentDocSemanticSnapshot;
   std::shared_ptr<const InteractiveSnapshot> lastGoodCurrentDocSemanticSnapshot;
-  std::shared_ptr<const InteractiveSnapshot> interactiveSnapshot;
-  std::shared_ptr<const InteractiveSnapshot> lastGoodInteractiveSnapshot;
   std::shared_ptr<const DeferredDocSnapshot> deferredDocSnapshot;
   // The diagnostics layer that currently owns the visible publish result for
   // this analysis key. Valid layers are `local-structural`,
@@ -223,17 +217,8 @@ void documentRuntimeUpdateLastDiagnosticsPublishLayer(
 
 // Stores a published current-doc semantic snapshot only if it still matches the
 // current full analysis key. This is the single publish point for explicit
-// current-doc semantic readiness; legacy interactive snapshot fields are updated
-// as compatibility mirrors from here.
+// current-doc semantic readiness.
 void documentRuntimeStoreCurrentDocSemanticSnapshot(
-    const std::string &uri,
-    const std::shared_ptr<const InteractiveSnapshot> &snapshot);
-
-// Stores a published interactive snapshot only if it still matches the current
-// full analysis key.
-//
-// Compatibility wrapper over documentRuntimeStoreCurrentDocSemanticSnapshot().
-void documentRuntimeStoreInteractiveSnapshot(
     const std::string &uri,
     const std::shared_ptr<const InteractiveSnapshot> &snapshot);
 

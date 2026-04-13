@@ -11,6 +11,44 @@ import {
 } from './test_helpers';
 
 repoDescribe('NSF client integration: Interactive Runtime / Syntax-Only DidChange', () => {
+	it('reports current-doc semantic debug state without legacy interactive aliases', async function () {
+		this.timeout(90000);
+
+		const document = await openFixture('module_completion_current_doc.nsf');
+		const completionPosition = positionOf(document, 'return Comp', 1, 'return Comp'.length);
+
+		await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
+					'vscode.executeCompletionItemProvider',
+					document.uri,
+					completionPosition
+				),
+			(value) => {
+				const labels = new Set(getCompletionItems(value).map((item) => item.label.toString()));
+				return labels.has('CompletionDocHelper') && labels.has('completionLocalColor');
+			},
+			'current-doc semantic debug completion warmup'
+		);
+
+		const [runtimeEntry] = await getDocumentRuntimeDebug([document.uri.toString()]);
+		const rawEntry = runtimeEntry as Record<string, unknown> | undefined;
+		assert.ok(rawEntry, 'Expected runtime debug entry after completion warmup.');
+		assert.strictEqual(rawEntry?.hasCurrentDocSemanticSnapshot, true);
+		assert.strictEqual(
+			rawEntry?.currentDocSemanticAnalysisFullFingerprint,
+			rawEntry?.analysisFullFingerprint
+		);
+		assert.ok(
+			!('hasInteractiveSnapshot' in (rawEntry ?? {})),
+			`Expected legacy interactive alias to be removed. Actual=${JSON.stringify(rawEntry)}`
+		);
+		assert.ok(
+			!('interactiveAnalysisFullFingerprint' in (rawEntry ?? {})),
+			`Expected legacy interactive fingerprint alias to be removed. Actual=${JSON.stringify(rawEntry)}`
+		);
+	});
+
 	it('keeps last-good interactive state without synchronous current snapshot prewarm for syntax-only edits', async function () {
 		this.timeout(90000);
 
@@ -33,8 +71,14 @@ repoDescribe('NSF client integration: Interactive Runtime / Syntax-Only DidChang
 
 		const beforeEntries = await getDocumentRuntimeDebug([document.uri.toString()]);
 		const before = beforeEntries[0];
-		assert.ok(before?.hasInteractiveSnapshot, 'Expected warmup to publish an interactive snapshot.');
-		assert.strictEqual(before?.interactiveAnalysisFullFingerprint, before?.analysisFullFingerprint);
+		assert.ok(
+			before?.hasCurrentDocSemanticSnapshot,
+			'Expected warmup to publish a current-doc semantic snapshot.'
+		);
+		assert.strictEqual(
+			before?.currentDocSemanticAnalysisFullFingerprint,
+			before?.analysisFullFingerprint
+		);
 
 		const insertEdit = new vscode.WorkspaceEdit();
 		insertEdit.insert(document.uri, new vscode.Position(0, 0), ' ');
@@ -50,16 +94,19 @@ repoDescribe('NSF client integration: Interactive Runtime / Syntax-Only DidChang
 		const after = afterEntries[0];
 		assert.ok(after, 'Expected runtime debug entry after syntax-only edit.');
 		assert.strictEqual(
-			after?.hasInteractiveSnapshot,
+			after?.hasCurrentDocSemanticSnapshot,
 			false,
-			`Expected syntax-only didChange not to synchronously publish a new current interactive snapshot. Actual=${JSON.stringify(after)}`
+			`Expected syntax-only didChange not to synchronously publish a new current-doc semantic snapshot. Actual=${JSON.stringify(after)}`
 		);
-		assert.strictEqual(after?.hasLastGoodInteractiveSnapshot, true);
+		assert.strictEqual(after?.hasLastGoodCurrentDocSemanticSnapshot, true);
 		assert.ok(
-			(after?.lastGoodAnalysisFullFingerprint ?? '').length > 0,
-			`Expected last-good interactive fingerprint after syntax-only edit. Actual=${JSON.stringify(after)}`
+			(after?.lastGoodCurrentDocSemanticAnalysisFullFingerprint ?? '').length > 0,
+			`Expected last-good current-doc semantic fingerprint after syntax-only edit. Actual=${JSON.stringify(after)}`
 		);
-		assert.notStrictEqual(after?.analysisFullFingerprint, after?.lastGoodAnalysisFullFingerprint);
+		assert.notStrictEqual(
+			after?.analysisFullFingerprint,
+			after?.lastGoodCurrentDocSemanticAnalysisFullFingerprint
+		);
 
 		await waitFor(
 			() =>
@@ -99,7 +146,10 @@ repoDescribe('NSF client integration: Interactive Runtime / Syntax-Only DidChang
 
 		const beforeEntries = await getDocumentRuntimeDebug([document.uri.toString()]);
 		const before = beforeEntries[0];
-		assert.ok(before?.hasInteractiveSnapshot, 'Expected warmup to publish an interactive snapshot.');
+		assert.ok(
+			before?.hasCurrentDocSemanticSnapshot,
+			'Expected warmup to publish a current-doc semantic snapshot.'
+		);
 
 		const originalLength = document.getText().length;
 		const insertedText = '\n// syntax-only prewarm comment';
@@ -113,12 +163,15 @@ repoDescribe('NSF client integration: Interactive Runtime / Syntax-Only DidChang
 			const after = afterEntries[0];
 			assert.ok(after, 'Expected runtime debug entry after comment-only edit.');
 			assert.strictEqual(
-				after?.hasInteractiveSnapshot,
+				after?.hasCurrentDocSemanticSnapshot,
 				false,
-				`Expected comment-only didChange not to synchronously publish a new current interactive snapshot. Actual=${JSON.stringify(after)}`
+				`Expected comment-only didChange not to synchronously publish a new current-doc semantic snapshot. Actual=${JSON.stringify(after)}`
 			);
-			assert.strictEqual(after?.hasLastGoodInteractiveSnapshot, true);
-			assert.notStrictEqual(after?.analysisFullFingerprint, after?.lastGoodAnalysisFullFingerprint);
+			assert.strictEqual(after?.hasLastGoodCurrentDocSemanticSnapshot, true);
+			assert.notStrictEqual(
+				after?.analysisFullFingerprint,
+				after?.lastGoodCurrentDocSemanticAnalysisFullFingerprint
+			);
 
 			await waitFor(
 				() =>

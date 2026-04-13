@@ -59,10 +59,10 @@ export function registerDeferredDocSharedKeyAnalysisContextTests(): void {
 						const entry = entries[0];
 						return Boolean(
 							entry?.exists &&
-							entry.hasInteractiveSnapshot &&
+							entry.hasCurrentDocSemanticSnapshot &&
 							entry.hasDeferredDocSnapshot &&
 							entry.analysisFullFingerprint &&
-							entry.interactiveAnalysisFullFingerprint &&
+							entry.currentDocSemanticAnalysisFullFingerprint &&
 							entry.deferredAnalysisFullFingerprint
 						);
 					},
@@ -70,9 +70,15 @@ export function registerDeferredDocSharedKeyAnalysisContextTests(): void {
 				);
 
 				const entry = runtime[0];
-				assert.strictEqual(entry.analysisFullFingerprint, entry.interactiveAnalysisFullFingerprint);
+				assert.strictEqual(
+					entry.analysisFullFingerprint,
+					entry.currentDocSemanticAnalysisFullFingerprint
+				);
 				assert.strictEqual(entry.analysisFullFingerprint, entry.deferredAnalysisFullFingerprint);
-				assert.strictEqual(entry.analysisStableFingerprint, entry.interactiveAnalysisStableFingerprint);
+				assert.strictEqual(
+					entry.analysisStableFingerprint,
+					entry.currentDocSemanticAnalysisStableFingerprint
+				);
 				assert.strictEqual(entry.analysisStableFingerprint, entry.deferredAnalysisStableFingerprint);
 				assert.strictEqual(entry.workspaceSummaryVersion, entry.activeUnitWorkspaceSummaryVersion);
 				assert.ok((entry.activeUnitIncludeClosureFingerprint?.length ?? 0) > 0);
@@ -143,21 +149,25 @@ export function registerDeferredDocActiveUnitAnalysisContextTests(): void {
 					const afterEntries = await waitFor(
 						() => getDocumentRuntimeDebug([document.uri.toString()]),
 						(entries) => {
-							const entry = entries[0];
-							return Boolean(
-								entry?.analysisFullFingerprint &&
-								entry.analysisFullFingerprint !== before.analysisFullFingerprint &&
-								entry.interactiveAnalysisFullFingerprint === entry.analysisFullFingerprint &&
-								entry.deferredAnalysisFullFingerprint === entry.analysisFullFingerprint
-							);
-						},
-						'active unit switched shared analysis context'
-					);
+						const entry = entries[0];
+						return Boolean(
+							entry?.analysisFullFingerprint &&
+							entry.analysisFullFingerprint !== before.analysisFullFingerprint &&
+							entry.currentDocSemanticAnalysisFullFingerprint ===
+								entry.analysisFullFingerprint &&
+							entry.deferredAnalysisFullFingerprint === entry.analysisFullFingerprint
+						);
+					},
+					'active unit switched shared analysis context'
+				);
 
-					const after = afterEntries[0];
-					assert.notStrictEqual(after.analysisFullFingerprint, before.analysisFullFingerprint);
-					assert.strictEqual(after.analysisFullFingerprint, after.interactiveAnalysisFullFingerprint);
-					assert.strictEqual(after.analysisFullFingerprint, after.deferredAnalysisFullFingerprint);
+				const after = afterEntries[0];
+				assert.notStrictEqual(after.analysisFullFingerprint, before.analysisFullFingerprint);
+				assert.strictEqual(
+					after.analysisFullFingerprint,
+					after.currentDocSemanticAnalysisFullFingerprint
+				);
+				assert.strictEqual(after.analysisFullFingerprint, after.deferredAnalysisFullFingerprint);
 				});
 			} finally {
 				await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
@@ -245,7 +255,8 @@ export function registerDeferredDocDefinesAnalysisContextTests(): void {
 						return Boolean(
 							entry?.analysisFullFingerprint &&
 							entry.analysisFullFingerprint !== before.analysisFullFingerprint &&
-							entry.interactiveAnalysisFullFingerprint === entry.analysisFullFingerprint &&
+							entry.currentDocSemanticAnalysisFullFingerprint ===
+								entry.analysisFullFingerprint &&
 							entry.deferredAnalysisFullFingerprint === entry.analysisFullFingerprint
 						);
 					},
@@ -254,7 +265,10 @@ export function registerDeferredDocDefinesAnalysisContextTests(): void {
 
 				const after = afterEntries[0];
 				assert.notStrictEqual(after.analysisFullFingerprint, before.analysisFullFingerprint);
-				assert.strictEqual(after.analysisFullFingerprint, after.interactiveAnalysisFullFingerprint);
+				assert.strictEqual(
+					after.analysisFullFingerprint,
+					after.currentDocSemanticAnalysisFullFingerprint
+				);
 				assert.strictEqual(after.analysisFullFingerprint, after.deferredAnalysisFullFingerprint);
 			} finally {
 				await configuration.update('defines', previousDefines, vscode.ConfigurationTarget.Workspace);
@@ -483,7 +497,8 @@ export function registerDeferredDocIncludeClosureAnalysisContextTests(): void {
 							entry.analysisFullFingerprint !== before.analysisFullFingerprint &&
 							entry.activeUnitIncludeClosureFingerprint &&
 							entry.activeUnitIncludeClosureFingerprint !== before.activeUnitIncludeClosureFingerprint &&
-							entry.interactiveAnalysisFullFingerprint === entry.analysisFullFingerprint &&
+							entry.currentDocSemanticAnalysisFullFingerprint ===
+								entry.analysisFullFingerprint &&
 							entry.deferredAnalysisFullFingerprint === entry.analysisFullFingerprint
 						);
 					},
@@ -493,7 +508,10 @@ export function registerDeferredDocIncludeClosureAnalysisContextTests(): void {
 				const after = afterEntries[0];
 				assert.notStrictEqual(after.analysisFullFingerprint, before.analysisFullFingerprint);
 				assert.notStrictEqual(after.activeUnitIncludeClosureFingerprint, before.activeUnitIncludeClosureFingerprint);
-				assert.strictEqual(after.analysisFullFingerprint, after.interactiveAnalysisFullFingerprint);
+				assert.strictEqual(
+					after.analysisFullFingerprint,
+					after.currentDocSemanticAnalysisFullFingerprint
+				);
 				assert.strictEqual(after.analysisFullFingerprint, after.deferredAnalysisFullFingerprint);
 			} finally {
 				await configuration.update('defines', previousDefines, vscode.ConfigurationTarget.Workspace);
@@ -572,19 +590,20 @@ export function registerDeferredDocWorkspaceSummaryAnalysisContextTests(): void 
 					const afterEntries = await waitFor(
 						() => getDocumentRuntimeDebug([document.uri.toString()]),
 						(entries) => {
-							const entry = entries[0];
-							return Boolean(
-								entry?.analysisFullFingerprint &&
-								entry.workspaceSummaryVersion !== undefined &&
-								before.workspaceSummaryVersion !== undefined &&
-								entry.workspaceSummaryVersion > before.workspaceSummaryVersion &&
-								entry.analysisFullFingerprint !== before.analysisFullFingerprint &&
-								entry.interactiveAnalysisFullFingerprint === entry.analysisFullFingerprint &&
-								entry.deferredAnalysisFullFingerprint === entry.analysisFullFingerprint
-							);
-						},
-						'workspace summary shared analysis context refresh'
-					);
+						const entry = entries[0];
+						return Boolean(
+							entry?.analysisFullFingerprint &&
+							entry.workspaceSummaryVersion !== undefined &&
+							before.workspaceSummaryVersion !== undefined &&
+							entry.workspaceSummaryVersion > before.workspaceSummaryVersion &&
+							entry.analysisFullFingerprint !== before.analysisFullFingerprint &&
+							entry.currentDocSemanticAnalysisFullFingerprint ===
+								entry.analysisFullFingerprint &&
+							entry.deferredAnalysisFullFingerprint === entry.analysisFullFingerprint
+						);
+					},
+					'workspace summary shared analysis context refresh'
+				);
 
 					const after = afterEntries[0];
 					assert.ok(
@@ -592,7 +611,10 @@ export function registerDeferredDocWorkspaceSummaryAnalysisContextTests(): void 
 						'Expected workspace summary version to advance after provider change.'
 					);
 					assert.notStrictEqual(after.analysisFullFingerprint, before.analysisFullFingerprint);
-					assert.strictEqual(after.analysisFullFingerprint, after.interactiveAnalysisFullFingerprint);
+					assert.strictEqual(
+						after.analysisFullFingerprint,
+						after.currentDocSemanticAnalysisFullFingerprint
+					);
 					assert.strictEqual(after.analysisFullFingerprint, after.deferredAnalysisFullFingerprint);
 				} finally {
 					await vscode.workspace.fs.writeFile(vscode.Uri.file(providerPath), Buffer.from(original, 'utf8'));

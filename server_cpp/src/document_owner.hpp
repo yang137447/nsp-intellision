@@ -13,14 +13,15 @@ struct ServerRequestContext;
 // - serialize per-document runtime mutations behind one owner mutex
 // - ensure didOpen/didChange/refresh flows all switch analysis context through
 //   document_runtime.* before publishing new snapshots
-// - prewarm interactive snapshots after document edits or context refreshes
+// - prewarm current-doc semantic snapshots after document edits or context
+//   refreshes
 //
 // Non-goals:
 // - does not answer LSP queries directly
 // - does not own the semantic/deferred build logic; it only orders publication
 
 // Registers an opened document with the owner and prewarms the current-doc
-// interactive snapshot for the new analysis context.
+// semantic snapshot for the new analysis context.
 void documentOwnerDidOpen(const Document &document,
                           const DocumentRuntimeUpdateOptions &options,
                           const ServerRequestContext &ctx);
@@ -30,7 +31,7 @@ void documentOwnerDidOpen(const Document &document,
 // only when the edit needs a freshly published current snapshot.
 //
 // Small syntax-only edits, and comment-only edits that do not affect semantic
-// state, may keep only last-good interactive state and let follow-up
+// state, may keep only last-good current-doc semantic state and let follow-up
 // interactive requests reuse that stale-eligible snapshot instead of
 // synchronously rebuilding a new current snapshot on every didChange.
 void documentOwnerDidChange(const Document &document,
@@ -74,8 +75,9 @@ void documentOwnerUpdateLastDiagnosticsPublishLayer(
     const std::string &uri, uint64_t documentEpoch, int documentVersion,
     const std::string &layer);
 
-// Publishes an already-built interactive snapshot for the matching analysis key.
-void documentOwnerStoreInteractiveSnapshot(
+// Publishes an already-built current-doc semantic snapshot for the matching
+// analysis key.
+void documentOwnerStoreCurrentDocSemanticSnapshot(
     const std::string &uri,
     const std::shared_ptr<const InteractiveSnapshot> &snapshot);
 

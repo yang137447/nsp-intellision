@@ -70,7 +70,7 @@ void documentOwnerDidChange(const Document &document,
         isCommentOnlyEditForDidChange(document.text, changedRanges);
     shouldPrewarm =
         !((runtime.syntaxOnlyEditHint || commentOnlyEdit) &&
-          runtime.lastGoodInteractiveSnapshot != nullptr);
+          runtime.lastGoodCurrentDocSemanticSnapshot != nullptr);
   }
   if (shouldPrewarm)
     interactiveSemanticRuntimePrewarm(document.uri, document, ctx);
@@ -199,16 +199,16 @@ void documentOwnerUpdateLastDiagnosticsPublishLayer(
                                                    documentVersion, layer);
 }
 
-void documentOwnerStoreInteractiveSnapshot(
+void documentOwnerStoreCurrentDocSemanticSnapshot(
     const std::string &uri,
     const std::shared_ptr<const InteractiveSnapshot> &snapshot) {
   auto owner = findOwnerState(uri);
   if (owner) {
     std::lock_guard<std::mutex> ownerLock(owner->mutex);
-    documentRuntimeStoreInteractiveSnapshot(uri, snapshot);
+    documentRuntimeStoreCurrentDocSemanticSnapshot(uri, snapshot);
     return;
   }
-  documentRuntimeStoreInteractiveSnapshot(uri, snapshot);
+  documentRuntimeStoreCurrentDocSemanticSnapshot(uri, snapshot);
 }
 
 void documentOwnerStoreDeferredSnapshot(

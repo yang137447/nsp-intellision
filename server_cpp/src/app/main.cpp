@@ -1975,11 +1975,12 @@ int main(int argc, char **argv) {
                           : runtime.analysisSnapshotKey.activeUnitPath.empty());
         const bool localStructuralCurrent =
             isLocalStructuralSnapshotCurrent(runtime);
-        const bool interactiveCurrent =
-            runtime.interactiveSnapshot &&
-            runtime.interactiveSnapshot->documentEpoch == runtime.epoch &&
-            runtime.interactiveSnapshot->documentVersion == runtime.version &&
-            runtime.interactiveSnapshot->key.fullFingerprint ==
+        const bool currentDocSemanticCurrent =
+            runtime.currentDocSemanticSnapshot &&
+            runtime.currentDocSemanticSnapshot->documentEpoch == runtime.epoch &&
+            runtime.currentDocSemanticSnapshot->documentVersion ==
+                runtime.version &&
+            runtime.currentDocSemanticSnapshot->key.fullFingerprint ==
                 runtime.analysisSnapshotKey.fullFingerprint;
         const bool deferredCurrent =
             runtime.deferredDocSnapshot &&
@@ -1987,11 +1988,11 @@ int main(int argc, char **argv) {
             runtime.deferredDocSnapshot->documentVersion == runtime.version &&
             runtime.deferredDocSnapshot->key.fullFingerprint ==
                 runtime.analysisSnapshotKey.fullFingerprint;
-        const bool hasInteractiveSemantic =
-            interactiveCurrent &&
-            runtime.interactiveSnapshot->semanticSnapshot;
+        const bool hasCurrentDocSemantic =
+            currentDocSemanticCurrent &&
+            runtime.currentDocSemanticSnapshot->semanticSnapshot;
         item.o["currentDocSemanticSnapshotReady"] =
-            makeBool(hasInteractiveSemantic);
+            makeBool(hasCurrentDocSemantic);
         const bool diagnosticsLayerCurrent =
             runtime.lastDiagnosticsPublishEpoch == runtime.epoch &&
             runtime.lastDiagnosticsPublishVersion == runtime.version &&
@@ -2022,21 +2023,23 @@ int main(int argc, char **argv) {
         item.o["activeUnitWorkspaceSummaryVersion"] =
             makeNumber(static_cast<double>(
                 runtime.activeUnitSnapshot.workspaceSummaryVersion));
-        item.o["hasInteractiveSnapshot"] =
-            makeBool(static_cast<bool>(runtime.interactiveSnapshot));
-        item.o["hasLastGoodInteractiveSnapshot"] =
-            makeBool(static_cast<bool>(runtime.lastGoodInteractiveSnapshot));
+        item.o["hasCurrentDocSemanticSnapshot"] = makeBool(
+            static_cast<bool>(runtime.currentDocSemanticSnapshot));
+        item.o["hasLastGoodCurrentDocSemanticSnapshot"] = makeBool(
+            static_cast<bool>(runtime.lastGoodCurrentDocSemanticSnapshot));
         item.o["hasDeferredDocSnapshot"] =
             makeBool(static_cast<bool>(runtime.deferredDocSnapshot));
-        if (runtime.interactiveSnapshot) {
-          item.o["interactiveAnalysisFullFingerprint"] =
-              makeString(runtime.interactiveSnapshot->key.fullFingerprint);
-          item.o["interactiveAnalysisStableFingerprint"] = makeString(
-              runtime.interactiveSnapshot->key.stableContextFingerprint);
+        if (runtime.currentDocSemanticSnapshot) {
+          item.o["currentDocSemanticAnalysisFullFingerprint"] = makeString(
+              runtime.currentDocSemanticSnapshot->key.fullFingerprint);
+          item.o["currentDocSemanticAnalysisStableFingerprint"] = makeString(
+              runtime.currentDocSemanticSnapshot->key.stableContextFingerprint);
         }
-        if (runtime.lastGoodInteractiveSnapshot) {
-          item.o["lastGoodAnalysisFullFingerprint"] = makeString(
-              runtime.lastGoodInteractiveSnapshot->key.fullFingerprint);
+        if (runtime.lastGoodCurrentDocSemanticSnapshot) {
+          item.o["lastGoodCurrentDocSemanticAnalysisFullFingerprint"] =
+              makeString(
+                  runtime.lastGoodCurrentDocSemanticSnapshot->key
+                      .fullFingerprint);
         }
         if (runtime.deferredDocSnapshot) {
           item.o["deferredAnalysisFullFingerprint"] =
@@ -2475,13 +2478,13 @@ int main(int argc, char **argv) {
             if (documentOwnerGetRuntime(updatedDocument.uri, runtime)) {
               const bool commentOnlyEdit = isCommentOnlyEditForDidChange(
                   updatedDocument.text, changedRanges);
-              const bool hasReusableInteractive =
-                  runtime.lastGoodInteractiveSnapshot != nullptr;
+              const bool hasReusableCurrentDocSemantic =
+                  runtime.lastGoodCurrentDocSemanticSnapshot != nullptr;
               const bool hasDeferredSnapshot =
                   runtime.deferredDocSnapshot != nullptr;
               skipExpensivePostChangeWork =
                   hasDeferredSnapshot && runtime.syntaxOnlyEditHint ||
-                  (hasDeferredSnapshot && hasReusableInteractive &&
+                  (hasDeferredSnapshot && hasReusableCurrentDocSemantic &&
                    (runtime.semanticNeutralEditHint || commentOnlyEdit));
             }
           }

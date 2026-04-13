@@ -29,12 +29,6 @@ lastGoodCurrentDocSemanticSnapshotView(const DocumentRuntime &runtime) {
   return runtime.lastGoodCurrentDocSemanticSnapshot;
 }
 
-void syncLegacyInteractiveSnapshotMirror(DocumentRuntime &runtime) {
-  runtime.interactiveSnapshot = runtime.currentDocSemanticSnapshot;
-  runtime.lastGoodInteractiveSnapshot =
-      runtime.lastGoodCurrentDocSemanticSnapshot;
-}
-
 struct ResourceFileStamp {
   std::string normalizedPath;
   bool exists = false;
@@ -561,7 +555,6 @@ void documentRuntimeUpsert(const Document &document,
       updated.deferredDocSnapshot = existing.deferredDocSnapshot;
     }
   }
-  syncLegacyInteractiveSnapshotMirror(updated);
   gDocumentRuntimes[document.uri] = std::move(updated);
 }
 
@@ -645,7 +638,6 @@ void refreshRuntimeAnalysisKey(DocumentRuntime &runtime,
       runtime.deferredDocSnapshot.reset();
     }
   }
-  syncLegacyInteractiveSnapshotMirror(runtime);
   runtime.globalContextSnapshot = globalContextSnapshot;
   runtime.analysisSnapshotKey = nextKey;
   runtime.interactiveVisibilityKey = nextVisibilityKey;
@@ -743,13 +735,6 @@ void documentRuntimeStoreCurrentDocSemanticSnapshot(
   }
   it->second.currentDocSemanticSnapshot = snapshot;
   it->second.lastGoodCurrentDocSemanticSnapshot = snapshot;
-  syncLegacyInteractiveSnapshotMirror(it->second);
-}
-
-void documentRuntimeStoreInteractiveSnapshot(
-    const std::string &uri,
-    const std::shared_ptr<const InteractiveSnapshot> &snapshot) {
-  documentRuntimeStoreCurrentDocSemanticSnapshot(uri, snapshot);
 }
 
 void documentRuntimeStoreDeferredSnapshot(

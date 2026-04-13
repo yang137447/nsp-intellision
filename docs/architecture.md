@@ -116,10 +116,10 @@
   - 当前仍保留 struct hover 的 inline-include fragment 特殊兜底，用于补全当前快照尚未物化的字段列表（基于 `hlsl_ast.*` 的 inline include 元数据）
 - `document_owner.*`
   - 每个打开文档的 owner 编排入口
-  - 当前负责把 current-doc runtime 的更新、snapshot 切换、interactive snapshot 预热与分析上下文刷新统一串行到单文档 owner API 上；interactive snapshot 预热已并入 owner 持有的单文档串行区
+  - 当前负责把 current-doc runtime 的更新、snapshot 切换、current-doc semantic snapshot 预热与分析上下文刷新统一串行到单文档 owner API 上；该预热已并入 owner 持有的单文档串行区
 - `document_runtime.*`
   - 每个打开文档的 current-doc runtime 容器
-  - 管理 `AnalysisSnapshotKey`、`ActiveUnitSnapshot`、changed ranges、immediate syntax snapshot、interactive snapshot、last-good interactive snapshot、deferred doc snapshot
+  - 管理 `AnalysisSnapshotKey`、`ActiveUnitSnapshot`、changed ranges、immediate syntax snapshot、current-doc semantic snapshot、last-good current-doc semantic snapshot、deferred doc snapshot
 - `deferred_doc_runtime.*`
   - deferred doc runtime 入口
   - 当前负责 deferred snapshot、semantic tokens full cache、document symbols cache、full diagnostics cache、full-document inlay hints cache，以及 current-doc AST 物化
@@ -132,9 +132,9 @@
   - 当前 fast diagnostics 优先走这里，先发布缺分号、括号/注释/预处理配对等低成本结果
 - `interactive_semantic_runtime.*`
   - current-doc interactive semantic runtime
-  - 当前由 `didOpen/didChange` 与分析上下文刷新主动预热 interactive snapshot；请求热路径只读取 current snapshot / last-good snapshot / deferred snapshot
+  - 当前由 `didOpen/didChange` 与分析上下文刷新主动预热 current-doc semantic snapshot；请求热路径只读取 current snapshot / last-good snapshot / deferred snapshot
   - 当前已为 hover、completion、signature help、当前文档短路径 definition、member access 提供 current-doc first + last-good snapshot 优先级
-  - 普通 completion 当前会优先合并 interactive snapshot 中的 locals / params / top-level functions / globals / structs，并在需要时再补 workspace summary 候选
+  - 普通 completion 当前会优先合并 current-doc semantic snapshot 中的 locals / params / top-level functions / globals / structs，并在需要时再补 workspace summary 候选
 - `workspace_summary_runtime.*`
   - workspace summary runtime 边界层
   - 当前作为 `workspace_index.*` 的运行时封装入口，统一暴露 cross-file summary 查询、indexed include closure 查询、reverse include closure 查询与 version 变化
@@ -248,7 +248,7 @@
 - current-doc 状态现在由 `document_owner.*` 串行编排，并统一挂在 `document_runtime.*`
 - `ActiveUnitSnapshot` 当前不仅保存 fingerprint，还保存 workspace/include/defines 上下文，以及 open active-unit 的 version/epoch；`interactive_semantic_runtime.*` 与 `deferred_doc_runtime.*` 会共同消费这份前提，并据此判定非 active 文档上的 shared-context 复用是否仍然安全
 - active unit 的 include closure 当前已改为基于 `preprocessor_view.*` 解释得到的 active include 链路，而不是纯文本 `#include` 递归
-- interactive snapshot 当前会在 `didOpen/didChange`、active unit 变化、配置变化与 workspace summary version 刷新后主动预热；对括号/分号等小范围 syntax-only 编辑，以及纯注释编辑，会优先让 immediate syntax diagnostics 抢占热路径；对纯注释编辑，本次 `didChange` 还可以跳过 deferred-doc 重建与 full diagnostics 立即重排；请求热路径不再按需现建 snapshot
+- current-doc semantic snapshot 当前会在 `didOpen/didChange`、active unit 变化、配置变化与 workspace summary version 刷新后主动预热；对括号/分号等小范围 syntax-only 编辑，以及纯注释编辑，会优先让 immediate syntax diagnostics 抢占热路径；对纯注释编辑，本次 `didChange` 还可以跳过 deferred-doc 重建与 full diagnostics 立即重排；请求热路径不再按需现建 snapshot
 - immediate syntax / full diagnostics 当前用于分支 gating 的 `preprocessor_view.*` 也会加载当前文档可解析 include 链中的宏状态，避免 active include-controlled branch 上的缺分号等语法问题被误判成 inactive branch 而跳过
 - immediate syntax / full diagnostics 当前对 missing semicolon 的共享判断还会消费 `server_parse.*` 的 branch-aware 多行 `(`/`[` nesting 结果；active 多行构造/调用表达式内部的续行不应因为 closing `);` 落在后续行而被误报
 - interactive runtime 当前会消费 `changedRanges`：对注释/空白类 changed window 优先做 last-good incremental promote，避免无语义编辑触发整份 snapshot 重建
@@ -290,7 +290,7 @@
 
 - `server_cpp/src/document_owner.hpp`
   - open document 的单 owner 串行入口
-  - `didOpen` / `didChange` / analysis-context refresh 都必须先切 `document_runtime.*`，再预热 interactive snapshot
+  - `didOpen` / `didChange` / analysis-context refresh 都必须先切 `document_runtime.*`，再预热 current-doc semantic snapshot
   - snapshot publish 也应通过 owner API 进入，避免请求线程直接并发写 runtime 状态
 
 - `server_cpp/src/interactive_semantic_runtime.hpp`

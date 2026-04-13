@@ -129,12 +129,12 @@ export type DocumentRuntimeDebugEntry = {
 	activeUnitIncludeClosureFingerprint?: string;
 	activeUnitBranchFingerprint?: string;
 	activeUnitWorkspaceSummaryVersion?: number;
-	hasInteractiveSnapshot?: boolean;
-	hasLastGoodInteractiveSnapshot?: boolean;
+	hasCurrentDocSemanticSnapshot?: boolean;
+	hasLastGoodCurrentDocSemanticSnapshot?: boolean;
 	hasDeferredDocSnapshot?: boolean;
-	interactiveAnalysisFullFingerprint?: string;
-	interactiveAnalysisStableFingerprint?: string;
-	lastGoodAnalysisFullFingerprint?: string;
+	currentDocSemanticAnalysisFullFingerprint?: string;
+	currentDocSemanticAnalysisStableFingerprint?: string;
+	lastGoodCurrentDocSemanticAnalysisFullFingerprint?: string;
 	deferredAnalysisFullFingerprint?: string;
 	deferredAnalysisStableFingerprint?: string;
 	deferredHasSemanticSnapshot?: boolean;

@@ -1079,7 +1079,7 @@ std::shared_ptr<const InteractiveSnapshot> getOrBuildInteractiveSnapshot(
             std::chrono::steady_clock::now() - buildStartedAt)
             .count());
     recordInteractiveSnapshotWait(buildMs);
-    documentOwnerStoreInteractiveSnapshot(uri, built);
+    documentOwnerStoreCurrentDocSemanticSnapshot(uri, built);
     recordInteractiveMetric([](InteractiveRuntimeMetricState &state) {
       state.snapshotBuildSuccess++;
     });
