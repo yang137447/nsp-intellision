@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-import { repoDescribe, openFixture } from './test_helpers';
+import { repoDescribe, openFixture, typeTextForTests, deleteLeftForTests } from './test_helpers';
 
 repoDescribe('NSF real workspace replay recorder', () => {
 	it('records normalized typing and deletion steps', async function () {
@@ -15,8 +15,8 @@ repoDescribe('NSF real workspace replay recorder', () => {
 			id: 'repo-recorder-smoke',
 			workspaceHint: 'repo-fixture'
 		});
-		await vscode.commands.executeCommand('type', { text: 'X' });
-		await vscode.commands.executeCommand('deleteLeft');
+		await typeTextForTests(editor, 'X');
+		await deleteLeftForTests(editor, 1);
 
 		const recorded = await vscode.commands.executeCommand<{
 			workspaceHint?: string;

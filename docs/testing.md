@@ -342,6 +342,10 @@
   - 对 auto-trigger / 编辑类用例，优先用稳定前缀定位目标范围，并在编辑前缓存被删除的原始文本；恢复时按原位置直接写回缓存文本，不要在 finally 里再去搜索已被本次测试改写过的精确字面量
   - 这样可以避免外部工程轻微格式调整、自动补全介入或前一条测试恢复不完整时，把真正想测的 client 行为误判成“找不到字符串”
 
+- repo-mode / replay runner 测试不要使用 `vscode.commands.executeCommand('type')` / `vscode.commands.executeCommand('deleteLeft')` 驱动编辑。
+  - 这两条命令依赖 editor focus，在 repo-mode 全量跑或 replay runner 下可能出现 no-op，导致后续断言基于旧文本误判
+  - 优先使用 shared helper：`typeTextForTests(...)` / `deleteLeftForTests(...)`，对目标 editor 直接做 edit，并显式更新 selection
+
 - real workspace 的 visible-range inlay / perf 用例不要把“冷请求一定命中 range-build 而不会命中 range-filter”写死。
   - 当前 deferred/inlay 路径允许后台预热与可见范围请求并发交错；在失效后首个可见范围请求上，`rangeBuild` 和基于已补齐 full-cache 的 `rangeFilter` 都属于当前架构内的合法路径
   - 这类断言应优先验证“确实发生了 deferred snapshot miss，并且 range-build 或 range-filter 至少其一发生”，而不是强行绑定某一个内部时序分支
@@ -354,6 +358,8 @@
 - 当测试明确依赖某个 `.nsf` 成为 active unit 时，不要完全依赖“打开编辑器后自然收敛”。
   - 当前 test mode 已提供内部命令 `nsf._setActiveUnitForTests`
   - 对 include closure / active unit 相关用例，推荐顺序是：打开目标 `.nsf` -> 调用 `nsf._setActiveUnitForTests(uri)` -> 再发 definition / hover / runtime debug 请求
+  - 对 `interactive-visibility` / shared-visible 相关断言，`_setActiveUnitForTests` 后还应等待 active unit include closure + interactive visibility fingerprint 收敛，避免首个请求落到 workspace fallback
+  - 当前 shared helper 已补充 `waitForActiveUnitAndVisibilityReadyForTests(...)`
 
 - 当测试目标是验证“只有命中的 open docs 刷新了 analysis key / workspaceSummaryVersion”时，不要只靠 diagnostics 侧效果间接猜。
   - 当前 shared helper 已补充 `getDocumentRuntimeDebug(...)`

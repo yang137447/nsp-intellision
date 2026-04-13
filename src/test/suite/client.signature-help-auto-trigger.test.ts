@@ -1,7 +1,15 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-import { openFixture, positionOf, repoDescribe, waitFor, waitForClientReady, waitForIndexingIdle } from './test_helpers';
+import {
+	openFixture,
+	positionOf,
+	repoDescribe,
+	typeTextForTests,
+	waitFor,
+	waitForClientReady,
+	waitForIndexingIdle
+} from './test_helpers';
 
 type InternalStatusWithSignatureHelpMetrics = {
 	signatureHelpRequestCount?: number;
@@ -38,7 +46,7 @@ repoDescribe('NSF client integration: Signature Help Auto Trigger', () => {
 
 		try {
 			await vscode.commands.executeCommand('nsf._resetInternalStatus');
-			await vscode.commands.executeCommand('type', { text: '(' });
+			await typeTextForTests(editor, '(');
 
 			const status = await waitFor(
 				() =>

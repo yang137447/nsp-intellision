@@ -4,6 +4,7 @@ import { detectReplayAnomalies } from './real_workspace_replay_analyzer';
 import { sampleReplayWindow } from './real_workspace_replay_sampler';
 import { resolveReplayAnchor } from './real_workspace_replay_targets';
 import type { ReplaySampleSnapshot, ReplayScript, ReplayStep } from './real_workspace_replay_types';
+import { deleteLeftForTests, typeTextForTests } from '../suite/test_helpers';
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -70,14 +71,27 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                     break;
                 }
                 case 'typeText': {
-                    await vscode.commands.executeCommand('type', { text: step.payload.text });
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] typeText requires an active editor. Step: ${step.label}`);
+                    }
+                    // Keep replay scripts "keystroke-like": a single step may contain multiple characters.
+                    // Applying a single bulk edit here can skip VS Code's auto-triggered completion behavior.
+                    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+                    for (const ch of step.payload.text) {
+                        await typeTextForTests(activeEditor, ch);
+                        await delay(0);
+                    }
+                    recordDocumentSnapshot(activeEditor.document);
                     break;
                 }
                 case 'deleteLeft': {
-                    const deleteCount = Math.max(1, step.payload?.count ?? 1);
-                    for (let index = 0; index < deleteCount; index++) {
-                        await vscode.commands.executeCommand('deleteLeft');
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] deleteLeft requires an active editor. Step: ${step.label}`);
                     }
+                    const deleteCount = Math.max(1, step.payload?.count ?? 1);
+                    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+                    await deleteLeftForTests(activeEditor, deleteCount);
+                    recordDocumentSnapshot(activeEditor.document);
                     break;
                 }
                 case 'invokeCommand': {

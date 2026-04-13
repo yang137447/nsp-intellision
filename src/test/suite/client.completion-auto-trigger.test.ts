@@ -1,7 +1,15 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-import { openFixture, positionOf, repoDescribe, waitFor, waitForClientReady, waitForIndexingIdle } from './test_helpers';
+import {
+	openFixture,
+	positionOf,
+	repoDescribe,
+	typeTextForTests,
+	waitFor,
+	waitForClientReady,
+	waitForIndexingIdle
+} from './test_helpers';
 
 type InternalStatusWithCompletionMetrics = {
 	completionRequestCount?: number;
@@ -53,7 +61,7 @@ repoDescribe('NSF client integration: Completion Auto Trigger', () => {
 		try {
 			await vscode.commands.executeCommand('nsf._resetInternalStatus');
 			for (const ch of ['C', 'o', 'm', 'p']) {
-				await vscode.commands.executeCommand('type', { text: ch });
+				await typeTextForTests(editor, ch);
 				await new Promise((resolve) => setTimeout(resolve, 400));
 				finalStatus = await vscode.commands.executeCommand<InternalStatusWithCompletionMetrics>(
 					'nsf._getInternalStatus'

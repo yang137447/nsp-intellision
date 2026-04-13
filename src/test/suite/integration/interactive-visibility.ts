@@ -12,6 +12,7 @@ import {
 	positionOf,
 	repoDescribe,
 	resolveMemberBaseForTests,
+	waitForActiveUnitAndVisibilityReadyForTests,
 	withTemporaryIntellisionPath,
 	waitForCompletionLabels,
 	waitForClientReady,
@@ -64,6 +65,11 @@ export function registerInteractiveVisibilityTests(): void {
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 				const root = await openFixture('visibility_root.nsf');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+				await waitForActiveUnitAndVisibilityReadyForTests(
+					root.uri.toString(),
+					'visibility_root.nsf',
+					'visibility_root active unit + interactive visibility settled'
+				);
 
 				const position = positionOf(root, 'VisibleInc', 1, 'VisibleInc'.length);
 				const items = await waitFor(
@@ -93,6 +99,11 @@ export function registerInteractiveVisibilityTests(): void {
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 				const root = await openFixture('visibility_globals_root.nsf');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+				await waitForActiveUnitAndVisibilityReadyForTests(
+					root.uri.toString(),
+					'visibility_globals_root.nsf',
+					'visibility_globals_root active unit + interactive visibility settled'
+				);
 
 				const position = positionOf(root, 'VisibleSharedGlo', 1, 'VisibleSharedGlo'.length);
 				await waitForCompletionLabels(
@@ -117,6 +128,11 @@ export function registerInteractiveVisibilityTests(): void {
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 				const root = await openFixture('visibility_root.nsf');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+				await waitForActiveUnitAndVisibilityReadyForTests(
+					root.uri.toString(),
+					'visibility_root.nsf',
+					'visibility_root active unit + interactive visibility settled (local completion ordering)'
+				);
 				const edit = new vscode.WorkspaceEdit();
 				edit.insert(
 					root.uri,
@@ -153,6 +169,11 @@ export function registerInteractiveVisibilityTests(): void {
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 				const root = await openFixture('visibility_member_root.nsf');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+				await waitForActiveUnitAndVisibilityReadyForTests(
+					root.uri.toString(),
+					'visibility_member_root.nsf',
+					'visibility_member_root active unit + interactive visibility settled'
+				);
 
 				const memberPos = positionOf(root, 'visibleStruct.', 1, 'visibleStruct.'.length);
 				const memberItems = await waitFor(
@@ -247,6 +268,11 @@ export function registerInteractiveVisibilityTests(): void {
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 				const root = await openFixture('visibility_root.nsf');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+				await waitForActiveUnitAndVisibilityReadyForTests(
+					root.uri.toString(),
+					'visibility_root.nsf',
+					'visibility_root active unit + interactive visibility settled (shard close)'
+				);
 
 				const position = positionOf(root, 'VisibleInc', 1, 'VisibleInc'.length);
 				await waitForCompletionLabels(

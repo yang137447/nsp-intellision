@@ -180,6 +180,40 @@ export async function getDocumentRuntimeDebug(
 	return response?.documents ?? [];
 }
 
+export async function waitForActiveUnitAndVisibilityReadyForTests(
+	uri: string,
+	expectedActiveUnitPathSuffix: string,
+	label: string
+): Promise<DocumentRuntimeDebugEntry> {
+	const expectedUri = uri.toLowerCase();
+	const expectedSuffix = expectedActiveUnitPathSuffix.toLowerCase();
+
+	const response = await waitFor(
+		() =>
+			vscode.commands.executeCommand<{ documents?: DocumentRuntimeDebugEntry[] }>(
+				'nsf._getDocumentRuntimeDebug',
+				{ uris: [uri] }
+			),
+		(value) => {
+			const doc = value?.documents?.[0];
+			return (
+				Array.isArray(value?.documents) &&
+				typeof doc?.uri === 'string' &&
+				doc.uri.toLowerCase() === expectedUri &&
+				typeof doc.activeUnitPath === 'string' &&
+				doc.activeUnitPath.toLowerCase().endsWith(expectedSuffix) &&
+				typeof doc.activeUnitIncludeClosureFingerprint === 'string' &&
+				doc.activeUnitIncludeClosureFingerprint.length > 0 &&
+				typeof doc.interactiveVisibilityFingerprint === 'string' &&
+				doc.interactiveVisibilityFingerprint.length > 0
+			);
+		},
+		label
+	);
+
+	return response.documents![0];
+}
+
 export async function withTemporaryIntellisionPath<T>(
 	paths: string[],
 	fn: () => Promise<T>
@@ -233,6 +267,95 @@ export async function touchDocument(document: vscode.TextDocument): Promise<void
 	);
 	await vscode.workspace.applyEdit(removeEdit);
 	void updatedDocument;
+}
+
+function assertEditorTargetsDocument(editor: vscode.TextEditor, document: vscode.TextDocument): void {
+	assert.strictEqual(
+		editor.document.uri.toString(),
+		document.uri.toString(),
+		`Expected editor document ${editor.document.uri.toString()} to match target ${document.uri.toString()}.`
+	);
+}
+
+/**
+ * Deterministic replacement for `vscode.commands.executeCommand('type')` in tests.
+ *
+ * `type` is focus-sensitive and can become a no-op under repo-mode and replay runner scenarios.
+ * We instead apply an explicit edit against the provided editor and update the selection ourselves.
+ */
+export async function typeTextForTests(editor: vscode.TextEditor, text: string): Promise<void> {
+	assert.ok(text.length > 0, 'Expected non-empty text for typeTextForTests.');
+
+	const document = editor.document;
+	const selection = editor.selection;
+	assertEditorTargetsDocument(editor, document);
+
+	const startOffset = document.offsetAt(selection.start);
+
+	const ok = await editor.edit(
+		(editBuilder) => {
+			editBuilder.replace(new vscode.Range(selection.start, selection.end), text);
+		},
+		{ undoStopBefore: false, undoStopAfter: false }
+	);
+	assert.ok(ok, 'Expected editor edit to succeed in typeTextForTests.');
+
+	const updatedDocument = editor.document;
+	const nextPosition = updatedDocument.positionAt(startOffset + text.length);
+	editor.selection = new vscode.Selection(nextPosition, nextPosition);
+}
+
+/**
+ * Deterministic replacement for `vscode.commands.executeCommand('deleteLeft')` in tests.
+ *
+ * Applies deletions relative to the provided editor selection/cursor and updates selection explicitly.
+ */
+export async function deleteLeftForTests(editor: vscode.TextEditor, count = 1): Promise<void> {
+	assert.ok(count >= 0, `Expected non-negative delete count, got ${count}.`);
+
+	for (let index = 0; index < count; index++) {
+		const document = editor.document;
+		const selection = editor.selection;
+		assertEditorTargetsDocument(editor, document);
+
+		// `deleteLeft` deletes the current selection as a single operation.
+		if (!selection.isEmpty) {
+			const startOffset = document.offsetAt(selection.start);
+			const ok = await editor.edit(
+				(editBuilder) => {
+					editBuilder.delete(new vscode.Range(selection.start, selection.end));
+				},
+				{ undoStopBefore: false, undoStopAfter: false }
+			);
+			assert.ok(ok, 'Expected editor edit to succeed in deleteLeftForTests(selection).');
+
+			const updatedDocument = editor.document;
+			const nextPosition = updatedDocument.positionAt(startOffset);
+			editor.selection = new vscode.Selection(nextPosition, nextPosition);
+			continue;
+		}
+
+		const cursorOffset = document.offsetAt(selection.active);
+		if (cursorOffset <= 0) {
+			return;
+		}
+
+		const startOffset = cursorOffset - 1;
+		const start = document.positionAt(startOffset);
+		const end = document.positionAt(cursorOffset);
+
+		const ok = await editor.edit(
+			(editBuilder) => {
+				editBuilder.delete(new vscode.Range(start, end));
+			},
+			{ undoStopBefore: false, undoStopAfter: false }
+		);
+		assert.ok(ok, 'Expected editor edit to succeed in deleteLeftForTests(char).');
+
+		const updatedDocument = editor.document;
+		const nextPosition = updatedDocument.positionAt(startOffset);
+		editor.selection = new vscode.Selection(nextPosition, nextPosition);
+	}
 }
 
 export function toFsPath(location: ProviderLocation): string {
