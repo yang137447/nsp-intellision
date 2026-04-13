@@ -1,4 +1,5 @@
 import { commands, ExtensionContext, Position, Range, Uri } from 'vscode';
+import type { ReplayRecordingDraft } from './client_real_workspace_replay_recording';
 
 type SpamRequestResult = {
 	completed: number;
@@ -102,6 +103,8 @@ export type InternalCommandDeps = {
 	}) => Promise<InteractiveRuntimeDebugResponse>;
 	sendServerRequest: (method: string, params?: unknown) => Promise<any>;
 	getLastCompletionDebug: () => Promise<LastCompletionDebugResponse>;
+	startReplayRecording: (payload?: Record<string, unknown>) => void;
+	stopReplayRecording: () => ReplayRecordingDraft;
 };
 
 export function registerInternalCommands(
@@ -215,6 +218,14 @@ export function registerInternalCommands(
 		commands.registerCommand('nsf._getLastCompletionDebug', async () =>
 			deps.getLastCompletionDebug()
 		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand('nsf._startReplayRecording', async (payload?: Record<string, unknown>) =>
+			deps.startReplayRecording(payload)
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand('nsf._stopReplayRecording', async () => deps.stopReplayRecording())
 	);
 }
 

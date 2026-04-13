@@ -58,6 +58,7 @@ import { createMetricsTracker, type MetricsPayload } from './client_metrics';
 import { buildMainStatusBarPresentation } from './client_status_ui';
 import { registerUserCommands } from './client_user_commands';
 import { registerWatchedFileForwarding } from './client_watched_files';
+import { createRealWorkspaceReplayRecorder } from './client_real_workspace_replay_recording';
 import { LSP_METHOD_KEYS } from './lsp_method_keys';
 
 import {
@@ -511,14 +512,16 @@ export function activate(context: ExtensionContext) {
 		sendWorkspaceSymbolRequest,
 		collectSpamRequestResults
 	});
-	const runtimeDebugHandler = createRuntimeDebugHandler({
-		ensureClientStarted,
-		hasReadyClient: () => Boolean(client?.initializeResult),
-		beginRpcActivity,
-		endRpcActivity,
-		sendRuntimeDebugRequest: (payload) => client!.sendRequest<any>('nsf/_debugDocumentRuntime', payload ?? {})
-	});
-	registerInternalCommands(context, {
+const runtimeDebugHandler = createRuntimeDebugHandler({
+	ensureClientStarted,
+	hasReadyClient: () => Boolean(client?.initializeResult),
+	beginRpcActivity,
+	endRpcActivity,
+	sendRuntimeDebugRequest: (payload) => client!.sendRequest<any>('nsf/_debugDocumentRuntime', payload ?? {})
+});
+const replayRecorder = createRealWorkspaceReplayRecorder();
+context.subscriptions.push(replayRecorder);
+registerInternalCommands(context, {
 		getInternalStatus: () => ({
 			clientState: clientStateLabel,
 			activeRpcCount,
@@ -624,7 +627,9 @@ export function activate(context: ExtensionContext) {
 				throw new Error('Language client is not ready yet');
 			}
 			return client.sendRequest<LastCompletionDebugResponse>('nsf/_getLastCompletionDebug', {});
-		}
+		},
+		startReplayRecording: (payload) => replayRecorder.start(payload ?? {}),
+		stopReplayRecording: () => replayRecorder.stop()
 	});
 
 	registerWatchedFileForwarding(context, {
