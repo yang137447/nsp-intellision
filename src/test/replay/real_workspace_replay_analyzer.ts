@@ -44,5 +44,8 @@ export function detectReplayAnomalies(step: ReplayStep, samples: ReplaySampleSna
 			anomalies.push('signature-help-request-not-observed');
 		}
 	}
+	if (samples.every((sample) => (sample.internalStatus?.activeRpcCount ?? 0) > 0)) {
+		anomalies.push('active-rpc-backlog-never-settled');
+	}
 	return anomalies;
 }
