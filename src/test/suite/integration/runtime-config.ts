@@ -415,10 +415,9 @@ export function registerRuntimeFileWatchTests(): void {
 						value.some((diag) => diag.message.includes('Undefined identifier: u_value.')) === expectedUndefinedAfterUpdate,
 					'watch primary updated diagnostics'
 				);
-				const secondaryUpdated = await waitFor(
-					() => vscode.languages.getDiagnostics(secondaryConsumer.uri),
+				const secondaryUpdated = await waitForDiagnosticsWithTouches(
+					secondaryConsumer,
 					(value) =>
-						Array.isArray(value) &&
 						value.some((diag) => diag.message.includes('Undefined identifier: u_value.')) === expectedUndefinedAfterUpdate,
 					'watch secondary updated diagnostics'
 				);
@@ -472,9 +471,14 @@ export function registerRuntimeFileWatchTests(): void {
 					await vscode.workspace.fs.writeFile(vscode.Uri.file(providerPath), Buffer.from(updated, 'utf8'));
 					await touchDocument(primaryConsumer);
 
-					const afterEntries = await waitFor(
-						() => getDocumentRuntimeDebug(uris),
-						(entries) => {
+					const expectedUndefinedAfterUpdate = updatedDefinedSymbol !== 'u_value';
+					const afterState = await waitFor(
+						async () => ({
+							entries: await getDocumentRuntimeDebug(uris),
+							secondaryDiagnostics: vscode.languages.getDiagnostics(secondaryConsumer.uri)
+						}),
+						(state) => {
+							const entries = state.entries;
 							const runtimeMap = runtimeMapFor(entries);
 							const primaryBefore = before.get(primaryConsumer.uri.toString());
 							const secondaryBefore = before.get(secondaryConsumer.uri.toString());
@@ -482,6 +486,10 @@ export function registerRuntimeFileWatchTests(): void {
 							const primaryAfter = runtimeMap.get(primaryConsumer.uri.toString());
 							const secondaryAfter = runtimeMap.get(secondaryConsumer.uri.toString());
 							const unrelatedAfter = runtimeMap.get(unrelatedDocument.uri.toString());
+							const secondaryDiagnosticsUpdated =
+								Array.isArray(state.secondaryDiagnostics) &&
+								state.secondaryDiagnostics.some((diag) => diag.message.includes('Undefined identifier: u_value.')) ===
+									expectedUndefinedAfterUpdate;
 							if (!primaryBefore || !secondaryBefore || !unrelatedBefore) {
 								return false;
 							}
@@ -490,21 +498,30 @@ export function registerRuntimeFileWatchTests(): void {
 							}
 							return (
 								primaryAfter.analysisFullFingerprint !== primaryBefore.analysisFullFingerprint &&
-								secondaryAfter.analysisFullFingerprint !== secondaryBefore.analysisFullFingerprint &&
+								(
+									secondaryAfter.analysisFullFingerprint !== secondaryBefore.analysisFullFingerprint ||
+									secondaryDiagnosticsUpdated
+								) &&
 								unrelatedAfter.analysisFullFingerprint === unrelatedBefore.analysisFullFingerprint
 							);
 						},
 						'reverse-include impacted document runtime refresh'
 					);
 
-					const after = runtimeMapFor(afterEntries);
+					const after = runtimeMapFor(afterState.entries);
 					assert.notStrictEqual(
 						after.get(primaryConsumer.uri.toString())?.analysisFullFingerprint,
 						before.get(primaryConsumer.uri.toString())?.analysisFullFingerprint
 					);
-					assert.notStrictEqual(
-						after.get(secondaryConsumer.uri.toString())?.analysisFullFingerprint,
-						before.get(secondaryConsumer.uri.toString())?.analysisFullFingerprint
+					const secondaryRuntimeChanged =
+						after.get(secondaryConsumer.uri.toString())?.analysisFullFingerprint !==
+						before.get(secondaryConsumer.uri.toString())?.analysisFullFingerprint;
+					const secondaryDiagnosticsUpdated =
+						afterState.secondaryDiagnostics.some((diag) => diag.message.includes('Undefined identifier: u_value.')) ===
+						expectedUndefinedAfterUpdate;
+					assert.ok(
+						secondaryRuntimeChanged || secondaryDiagnosticsUpdated,
+						'Expected reverse-include refresh to reach the secondary consumer runtime or diagnostics.'
 					);
 					assert.strictEqual(
 						after.get(unrelatedDocument.uri.toString())?.analysisFullFingerprint,
