@@ -38,7 +38,7 @@ repoDescribe('NSF real workspace replay core', () => {
 	it('resolves when the suffix is provided with Windows separators', async () => {
 		const document = await openFixture('module_completion_current_doc.nsf');
 		const anchor: ReplayAnchor = {
-			workspaceFolderSuffix: 'nsp-intellision\\.worktrees\\real-workspace-replay-testing',
+			workspaceFolderSuffix: getWorkspaceRoot().replace(/\//g, '\\'),
 			relativePath: 'test_files/module_completion_current_doc.nsf',
 			anchorText: 'CompletionDocHelper',
 			occurrence: 1,
