@@ -132,6 +132,15 @@ function isIndexingStateStableFromInternalStatus(indexingState: any): boolean {
 	return queued === 0 && running === 0;
 }
 
+function isInlayFallbackConditionFromInternalStatus(status: any): boolean {
+	const clientState = status?.clientState ?? '';
+	if (clientState && clientState !== 'ready') {
+		return true;
+	}
+	// Inlay provider falls back when indexing state is not stable.
+	return !isIndexingStateStableFromInternalStatus(status?.indexingState);
+}
+
 export async function waitForInlayFallbackPreconditionForTests(
 	label: string,
 	options?: WaitForOptions
@@ -139,17 +148,39 @@ export async function waitForInlayFallbackPreconditionForTests(
 	const merged: WaitForOptions = { attempts: 1200, delayMs: 25, ...options };
 	return waitForWithOptions(
 		() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
-		(status) => {
-			const clientState = status?.clientState ?? '';
-			if (clientState && clientState !== 'ready') {
-				return true;
-			}
-			// Inlay provider falls back when indexing state is not stable.
-			return !isIndexingStateStableFromInternalStatus(status?.indexingState);
-		},
+		(status) => isInlayFallbackConditionFromInternalStatus(status),
 		label,
 		merged
 	);
+}
+
+export async function waitForInlayHintsDuringClientFallback(
+	uri: vscode.Uri,
+	range: vscode.Range,
+	label: string,
+	options?: WaitForOptions
+): Promise<vscode.InlayHint[]> {
+	const merged: WaitForOptions = { attempts: 1200, delayMs: 25, ...options };
+	const result = await waitForWithOptions<vscode.InlayHint[] | undefined>(
+		async () => {
+			const statusBefore = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
+			if (!isInlayFallbackConditionFromInternalStatus(statusBefore)) {
+				return undefined;
+			}
+
+			const hints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
+				'vscode.executeInlayHintProvider',
+				uri,
+				range
+			);
+			return hints;
+		},
+		(value) => Array.isArray(value) && value.length > 0,
+		label,
+		merged
+	);
+	assert.ok(Array.isArray(result) && result.length > 0, `Expected inlay hints result for ${label}.`);
+	return result as vscode.InlayHint[];
 }
 
 export async function waitForIndexingIdle(label = 'indexing idle', options?: WaitForOptions): Promise<any> {

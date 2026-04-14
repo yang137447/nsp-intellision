@@ -16,8 +16,10 @@ import {
 	waitFor,
 	waitForFast,
 	waitForObservedBefore,
+	waitForClientReady,
 	waitForClientQuiescent,
 	waitForInlayFallbackPreconditionForTests,
+	waitForInlayHintsDuringClientFallback,
 	waitForIndexingIdle,
 	waitForHoverText
 } from '../test_helpers';
@@ -420,6 +422,22 @@ export function registerDeferredDocVisualContinuityTests(): void {
 
 export function registerDeferredDocInlayTests(): void {
 	repoDescribe('NSF client integration: Deferred Doc Runtime / Inlay Hints', () => {
+		function inlayHintLabelToText(label: any): string {
+			if (typeof label === 'string') {
+				return label;
+			}
+			if (Array.isArray(label)) {
+				return label.map((part) => (part && typeof part.value === 'string' ? part.value : '')).join('');
+			}
+			return '';
+		}
+
+		function normalizeInlayHints(hints: vscode.InlayHint[]): string[] {
+			return hints
+				.map((hint) => `${hint.position.line}:${hint.position.character}:${inlayHintLabelToText(hint.label)}`)
+				.sort();
+		}
+
 		it('provides inlay hints for user and built-in function parameters', async () => {
 			const document = await openFixture('module_inlay_hints.nsf');
 			const range = new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length));
@@ -475,14 +493,20 @@ export function registerDeferredDocInlayTests(): void {
 			void restartPromise.then(() => undefined, () => undefined);
 			await waitForInlayFallbackPreconditionForTests('inlay fallback precondition after restart');
 
-			const fallbackHints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
-				'vscode.executeInlayHintProvider',
+			const fallbackHints = await waitForInlayHintsDuringClientFallback(
 				document.uri,
-				range
+				range,
+				'inlay hints during client-side fallback after restart'
 			);
-			assert.ok(Array.isArray(fallbackHints) && fallbackHints.length > 0, 'Expected last-good inlay hints during unstable indexing.');
+			assert.ok(fallbackHints.length > 0, 'Expected last-good inlay hints during client-side fallback.');
+			assert.deepStrictEqual(
+				normalizeInlayHints(fallbackHints),
+				normalizeInlayHints(initialHints),
+				'Expected fallback inlay hints to match the seeded last-good hints.'
+			);
 
 			await restartPromise;
+			await waitForClientReady('client ready after inlay continuity fallback');
 			await waitForIndexingIdle('indexing idle after inlay continuity fallback', { attempts: 240, delayMs: 500 });
 		});
 
@@ -517,17 +541,20 @@ export function registerDeferredDocInlayTests(): void {
 			void restartPromise.then(() => undefined, () => undefined);
 			await waitForInlayFallbackPreconditionForTests('inlay fallback precondition after restart (narrow empty)');
 
-			const fallbackHints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
-				'vscode.executeInlayHintProvider',
+			const fallbackHints = await waitForInlayHintsDuringClientFallback(
 				document.uri,
-				fullRange
+				fullRange,
+				'broader inlay hints during client-side fallback after restart (narrow empty)'
 			);
-			assert.ok(
-				Array.isArray(fallbackHints) && fallbackHints.length > 0,
+			assert.ok(fallbackHints.length > 0, 'Expected broader last-good inlay hints during client-side fallback.');
+			assert.deepStrictEqual(
+				normalizeInlayHints(fallbackHints),
+				normalizeInlayHints(seededFullHints),
 				'Expected broader last-good inlay hints to survive a narrower empty cache result.'
 			);
 
 			await restartPromise;
+			await waitForClientReady('client ready after narrow empty inlay fallback continuity test');
 			await waitForIndexingIdle('indexing idle after narrow empty inlay fallback continuity test', { attempts: 240, delayMs: 500 });
 		});
 
