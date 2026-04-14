@@ -56,6 +56,29 @@ export type ReplayStep =
 			payload: { command: string; args?: unknown[] };
 			afterActionPauseMs?: number;
 			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureCompletion';
+			label: string;
+			payload?: {
+				triggerCharacter?: string;
+				expectedLabels?: string[];
+				maxLabels?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureSignatureHelp';
+			label: string;
+			payload?: {
+				triggerCharacter?: string;
+				retrigger?: boolean;
+				expectedSubstrings?: string[];
+				maxSignatures?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
 	  };
 
 export type ReplayScript = {
