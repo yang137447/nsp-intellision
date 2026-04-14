@@ -1,0 +1,57 @@
+{
+  "id": "rw-ux-bumpoffset-completion",
+  "title": "Real workspace BumpOffsetUV completion capture",
+  "workspaceHint": "shader-source",
+  "targetDocument": {
+    "workspaceFolderSuffix": "shader-source",
+    "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "occurrence": 1,
+    "characterOffset": 0
+  },
+  "intent": "Capture completion list content and latency when typing a function prefix at a real-workspace callsite.",
+  "tags": ["interactive", "completion", "ux-capture", "real-workspace"],
+  "steps": [
+    {
+      "kind": "openDocument",
+      "label": "open bumpoffset document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+        "occurrence": 1,
+        "characterOffset": 0
+      }
+    },
+    {
+      "kind": "selectRange",
+      "label": "select function name",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": { "startOffset": 0, "endOffset": 12 }
+    },
+    {
+      "kind": "typeText",
+      "label": "type Bu",
+      "payload": { "text": "Bu" }
+    },
+    {
+      "kind": "captureCompletion",
+      "label": "capture completion after Bu",
+      "payload": { "expectedLabels": ["BumpOffsetUV"], "maxLabels": 80 },
+      "samplingWindow": {
+        "label": "ux-window",
+        "delaysMs": [0, 30, 80, 160, 320, 640],
+        "captureRuntimeDebug": true,
+        "captureInteractiveDebug": true
+      }
+    }
+  ],
+  "cleanup": { "restoreTouchedDocuments": true }
+}
+
