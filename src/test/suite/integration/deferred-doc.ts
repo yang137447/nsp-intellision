@@ -14,7 +14,10 @@ import {
 	positionOf,
 	repoDescribe,
 	waitFor,
+	waitForFast,
+	waitForObservedBefore,
 	waitForClientQuiescent,
+	waitForInlayFallbackPreconditionForTests,
 	waitForIndexingIdle,
 	waitForHoverText
 } from '../test_helpers';
@@ -367,12 +370,15 @@ export function registerDeferredDocVisualContinuityTests(): void {
 				await vscode.window.showTextDocument(document, { preview: false });
 				const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(6, 0));
 
-				await waitFor(
+				await waitForObservedBefore(
 					() => getDocumentRuntimeDebug([document.uri.toString()]),
 					(entries) =>
 						entries[0]?.hasDeferredDocSnapshot === true &&
 						entries[0]?.deferredHasFullDiagnostics === true &&
 						entries[0]?.deferredHasInlayHintsFull === false,
+					(entries) =>
+						entries[0]?.hasDeferredDocSnapshot === true &&
+						entries[0]?.deferredHasInlayHintsFull === true,
 					'early deferred diagnostics publish before full inlay prewarm'
 				);
 
@@ -465,28 +471,9 @@ export function registerDeferredDocInlayTests(): void {
 			);
 			assert.ok(initialHints.length > 0, 'Expected initial inlay hints before triggering unstable indexing.');
 
-			await vscode.commands.executeCommand('nsf._sendServerRequest', {
-				method: 'nsf/rebuildIndex',
-				params: {
-					reason: 'testInlayContinuity',
-					clearDiskCache: false
-				}
-			});
-			await waitFor(
-				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
-				(value) => {
-					const state = value?.indexingState;
-					if (!state) {
-						return false;
-					}
-					return (
-						state.state !== 'Idle' ||
-						(state.pending?.queuedTasks ?? 0) > 0 ||
-						(state.pending?.runningWorkers ?? 0) > 0
-					);
-				},
-				'indexing becomes unstable for inlay continuity fallback'
-			);
+			const restartPromise = vscode.commands.executeCommand('nsf.restartServer');
+			void restartPromise.then(() => undefined, () => undefined);
+			await waitForInlayFallbackPreconditionForTests('inlay fallback precondition after restart');
 
 			const fallbackHints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
 				'vscode.executeInlayHintProvider',
@@ -495,7 +482,8 @@ export function registerDeferredDocInlayTests(): void {
 			);
 			assert.ok(Array.isArray(fallbackHints) && fallbackHints.length > 0, 'Expected last-good inlay hints during unstable indexing.');
 
-			await waitForIndexingIdle('indexing idle after inlay continuity fallback');
+			await restartPromise;
+			await waitForIndexingIdle('indexing idle after inlay continuity fallback', { attempts: 240, delayMs: 500 });
 		});
 
 		it('does not let a narrower empty inlay result evict a broader last-good fallback', async function () {
@@ -525,28 +513,9 @@ export function registerDeferredDocInlayTests(): void {
 			);
 			assert.ok(Array.isArray(narrowHints) && narrowHints.length === 0, 'Expected narrower range to produce an empty inlay result.');
 
-			await vscode.commands.executeCommand('nsf._sendServerRequest', {
-				method: 'nsf/rebuildIndex',
-				params: {
-					reason: 'testInlayEmptyRangeFallbackContinuity',
-					clearDiskCache: false
-				}
-			});
-			await waitFor(
-				() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
-				(value) => {
-					const state = value?.indexingState;
-					if (!state) {
-						return false;
-					}
-					return (
-						state.state !== 'Idle' ||
-						(state.pending?.queuedTasks ?? 0) > 0 ||
-						(state.pending?.runningWorkers ?? 0) > 0
-					);
-				},
-				'indexing becomes unstable for broader inlay fallback after narrow empty result'
-			);
+			const restartPromise = vscode.commands.executeCommand('nsf.restartServer');
+			void restartPromise.then(() => undefined, () => undefined);
+			await waitForInlayFallbackPreconditionForTests('inlay fallback precondition after restart (narrow empty)');
 
 			const fallbackHints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
 				'vscode.executeInlayHintProvider',
@@ -558,7 +527,8 @@ export function registerDeferredDocInlayTests(): void {
 				'Expected broader last-good inlay hints to survive a narrower empty cache result.'
 			);
 
-			await waitForIndexingIdle('indexing idle after narrow empty inlay fallback continuity test');
+			await restartPromise;
+			await waitForIndexingIdle('indexing idle after narrow empty inlay fallback continuity test', { attempts: 240, delayMs: 500 });
 		});
 
 		it('retains non-overlapping inlay range caches and clears them on overlapping edits', async function () {

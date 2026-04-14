@@ -9,6 +9,42 @@ type Awaitable<T> = T | Thenable<T> | PromiseLike<T>;
 const testMode = process.env.NSF_TEST_MODE ?? 'repo';
 export const repoDescribe = testMode === 'repo' ? describe : describe.skip;
 
+export type WaitForOptions = {
+	// Total attempts before timing out.
+	attempts?: number;
+	// Delay between attempts in milliseconds.
+	delayMs?: number;
+};
+
+async function waitForWithOptions<T>(
+	producer: () => Awaitable<T>,
+	isReady: (value: T) => boolean,
+	label: string,
+	options?: WaitForOptions
+): Promise<T> {
+	const attempts = options?.attempts ?? 60;
+	const delayMs = options?.delayMs ?? 500;
+	let lastValue: T | undefined;
+	let lastError: unknown;
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		try {
+			lastValue = await Promise.resolve(producer());
+			if (isReady(lastValue)) {
+				return lastValue;
+			}
+			lastError = undefined;
+		} catch (error) {
+			lastError = error;
+		}
+		await new Promise((resolve) => setTimeout(resolve, delayMs));
+	}
+	const suffix =
+		lastError !== undefined
+			? ` Last error: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+			: '';
+	throw new Error(`Timed out waiting for ${label}.${suffix}`);
+}
+
 export function getWorkspaceRoot(): string {
 	const folder = vscode.workspace.workspaceFolders?.[0];
 	assert.ok(folder, 'Expected the extension tests to open a workspace folder.');
@@ -33,19 +69,49 @@ export async function waitFor<T>(
 	isReady: (value: T) => boolean,
 	label: string
 ): Promise<T> {
+	return waitForWithOptions(producer, isReady, label);
+}
+
+export async function waitForFast<T>(
+	producer: () => Awaitable<T>,
+	isReady: (value: T) => boolean,
+	label: string,
+	options?: WaitForOptions
+): Promise<T> {
+	const merged: WaitForOptions = { attempts: 600, delayMs: 50, ...options };
+	return waitForWithOptions(producer, isReady, label, merged);
+}
+
+// Waits for an intermediate transient state to occur before a terminal state is observed.
+// This is useful when the intermediate state can be short-lived and a slow polling loop can miss it.
+export async function waitForObservedBefore<T>(
+	producer: () => Awaitable<T>,
+	didObserve: (value: T) => boolean,
+	isTerminal: (value: T) => boolean,
+	label: string,
+	options?: WaitForOptions
+): Promise<T> {
+	const attempts = options?.attempts ?? 1200;
+	const delayMs = options?.delayMs ?? 25;
 	let lastValue: T | undefined;
 	let lastError: unknown;
-	for (let attempt = 0; attempt < 60; attempt++) {
+	for (let attempt = 0; attempt < attempts; attempt++) {
 		try {
 			lastValue = await Promise.resolve(producer());
-			if (isReady(lastValue)) {
-				return lastValue;
-			}
 			lastError = undefined;
 		} catch (error) {
 			lastError = error;
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+			continue;
 		}
-		await new Promise((resolve) => setTimeout(resolve, 500));
+
+		if (didObserve(lastValue)) {
+			return lastValue;
+		}
+		if (isTerminal(lastValue)) {
+			throw new Error(`Observed terminal state before ${label}.`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, delayMs));
 	}
 	const suffix =
 		lastError !== undefined
@@ -54,14 +120,46 @@ export async function waitFor<T>(
 	throw new Error(`Timed out waiting for ${label}.${suffix}`);
 }
 
-export async function waitForIndexingIdle(label = 'indexing idle'): Promise<any> {
+function isIndexingStateStableFromInternalStatus(indexingState: any): boolean {
+	if (!indexingState || typeof indexingState !== 'object') {
+		return false;
+	}
+	if (indexingState.state !== 'Idle') {
+		return false;
+	}
+	const queued = indexingState.pending?.queuedTasks ?? 0;
+	const running = indexingState.pending?.runningWorkers ?? 0;
+	return queued === 0 && running === 0;
+}
+
+export async function waitForInlayFallbackPreconditionForTests(
+	label: string,
+	options?: WaitForOptions
+): Promise<any> {
+	const merged: WaitForOptions = { attempts: 1200, delayMs: 25, ...options };
+	return waitForWithOptions(
+		() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+		(status) => {
+			const clientState = status?.clientState ?? '';
+			if (clientState && clientState !== 'ready') {
+				return true;
+			}
+			// Inlay provider falls back when indexing state is not stable.
+			return !isIndexingStateStableFromInternalStatus(status?.indexingState);
+		},
+		label,
+		merged
+	);
+}
+
+export async function waitForIndexingIdle(label = 'indexing idle', options?: WaitForOptions): Promise<any> {
 	const commands = await vscode.commands.getCommands(true);
 	if (!commands.includes('nsf._getInternalStatus')) {
 		const activationDoc = await openFixture('module_suite.nsf');
 		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
 		void activationDoc;
 	}
-	return waitFor(
+	return waitForWithOptions(
 		() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
 		(value) => {
 			const state = value?.indexingState;
@@ -74,7 +172,8 @@ export async function waitForIndexingIdle(label = 'indexing idle'): Promise<any>
 				(state.pending?.runningWorkers ?? 0) === 0
 			);
 		},
-		label
+		label,
+		options
 	);
 }
 
