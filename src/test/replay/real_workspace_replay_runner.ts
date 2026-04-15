@@ -4,7 +4,12 @@ import { detectReplayAnomalies } from './real_workspace_replay_analyzer';
 import { sampleReplayWindow } from './real_workspace_replay_sampler';
 import { resolveReplayAnchor } from './real_workspace_replay_targets';
 import type { ReplaySampleSnapshot, ReplayScript, ReplayStep } from './real_workspace_replay_types';
-import { deleteLeftForTests, typeTextForTests } from '../suite/test_helpers';
+import {
+    deleteLeftForTests,
+    typeTextForTests,
+    waitForClientQuiescent,
+    waitForIndexingIdle
+} from '../suite/test_helpers';
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,6 +73,16 @@ type SignatureHelpCaptureReport = {
     error?: string;
 };
 
+type WorkspaceSymbolCaptureReport = {
+    durationMs: number;
+    query: string;
+    symbolCount: number;
+    topNames: string[];
+    expectedNames?: string[];
+    expectedPresent?: Record<string, boolean>;
+    error?: string;
+};
+
 type ReplayStepReport = {
     stepLabel: string;
     stepKind: ReplayStep['kind'];
@@ -78,6 +93,7 @@ type ReplayStepReport = {
     anomalies: string[];
     completionCapture?: CompletionCaptureReport;
     signatureHelpCapture?: SignatureHelpCaptureReport;
+    workspaceSymbolCapture?: WorkspaceSymbolCaptureReport;
 };
 
 export async function runReplayScript(script: ReplayScript): Promise<{ scriptId: string; steps: ReplayStepReport[] }> {
@@ -105,6 +121,7 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
 
             let completionCapture: CompletionCaptureReport | undefined;
             let signatureHelpCapture: SignatureHelpCaptureReport | undefined;
+            let workspaceSymbolCapture: WorkspaceSymbolCaptureReport | undefined;
             let completionCapturePromise: Promise<CompletionCaptureReport> | undefined;
             let signatureHelpCapturePromise: Promise<SignatureHelpCaptureReport> | undefined;
 
@@ -306,6 +323,65 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                     })();
                     break;
                 }
+                case 'captureWorkspaceSymbols': {
+                    const query = String(step.payload?.query ?? '');
+                    const expectedNames = Array.isArray(step.payload?.expectedNames)
+                        ? step.payload.expectedNames.filter((entry): entry is string => typeof entry === 'string')
+                        : undefined;
+                    const maxNames = Math.max(1, Math.min(200, step.payload?.maxNames ?? 50));
+
+                    const startedAt = Date.now();
+                    let result: vscode.SymbolInformation[] | vscode.DocumentSymbol[] | undefined;
+                    let captureError: string | undefined;
+                    try {
+                        result = await vscode.commands.executeCommand<
+                            vscode.SymbolInformation[] | vscode.DocumentSymbol[] | undefined
+                        >('vscode.executeWorkspaceSymbolProvider', query);
+                    } catch (error) {
+                        captureError = error instanceof Error ? error.message : String(error);
+                        result = undefined;
+                    }
+                    const durationMs = Date.now() - startedAt;
+
+                    const names: string[] = [];
+                    if (Array.isArray(result)) {
+                        for (const item of result) {
+                            if (item && typeof (item as unknown as { name?: unknown }).name === 'string') {
+                                names.push((item as unknown as { name: string }).name);
+                            }
+                        }
+                    }
+                    const topNames = names.slice(0, maxNames);
+                    const expectedPresent = expectedNames
+                        ? Object.fromEntries(expectedNames.map((name) => [name, topNames.includes(name)]))
+                        : undefined;
+
+                    workspaceSymbolCapture = {
+                        durationMs,
+                        query,
+                        symbolCount: names.length,
+                        topNames,
+                        expectedNames,
+                        expectedPresent,
+                        error: captureError
+                    };
+                    break;
+                }
+                case 'waitForInternalStatus': {
+                    const mode = step.payload?.mode === 'quiescent' ? 'quiescent' : 'idle';
+                    const timeoutMs = Math.max(1000, step.payload?.timeoutMs ?? 180000);
+                    if (mode === 'quiescent') {
+                        await waitForClientQuiescent(step.label || 'replay waitForInternalStatus quiescent');
+                    } else {
+                        await waitForIndexingIdle(step.label || 'replay waitForInternalStatus idle', {
+                            attempts: Math.max(1, Math.ceil(timeoutMs / 500)),
+                            delayMs: 500
+                        });
+                    }
+                    activeEditor = vscode.window.activeTextEditor ?? activeEditor;
+                    recordDocumentSnapshot(activeEditor?.document);
+                    break;
+                }
                 default:
                     throw new Error(`Unsupported replay step kind: ${(step as ReplayStep).kind}`);
             }
@@ -333,7 +409,8 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                 samples,
                 anomalies: detectReplayAnomalies(step, samples),
                 completionCapture,
-                signatureHelpCapture
+                signatureHelpCapture,
+                workspaceSymbolCapture
             });
         }
     } finally {

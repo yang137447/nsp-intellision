@@ -215,6 +215,7 @@ export function activate(context: ExtensionContext) {
 	const activeUnitController = createActiveUnitController({
 		context,
 		unitStatusBarItem,
+		hasReadyClient: () => Boolean(client?.initializeResult),
 		beginRpcActivity,
 		endRpcActivity,
 		appendClientTrace,

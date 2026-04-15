@@ -79,6 +79,27 @@ export type ReplayStep =
 			};
 			afterActionPauseMs?: number;
 			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureWorkspaceSymbols';
+			label: string;
+			payload: {
+				query: string;
+				expectedNames?: string[];
+				maxNames?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'waitForInternalStatus';
+			label: string;
+			payload: {
+				mode: 'idle' | 'quiescent';
+				timeoutMs?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
 	  };
 
 export type ReplayScript = {
