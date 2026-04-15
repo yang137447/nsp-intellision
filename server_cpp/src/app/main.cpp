@@ -1909,6 +1909,49 @@ int main(int argc, char **argv) {
       continue;
     }
 
+    if (method == "nsf/_debugWorkspaceIndexSymbols") {
+      Json result = makeObject();
+      std::string query;
+      size_t limit = 64;
+      if (params) {
+        const Json *queryValue = getObjectValue(*params, "query");
+        if (queryValue && queryValue->type == Json::Type::String)
+          query = queryValue->s;
+        const Json *limitValue = getObjectValue(*params, "limit");
+        if (limitValue && limitValue->type == Json::Type::Number) {
+          const int requested =
+              static_cast<int>(std::llround(getNumberValue(*limitValue)));
+          if (requested > 0)
+            limit = static_cast<size_t>(requested);
+        }
+      }
+      std::vector<IndexedDefinition> defs;
+      workspaceSummaryRuntimeQuerySymbols(query, defs, limit);
+      result.o["query"] = makeString(query);
+      result.o["ready"] = makeBool(workspaceSummaryRuntimeIsReady());
+      result.o["indexingState"] = workspaceSummaryRuntimeGetIndexingState();
+      result.o["count"] = makeNumber(static_cast<double>(defs.size()));
+      Json names = makeArray();
+      Json items = makeArray();
+      for (const auto &def : defs) {
+        names.a.push_back(makeString(def.name));
+        Json item = makeObject();
+        item.o["name"] = makeString(def.name);
+        item.o["type"] = makeString(def.type);
+        item.o["uri"] = makeString(def.uri);
+        item.o["line"] = makeNumber(static_cast<double>(def.line));
+        item.o["start"] = makeNumber(static_cast<double>(def.start));
+        item.o["end"] = makeNumber(static_cast<double>(def.end));
+        item.o["kind"] = makeNumber(static_cast<double>(def.kind));
+        items.a.push_back(std::move(item));
+      }
+      result.o["names"] = std::move(names);
+      result.o["items"] = std::move(items);
+      if (id.type != Json::Type::Null)
+        writeResponse(id, result);
+      continue;
+    }
+
     if (method == "nsf/_debugDocumentRuntime") {
       Json result = makeObject();
       Json documents = makeArray();

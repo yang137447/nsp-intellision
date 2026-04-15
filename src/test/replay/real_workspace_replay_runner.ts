@@ -7,8 +7,7 @@ import type { ReplaySampleSnapshot, ReplayScript, ReplayStep } from './real_work
 import {
     deleteLeftForTests,
     typeTextForTests,
-    waitForClientQuiescent,
-    waitForIndexingIdle
+    waitForClientQuiescent
 } from '../suite/test_helpers';
 
 function delay(ms: number): Promise<void> {
@@ -43,6 +42,29 @@ function getLineText(document: vscode.TextDocument, line: number): string {
     }
 }
 
+async function waitForReplayServerIndexingIdle(label: string, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let lastValue: unknown;
+    while (Date.now() < deadline) {
+        try {
+            lastValue = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
+                method: 'nsf/getIndexingState',
+                params: {}
+            });
+            const state = (lastValue as any)?.state;
+            const queued = (lastValue as any)?.pending?.queuedTasks ?? 0;
+            const running = (lastValue as any)?.pending?.runningWorkers ?? 0;
+            if (state === 'Idle' && queued === 0 && running === 0) {
+                return;
+            }
+        } catch {
+            // Keep polling; extension activation and server startup can race replay setup.
+        }
+        await delay(500);
+    }
+    throw new Error(`[real-replay] Timed out waiting for ${label}. Last=${JSON.stringify(lastValue)}`);
+}
+
 type CompletionCaptureReport = {
     durationMs: number;
     triggerCharacter?: string;
@@ -55,6 +77,13 @@ type CompletionCaptureReport = {
     lineText?: string;
     error?: string;
     lastCompletionDebug?: unknown;
+    directServerCompletion?: {
+        durationMs: number;
+        itemCount: number;
+        topLabels: string[];
+        expectedPresent?: Record<string, boolean>;
+        error?: string;
+    };
 };
 
 type SignatureHelpCaptureReport = {
@@ -81,6 +110,7 @@ type WorkspaceSymbolCaptureReport = {
     expectedNames?: string[];
     expectedPresent?: Record<string, boolean>;
     error?: string;
+    workspaceIndexDebug?: unknown;
 };
 
 type ReplayStepReport = {
@@ -234,6 +264,39 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                         } catch {
                             // ignore
                         }
+                        let directServerCompletion: CompletionCaptureReport['directServerCompletion'] | undefined;
+                        const directStartedAt = Date.now();
+                        try {
+                            const directResult = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
+                                method: 'textDocument/completion',
+                                params: {
+                                    textDocument: { uri: document.uri.toString() },
+                                    position: { line: position.line, character: position.character }
+                                }
+                            });
+                            const directItems = getCompletionItems(directResult as vscode.CompletionList | vscode.CompletionItem[] | undefined);
+                            const directLabels = directItems
+                                .map((item) => completionLabelToString((item as unknown as { label?: unknown }).label))
+                                .filter((label) => label.length > 0);
+                            const directTopLabels = directLabels.slice(0, maxLabels);
+                            directServerCompletion = {
+                                durationMs: Date.now() - directStartedAt,
+                                itemCount: directLabels.length,
+                                topLabels: directTopLabels,
+                                expectedPresent: expectedLabels
+                                    ? Object.fromEntries(
+                                          expectedLabels.map((label) => [label, directTopLabels.includes(label)])
+                                      )
+                                    : undefined
+                            };
+                        } catch (error) {
+                            directServerCompletion = {
+                                durationMs: Date.now() - directStartedAt,
+                                itemCount: 0,
+                                topLabels: [],
+                                error: error instanceof Error ? error.message : String(error)
+                            };
+                        }
 
                         return {
                             durationMs,
@@ -246,7 +309,8 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                             character: position.character,
                             lineText,
                             error: 'error' in finished ? finished.error : undefined,
-                            lastCompletionDebug
+                            lastCompletionDebug,
+                            directServerCompletion
                         };
                     })();
                     break;
@@ -355,6 +419,15 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                     const expectedPresent = expectedNames
                         ? Object.fromEntries(expectedNames.map((name) => [name, topNames.includes(name)]))
                         : undefined;
+                    let workspaceIndexDebug: unknown | undefined;
+                    try {
+                        workspaceIndexDebug = await vscode.commands.executeCommand<any>(
+                            'nsf._getWorkspaceIndexSymbolDebug',
+                            { query, limit: maxNames }
+                        );
+                    } catch {
+                        // ignore; provider capture should stay report-only.
+                    }
 
                     workspaceSymbolCapture = {
                         durationMs,
@@ -363,7 +436,8 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                         topNames,
                         expectedNames,
                         expectedPresent,
-                        error: captureError
+                        error: captureError,
+                        workspaceIndexDebug
                     };
                     break;
                 }
@@ -373,10 +447,10 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                     if (mode === 'quiescent') {
                         await waitForClientQuiescent(step.label || 'replay waitForInternalStatus quiescent');
                     } else {
-                        await waitForIndexingIdle(step.label || 'replay waitForInternalStatus idle', {
-                            attempts: Math.max(1, Math.ceil(timeoutMs / 500)),
-                            delayMs: 500
-                        });
+                        await waitForReplayServerIndexingIdle(
+                            step.label || 'replay waitForInternalStatus idle',
+                            timeoutMs
+                        );
                     }
                     activeEditor = vscode.window.activeTextEditor ?? activeEditor;
                     recordDocumentSnapshot(activeEditor?.document);

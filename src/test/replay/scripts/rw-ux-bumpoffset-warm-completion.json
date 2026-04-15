@@ -41,6 +41,15 @@
       }
     },
     {
+      "kind": "captureWorkspaceSymbols",
+      "label": "capture workspace symbols for BumpOffsetUV after warmup",
+      "payload": {
+        "query": "BumpOffsetUV",
+        "expectedNames": ["BumpOffsetUV"],
+        "maxNames": 50
+      }
+    },
+    {
       "kind": "openDocument",
       "label": "open bumpoffset include document",
       "target": {
@@ -75,7 +84,7 @@
       "payload": { "expectedLabels": ["BumpOffsetUV"], "maxLabels": 80 },
       "samplingWindow": {
         "label": "ux-window",
-        "delaysMs": [0, 30, 80, 160, 320, 640]
+        "delaysMs": [0, 30, 80, 160, 320, 640, 1200, 2400, 3600]
       }
     }
   ],
