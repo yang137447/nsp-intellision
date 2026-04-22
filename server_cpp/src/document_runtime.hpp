@@ -95,6 +95,10 @@ struct DeferredDocSnapshot {
   Json fullDiagnostics;
   bool hasFullDiagnostics = false;
   std::string fullDiagnosticsFingerprint;
+  // Test/debug-only marker for the current document version. It records that
+  // the deferred worker published a diagnostics-ready snapshot before the
+  // matching full-document inlay snapshot finished building.
+  bool observedDiagnosticsReadyBeforeInlayFull = false;
   Json semanticTokensFull;
   bool hasSemanticTokensFull = false;
   Json inlayHintsFull;

@@ -2097,6 +2097,9 @@ int main(int argc, char **argv) {
               makeBool(runtime.deferredDocSnapshot->hasDocumentSymbols);
           item.o["deferredHasFullDiagnostics"] =
               makeBool(runtime.deferredDocSnapshot->hasFullDiagnostics);
+          item.o["deferredObservedDiagnosticsReadyBeforeInlayFull"] =
+              makeBool(runtime.deferredDocSnapshot
+                           ->observedDiagnosticsReadyBeforeInlayFull);
           item.o["deferredHasInlayHintsFull"] =
               makeBool(runtime.deferredDocSnapshot->hasInlayHintsFull);
           item.o["deferredSemanticTokensRangeCacheCount"] = makeNumber(

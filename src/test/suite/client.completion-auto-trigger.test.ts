@@ -5,7 +5,7 @@ import {
 	openFixture,
 	positionOf,
 	repoDescribe,
-	typeTextForTests,
+	typeWithEditorFocusForTests,
 	waitFor,
 	waitForClientReady,
 	waitForIndexingIdle
@@ -61,7 +61,7 @@ repoDescribe('NSF client integration: Completion Auto Trigger', () => {
 		try {
 			await vscode.commands.executeCommand('nsf._resetInternalStatus');
 			for (const ch of ['C', 'o', 'm', 'p']) {
-				await typeTextForTests(editor, ch);
+				await typeWithEditorFocusForTests(editor, ch);
 				await new Promise((resolve) => setTimeout(resolve, 400));
 				finalStatus = await vscode.commands.executeCommand<InternalStatusWithCompletionMetrics>(
 					'nsf._getInternalStatus'

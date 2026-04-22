@@ -1,7 +1,9 @@
 export type ReplayAnchor = {
 	workspaceFolderSuffix: string;
 	relativePath: string;
+	relativePathAlternatives?: string[];
 	anchorText: string;
+	anchorTextAlternatives?: string[];
 	occurrence?: number;
 	characterOffset?: number;
 };

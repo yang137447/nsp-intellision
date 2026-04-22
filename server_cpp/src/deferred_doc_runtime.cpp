@@ -533,6 +533,7 @@ void runDeferredDocWorker() {
       if (willBuildFullInlay) {
         auto diagnosticsReadySnapshot =
             std::make_shared<DeferredDocSnapshot>(*deferred);
+        diagnosticsReadySnapshot->observedDiagnosticsReadyBeforeInlayFull = true;
         diagnosticsReadySnapshot->builtAtMs = currentTimeMs();
         documentOwnerMergeAndStoreDeferredSnapshot(job.document.uri,
                                                    diagnosticsReadySnapshot);

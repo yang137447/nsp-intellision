@@ -50,6 +50,7 @@
 - 常用命令：
   - `cmake -S .\\server_cpp -B .\\server_cpp\\build -G "MinGW Makefiles"`
   - `cmake --build .\\server_cpp\\build`
+- Windows 上当前要求 `clang++` 至少为 20；如果 PATH 上默认命中的 `clang++` 版本过旧，应显式追加 `-D CMAKE_CXX_COMPILER=<llvm-mingw clang++.exe>` 再配置
 
 ## 内置 Server 与覆盖规则
 
@@ -162,6 +163,11 @@
 1. `npm run gate:d3`
 2. `npm run package:vsix`
 
+其中：
+
+- `npm run gate:d3` 会先自动解析可用的 Clang 20+ 编译器，并 clean configure `server_cpp/build`
+- `npm run package:vsix` 会自动解析同一套编译器规则，但使用独立的 `server_cpp/build_vsix`
+
 ## 打包
 
 当前推荐的正式打包命令：
@@ -171,16 +177,12 @@
 它会做这些事：
 
 1. 编译 TypeScript 客户端
-2. 构建干净的 `server_cpp/build`
-3. 用临时 staging 目录收集运行时最小文件集
-4. 生成正式 `.vsix`
+2. 自动解析可用的 Clang 20+ 编译器（优先 `NSF_PACKAGE_CXX_COMPILER`，其次 `C:\Software\llvm-mingw-*`，最后 PATH 中的 `clang++`）
+3. 在独立的 `server_cpp/build_vsix` 中构建干净的 release server
+4. 用临时 staging 目录收集运行时最小文件集
+5. 生成正式 `.vsix`
 
 不建议直接在仓库根目录运行 `npx vsce package`，因为那样更容易把构建中间件、测试依赖或历史残留卷进包里。
-
-## 当前已知待收敛项
-
-- `package.json` 仍缺 `repository`
-- 仓库仍缺正式 `LICENSE` 文件
 
 ## 何时更新本文档
 

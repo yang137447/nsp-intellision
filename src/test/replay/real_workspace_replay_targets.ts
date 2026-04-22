@@ -30,21 +30,45 @@ export async function resolveReplayAnchor(
 		throw new Error(`Unable to find workspace folder ending with '${anchor.workspaceFolderSuffix}'.`);
 	}
 
-	const uri = vscode.Uri.file(path.join(folder.uri.fsPath, anchor.relativePath));
-	const document = await vscode.workspace.openTextDocument(uri);
+	const relativePathCandidates = Array.from(
+		new Set([anchor.relativePath, ...(anchor.relativePathAlternatives ?? [])])
+	);
+	const anchorTextCandidates = Array.from(
+		new Set([anchor.anchorText, ...(anchor.anchorTextAlternatives ?? [])])
+	);
 	const occurrence = Math.max(1, anchor.occurrence ?? 1);
-	let searchFrom = 0;
-	let foundAt = -1;
-	for (let index = 0; index < occurrence; index++) {
-		foundAt = document.getText().indexOf(anchor.anchorText, searchFrom);
-		if (foundAt < 0) {
-			throw new Error(`Unable to resolve anchor '${anchor.anchorText}' in ${anchor.relativePath}.`);
+	const attemptErrors: string[] = [];
+	for (const relativePath of relativePathCandidates) {
+		const uri = vscode.Uri.file(path.join(folder.uri.fsPath, relativePath));
+		let document: vscode.TextDocument;
+		try {
+			document = await vscode.workspace.openTextDocument(uri);
+		} catch (error) {
+			attemptErrors.push(`${relativePath}: ${String(error)}`);
+			continue;
 		}
-		searchFrom = foundAt + anchor.anchorText.length;
+		const documentText = document.getText();
+		for (const anchorText of anchorTextCandidates) {
+			let searchFrom = 0;
+			let foundAt = -1;
+			for (let index = 0; index < occurrence; index++) {
+				foundAt = documentText.indexOf(anchorText, searchFrom);
+				if (foundAt < 0) {
+					break;
+				}
+				searchFrom = foundAt + anchorText.length;
+			}
+			if (foundAt >= 0) {
+				return {
+					uri,
+					position: document.positionAt(foundAt + (anchor.characterOffset ?? 0))
+				};
+			}
+		}
+		attemptErrors.push(`${relativePath}: no matching anchor text`);
 	}
 
-	return {
-		uri,
-		position: document.positionAt(foundAt + (anchor.characterOffset ?? 0))
-	};
+	throw new Error(
+		`Unable to resolve anchor '${anchor.anchorText}' in ${anchor.relativePath}. Attempts: ${attemptErrors.join('; ')}`
+	);
 }

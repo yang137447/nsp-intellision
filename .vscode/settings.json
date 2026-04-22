@@ -21,7 +21,8 @@
   "eslint.trace.server": "verbose",
   "nsf.serverPath": "${workspaceFolder}/server_cpp/build/nsf_lsp.exe",
   "nsf.intellisionPath": [
-    "${workspaceFolder}/test_files"
+    "d:\\YYBWorkSpace\\GitHub\\nsp-intellision\\test_files\\include_context"
   ],
-  "nsf.diagnostics.mode": "balanced"
+  "nsf.diagnostics.mode": "balanced",
+  "cmake.ignoreCMakeListsMissing": true
 }

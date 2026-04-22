@@ -1,6 +1,6 @@
 {
-  "id": "rw-ux-bumpoffset-unit-completion",
-  "title": "Real workspace BumpOffsetUV completion capture (with unit)",
+  "id": "rw-ux-bumpoffset-unit-nowait-completion",
+  "title": "Real workspace BumpOffsetUV completion capture (unit, no wait)",
   "workspaceHint": "shader-source",
   "targetDocument": {
     "workspaceFolderSuffix": "shader-source",
@@ -9,8 +9,8 @@
     "occurrence": 1,
     "characterOffset": 0
   },
-  "intent": "Capture completion list content and latency in pbr_flow_water_nodes.hlsl after opening a likely unit file to establish active-unit context.",
-  "tags": ["interactive", "completion", "ux-capture", "real-workspace"],
+  "intent": "Isolate active-unit context from indexing readiness by opening a likely unit file first, but capturing completion before any explicit idle/quiescent wait.",
+  "tags": ["interactive", "completion", "ux-capture", "real-workspace", "diagnostic"],
   "steps": [
     {
       "kind": "openDocument",
@@ -26,27 +26,11 @@
     },
     {
       "kind": "captureWorkspaceSymbols",
-      "label": "capture workspace symbols for BumpOffsetUV",
+      "label": "capture workspace symbols for BumpOffsetUV before wait",
       "payload": {
         "query": "BumpOffsetUV",
         "expectedNames": ["BumpOffsetUV"],
         "maxNames": 50
-      }
-    },
-    {
-      "kind": "waitForInternalStatus",
-      "label": "wait for internal status idle before include completion capture",
-      "payload": {
-        "mode": "idle",
-        "timeoutMs": 240000
-      }
-    },
-    {
-      "kind": "waitForInternalStatus",
-      "label": "wait for client quiescent before include completion capture",
-      "payload": {
-        "mode": "quiescent",
-        "timeoutMs": 240000
       }
     },
     {
@@ -84,7 +68,7 @@
     },
     {
       "kind": "captureCompletion",
-      "label": "capture completion after Bu",
+      "label": "capture completion after Bu before wait",
       "payload": { "expectedLabels": ["BumpOffsetUV"], "maxLabels": 80 },
       "samplingWindow": {
         "label": "ux-window",
@@ -94,4 +78,5 @@
   ],
   "cleanup": { "restoreTouchedDocuments": true }
 }
+
 

@@ -5,7 +5,9 @@
   "targetDocument": {
     "workspaceFolderSuffix": "shader-source",
     "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
     "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
     "occurrence": 1,
     "characterOffset": 0
   },
@@ -18,7 +20,9 @@
       "target": {
         "workspaceFolderSuffix": "shader-source",
         "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
         "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
         "occurrence": 1,
         "characterOffset": 0
       }
@@ -29,7 +33,9 @@
       "target": {
         "workspaceFolderSuffix": "shader-source",
         "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
         "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
         "occurrence": 1,
         "characterOffset": 0
       },
@@ -59,4 +65,5 @@
   ],
   "cleanup": { "restoreTouchedDocuments": true }
 }
+
 

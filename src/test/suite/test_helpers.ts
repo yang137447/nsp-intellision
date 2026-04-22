@@ -271,6 +271,7 @@ export type DocumentRuntimeDebugEntry = {
 	deferredHasSemanticTokensFull?: boolean;
 	deferredHasDocumentSymbols?: boolean;
 	deferredHasFullDiagnostics?: boolean;
+	deferredObservedDiagnosticsReadyBeforeInlayFull?: boolean;
 	deferredHasInlayHintsFull?: boolean;
 	deferredSemanticTokensRangeCacheCount?: number;
 	deferredInlayRangeCacheCount?: number;
@@ -308,6 +309,21 @@ export async function getDocumentRuntimeDebug(
 		'document runtime debug'
 	);
 	return response?.documents ?? [];
+}
+
+export async function waitForDocumentRuntimeDebugEntry(
+	uri: string,
+	isReady: (entry: DocumentRuntimeDebugEntry | undefined) => boolean,
+	label: string,
+	options?: WaitForOptions
+): Promise<DocumentRuntimeDebugEntry | undefined> {
+	const entries = await waitForWithOptions(
+		() => getDocumentRuntimeDebug([uri]),
+		(value) => isReady(value[0]),
+		label,
+		options
+	);
+	return entries[0];
 }
 
 export async function waitForActiveUnitAndVisibilityReadyForTests(
@@ -408,7 +424,43 @@ function assertEditorTargetsDocument(editor: vscode.TextEditor, document: vscode
 }
 
 /**
- * Deterministic replacement for `vscode.commands.executeCommand('type')` in tests.
+ * Uses VS Code's native `type` command after explicitly restoring editor focus.
+ *
+ * This helper exists for auto-trigger scenarios where the platform typing path
+ * itself is part of the behavior under test.
+ */
+export async function typeWithEditorFocusForTests(
+	editor: vscode.TextEditor,
+	text: string
+): Promise<void> {
+	assert.ok(text.length > 0, 'Expected non-empty text for typeWithEditorFocusForTests.');
+	const document = editor.document;
+	assertEditorTargetsDocument(editor, document);
+
+	await vscode.window.showTextDocument(document, {
+		preview: false,
+		preserveFocus: false,
+		viewColumn: editor.viewColumn
+	});
+	await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+	await waitForFast(
+		() => Promise.resolve(vscode.window.activeTextEditor?.document.uri.toString()),
+		(value) => value === document.uri.toString(),
+		`focused editor for native typing: ${document.uri.toString()}`
+	);
+
+	const initialVersion = document.version;
+	await vscode.commands.executeCommand('type', { text });
+	await waitForFast(
+		() => Promise.resolve(document.version),
+		(value) => value > initialVersion,
+		`native typing edit applied: ${document.uri.toString()}`
+	);
+}
+
+/**
+ * Deterministic replacement for `vscode.commands.executeCommand('type')` in tests
+ * that only need text mutation, not editor-native auto-trigger behavior.
  *
  * `type` is focus-sensitive and can become a no-op under repo-mode and replay runner scenarios.
  * We instead apply an explicit edit against the provided editor and update the selection ourselves.

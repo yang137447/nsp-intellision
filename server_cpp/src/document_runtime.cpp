@@ -530,6 +530,7 @@ void documentRuntimeUpsert(const Document &document,
                                   updated.analysisSnapshotKey)) {
         auto writable =
             std::make_shared<DeferredDocSnapshot>(*existing.deferredDocSnapshot);
+        writable->observedDiagnosticsReadyBeforeInlayFull = false;
         const auto [changedStartLine, changedEndLine] =
             computeDeferredChangedWindow(document.text, changedRanges);
         invalidateOverlappingDeferredRanges(writable->semanticTokensRangeCache,
@@ -805,6 +806,9 @@ void documentRuntimeMergeAndStoreDeferredSnapshot(
       merged->hasFullDiagnostics = true;
       merged->fullDiagnosticsFingerprint = current->fullDiagnosticsFingerprint;
     }
+    merged->observedDiagnosticsReadyBeforeInlayFull =
+        merged->observedDiagnosticsReadyBeforeInlayFull ||
+        current->observedDiagnosticsReadyBeforeInlayFull;
     if (!merged->hasSemanticTokensFull && current->hasSemanticTokensFull) {
       merged->semanticTokensFull = current->semanticTokensFull;
       merged->hasSemanticTokensFull = true;

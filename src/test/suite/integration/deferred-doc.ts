@@ -14,6 +14,7 @@ import {
 	positionOf,
 	repoDescribe,
 	waitFor,
+	waitForDocumentRuntimeDebugEntry,
 	waitForFast,
 	waitForObservedBefore,
 	waitForClientReady,
@@ -261,7 +262,14 @@ export function registerDeferredDocSemanticTokenTests(): void {
 				assert.ok(await vscode.workspace.applyEdit(nearInsert));
 				document = await vscode.workspace.openTextDocument(document.uri);
 
-				[runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
+				runtime = await waitForDocumentRuntimeDebugEntry(
+					document.uri.toString(),
+					(entry) =>
+						entry?.version === document.version &&
+						(entry.deferredSemanticTokensRangeCacheCount ?? seededSemanticRangeCount) <
+							seededSemanticRangeCount,
+					'semantic token range cache invalidation after overlapping edit'
+				);
 				assert.ok(
 					(runtime?.deferredSemanticTokensRangeCacheCount ?? 0) < seededSemanticRangeCount,
 					'Overlapping edit should clear at least one semantic token range cache entry.'
@@ -334,7 +342,10 @@ export function registerDeferredDocSemanticTokenTests(): void {
 			[runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
 			assert.strictEqual(runtime?.deferredHasSemanticTokensFull, true);
 			assert.strictEqual(runtime?.deferredHasDocumentSymbols, true);
-			assert.strictEqual(runtime?.deferredSemanticTokensRangeCacheCount, seededSemanticRangeCount);
+			assert.ok(
+				(runtime?.deferredSemanticTokensRangeCacheCount ?? 0) >= seededSemanticRangeCount,
+				'Materializing full deferred artifacts should preserve the previously seeded semantic token range cache entries.'
+			);
 		});
 
 	});
@@ -372,15 +383,11 @@ export function registerDeferredDocVisualContinuityTests(): void {
 				await vscode.window.showTextDocument(document, { preview: false });
 				const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(6, 0));
 
-				await waitForObservedBefore(
-					() => getDocumentRuntimeDebug([document.uri.toString()]),
-					(entries) =>
-						entries[0]?.hasDeferredDocSnapshot === true &&
-						entries[0]?.deferredHasFullDiagnostics === true &&
-						entries[0]?.deferredHasInlayHintsFull === false,
-					(entries) =>
-						entries[0]?.hasDeferredDocSnapshot === true &&
-						entries[0]?.deferredHasInlayHintsFull === true,
+				await waitForDocumentRuntimeDebugEntry(
+					document.uri.toString(),
+					(entry) =>
+						entry?.hasDeferredDocSnapshot === true &&
+						entry.deferredObservedDiagnosticsReadyBeforeInlayFull === true,
 					'early deferred diagnostics publish before full inlay prewarm'
 				);
 
@@ -561,34 +568,77 @@ export function registerDeferredDocInlayTests(): void {
 		it('retains non-overlapping inlay range caches and clears them on overlapping edits', async function () {
 			this.timeout(120000);
 			await vscode.commands.executeCommand('nsf.restartServer');
-			let document = await openFixture('main.nsf');
-			const range = new vscode.Range(new vscode.Position(168, 0), new vscode.Position(214, 0));
-
-			await waitFor(
-				() =>
-					vscode.commands.executeCommand<vscode.InlayHint[]>(
-						'vscode.executeInlayHintProvider',
-						document.uri,
-						range
-					),
-				(value) => Array.isArray(value) && value.length > 0,
-				'seed inlay range cache'
+			const workspaceRoot = getWorkspaceRoot();
+			const sourcePath = path.join(workspaceRoot, 'test_files', 'module_inlay_hints.nsf');
+			const tempPath = path.join(
+				os.tmpdir(),
+				`tmp_inlay_range_cache_${Date.now()}_${Math.random().toString(16).slice(2)}.nsf`
 			);
+			fs.writeFileSync(tempPath, fs.readFileSync(sourcePath, 'utf8'), 'utf8');
+			try {
+				let document = await vscode.workspace.openTextDocument(tempPath);
+				await vscode.window.showTextDocument(document, { preview: false });
+				const range = new vscode.Range(new vscode.Position(4, 0), new vscode.Position(9, 0));
 
-			let [runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
-			const seededInlayRangeCount = runtime?.deferredInlayRangeCacheCount ?? 0;
-			assert.ok(seededInlayRangeCount >= 1, 'Expected at least one seeded inlay range cache entry.');
+				await waitFor(
+					() => vscode.commands.getCommands(true),
+					(value) => Array.isArray(value) && value.includes('nsf._invalidateInlayHintsForTests'),
+					'internal inlay invalidation command'
+				);
+				await vscode.commands.executeCommand('nsf._invalidateInlayHintsForTests', document.uri.toString());
+				await waitFor(
+					() => getDocumentRuntimeDebug([document.uri.toString()]),
+					(entries) =>
+						entries[0]?.hasDeferredDocSnapshot === true &&
+						entries[0]?.deferredHasInlayHintsFull === false &&
+						(entries[0]?.deferredInlayRangeCacheCount ?? 0) === 0,
+					'cleared deferred full inlay snapshot before range cache seeding'
+				);
 
-			const nearInsert = new vscode.WorkspaceEdit();
-			nearInsert.insert(document.uri, new vscode.Position(171, 0), "// near edit\n");
-			assert.ok(await vscode.workspace.applyEdit(nearInsert));
-			document = await vscode.workspace.openTextDocument(document.uri);
+				await waitFor(
+					() =>
+						vscode.commands.executeCommand<vscode.InlayHint[]>(
+							'vscode.executeInlayHintProvider',
+							document.uri,
+							range
+						),
+					(value) => Array.isArray(value) && value.length > 0,
+					'seed inlay range cache'
+				);
 
-			[runtime] = await getDocumentRuntimeDebug([document.uri.toString()]);
-			assert.ok(
-				(runtime?.deferredInlayRangeCacheCount ?? 0) < seededInlayRangeCount,
-				'Overlapping edit should clear at least one inlay range cache entry.'
-			);
+				const seededEntries = await waitFor(
+					() => getDocumentRuntimeDebug([document.uri.toString()]),
+					(entries) => (entries[0]?.deferredInlayRangeCacheCount ?? 0) >= 1,
+					'seeded inlay range cache entry'
+				);
+				let runtime = seededEntries[0];
+				const seededInlayRangeCount = runtime?.deferredInlayRangeCacheCount ?? 0;
+				assert.ok(seededInlayRangeCount >= 1, 'Expected at least one seeded inlay range cache entry.');
+
+				const decoyDocument = await vscode.workspace.openTextDocument(sourcePath);
+				await vscode.window.showTextDocument(decoyDocument, { preview: false });
+
+				const nearInsert = new vscode.WorkspaceEdit();
+				nearInsert.insert(document.uri, new vscode.Position(6, 0), "// near edit\n");
+				assert.ok(await vscode.workspace.applyEdit(nearInsert));
+				document = await vscode.workspace.openTextDocument(document.uri);
+
+				runtime = await waitForDocumentRuntimeDebugEntry(
+					document.uri.toString(),
+					(entry) =>
+						entry?.version === document.version &&
+						(entry.deferredInlayRangeCacheCount ?? seededInlayRangeCount) < seededInlayRangeCount,
+					'inlay range cache invalidation after overlapping edit'
+				);
+				assert.ok(
+					(runtime?.deferredInlayRangeCacheCount ?? 0) < seededInlayRangeCount,
+					'Overlapping edit should clear at least one inlay range cache entry.'
+				);
+			} finally {
+				if (fs.existsSync(tempPath)) {
+					fs.unlinkSync(tempPath);
+				}
+			}
 		});
 
 		it('provides nested builtin inlay hints for member-access arguments', async () => {
