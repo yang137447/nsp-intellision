@@ -1,7 +1,9 @@
 export type ReplayAnchor = {
 	workspaceFolderSuffix: string;
 	relativePath: string;
+	relativePathAlternatives?: string[];
 	anchorText: string;
+	anchorTextAlternatives?: string[];
 	occurrence?: number;
 	characterOffset?: number;
 };
@@ -54,6 +56,50 @@ export type ReplayStep =
 			kind: 'invokeCommand';
 			label: string;
 			payload: { command: string; args?: unknown[] };
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureCompletion';
+			label: string;
+			payload?: {
+				triggerCharacter?: string;
+				expectedLabels?: string[];
+				maxLabels?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureSignatureHelp';
+			label: string;
+			payload?: {
+				triggerCharacter?: string;
+				retrigger?: boolean;
+				expectedSubstrings?: string[];
+				maxSignatures?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureWorkspaceSymbols';
+			label: string;
+			payload: {
+				query: string;
+				expectedNames?: string[];
+				maxNames?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'waitForInternalStatus';
+			label: string;
+			payload: {
+				mode: 'idle' | 'quiescent';
+				timeoutMs?: number;
+			};
 			afterActionPauseMs?: number;
 			samplingWindow?: ReplaySamplingWindow;
 	  };

@@ -1,0 +1,69 @@
+{
+  "id": "rw-ux-bumpoffset-signature",
+  "title": "Real workspace BumpOffsetUV signature help capture",
+  "workspaceHint": "shader-source",
+  "targetDocument": {
+    "workspaceFolderSuffix": "shader-source",
+    "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
+    "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
+    "occurrence": 1,
+    "characterOffset": 0
+  },
+  "intent": "Capture signature help content and latency when entering a function call in a real-workspace document.",
+  "tags": ["interactive", "signature-help", "ux-capture", "real-workspace"],
+  "steps": [
+    {
+      "kind": "openDocument",
+      "label": "open bumpoffset document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
+        "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
+        "occurrence": 1,
+        "characterOffset": 0
+      }
+    },
+    {
+      "kind": "selectRange",
+      "label": "select function arguments",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
+        "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": { "startOffset": 12, "endOffset": 69 }
+    },
+    {
+      "kind": "typeText",
+      "label": "type open paren",
+      "payload": { "text": "(" }
+    },
+    {
+      "kind": "captureSignatureHelp",
+      "label": "capture signature help after open paren",
+      "payload": {
+        "triggerCharacter": "(",
+        "retrigger": false,
+        "expectedSubstrings": ["BumpOffsetUV", "MaterialParameters", "coordinate_uv", "height"],
+        "maxSignatures": 10
+      },
+      "samplingWindow": {
+        "label": "ux-window",
+        "delaysMs": [0, 30, 80, 160, 320, 640],
+        "captureRuntimeDebug": true,
+        "captureInteractiveDebug": true
+      }
+    }
+  ],
+  "cleanup": { "restoreTouchedDocuments": true }
+}
+
+

@@ -1,0 +1,102 @@
+{
+  "id": "rw-ux-bumpoffset-warm-signature",
+  "title": "Real workspace BumpOffsetUV warm signature help capture",
+  "workspaceHint": "shader-source",
+  "targetDocument": {
+    "workspaceFolderSuffix": "shader-source",
+    "relativePath": "sfx/pbr_flow_water.nsf",
+    "anchorText": "struct VS_INPUT",
+    "occurrence": 1,
+    "characterOffset": 0
+  },
+  "intent": "Capture signature help after startup and quiescent warmup so reports separate cold-start pollution from steady-state interactive behavior.",
+  "tags": ["interactive", "signature-help", "ux-capture", "real-workspace", "warm"],
+  "steps": [
+    {
+      "kind": "openDocument",
+      "label": "open unit document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/pbr_flow_water.nsf",
+        "anchorText": "struct VS_INPUT",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 800
+    },
+    {
+      "kind": "waitForInternalStatus",
+      "label": "wait for internal status idle before warm signature capture",
+      "payload": {
+        "mode": "idle",
+        "timeoutMs": 240000
+      }
+    },
+    {
+      "kind": "waitForInternalStatus",
+      "label": "wait for client quiescent before warm signature capture",
+      "payload": {
+        "mode": "quiescent",
+        "timeoutMs": 240000
+      }
+    },
+    {
+      "kind": "captureWorkspaceSymbols",
+      "label": "capture workspace symbols for BumpOffsetUV after warmup",
+      "payload": {
+        "query": "BumpOffsetUV",
+        "expectedNames": ["BumpOffsetUV"],
+        "maxNames": 50
+      }
+    },
+    {
+      "kind": "openDocument",
+      "label": "open bumpoffset include document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
+        "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 200
+    },
+    {
+      "kind": "selectRange",
+      "label": "select function arguments",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
+        "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": { "startOffset": 12, "endOffset": 69 }
+    },
+    {
+      "kind": "typeText",
+      "label": "type open paren",
+      "payload": { "text": "(" }
+    },
+    {
+      "kind": "captureSignatureHelp",
+      "label": "capture warm signature help after open paren",
+      "payload": {
+        "triggerCharacter": "(",
+        "retrigger": false,
+        "expectedSubstrings": ["BumpOffsetUV", "MaterialParameters", "coordinate_uv", "height"],
+        "maxSignatures": 10
+      },
+      "samplingWindow": {
+        "label": "ux-window",
+        "delaysMs": [0, 30, 80, 160, 320, 640]
+      }
+    }
+  ],
+  "cleanup": { "restoreTouchedDocuments": true }
+}
+

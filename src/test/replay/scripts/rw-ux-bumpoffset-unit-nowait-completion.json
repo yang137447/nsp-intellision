@@ -1,0 +1,82 @@
+{
+  "id": "rw-ux-bumpoffset-unit-nowait-completion",
+  "title": "Real workspace BumpOffsetUV completion capture (unit, no wait)",
+  "workspaceHint": "shader-source",
+  "targetDocument": {
+    "workspaceFolderSuffix": "shader-source",
+    "relativePath": "sfx/pbr_flow_water.nsf",
+    "anchorText": "struct VS_INPUT",
+    "occurrence": 1,
+    "characterOffset": 0
+  },
+  "intent": "Isolate active-unit context from indexing readiness by opening a likely unit file first, but capturing completion before any explicit idle/quiescent wait.",
+  "tags": ["interactive", "completion", "ux-capture", "real-workspace", "diagnostic"],
+  "steps": [
+    {
+      "kind": "openDocument",
+      "label": "open unit document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/pbr_flow_water.nsf",
+        "anchorText": "struct VS_INPUT",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 800
+    },
+    {
+      "kind": "captureWorkspaceSymbols",
+      "label": "capture workspace symbols for BumpOffsetUV before wait",
+      "payload": {
+        "query": "BumpOffsetUV",
+        "expectedNames": ["BumpOffsetUV"],
+        "maxNames": 50
+      }
+    },
+    {
+      "kind": "openDocument",
+      "label": "open bumpoffset include document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
+        "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 200
+    },
+    {
+      "kind": "selectRange",
+      "label": "select function name",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+    "relativePathAlternatives": ["shaderlib/surface_second_uv.hlsl"],
+        "anchorText": "BumpOffsetUV(MaterialParameters, diffuse_sample_uv, u_maintex_height)",
+    "anchorTextAlternatives": ["BumpOffsetUV(MaterialParameters, second_uv, height)", "BumpOffsetUV(MaterialParameters, second_uv , height)"],
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": { "startOffset": 0, "endOffset": 12 }
+    },
+    {
+      "kind": "typeText",
+      "label": "type Bu",
+      "payload": { "text": "Bu" }
+    },
+    {
+      "kind": "captureCompletion",
+      "label": "capture completion after Bu before wait",
+      "payload": { "expectedLabels": ["BumpOffsetUV"], "maxLabels": 80 },
+      "samplingWindow": {
+        "label": "ux-window",
+        "delaysMs": [0, 30, 80, 160, 320, 640]
+      }
+    }
+  ],
+  "cleanup": { "restoreTouchedDocuments": true }
+}
+
+

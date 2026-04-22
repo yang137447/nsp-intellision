@@ -5,7 +5,7 @@ import {
 	openFixture,
 	positionOf,
 	repoDescribe,
-	typeTextForTests,
+	typeWithEditorFocusForTests,
 	waitFor,
 	waitForClientReady,
 	waitForIndexingIdle
@@ -46,7 +46,7 @@ repoDescribe('NSF client integration: Signature Help Auto Trigger', () => {
 
 		try {
 			await vscode.commands.executeCommand('nsf._resetInternalStatus');
-			await typeTextForTests(editor, '(');
+			await typeWithEditorFocusForTests(editor, '(');
 
 			const status = await waitFor(
 				() =>

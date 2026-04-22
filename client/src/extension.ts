@@ -31,6 +31,7 @@ import {
 	createClearActiveUnitHandler,
 	type InteractiveRuntimeDebugResponse,
 	type LastCompletionDebugResponse,
+	type WorkspaceIndexSymbolDebugResponse,
 	createRuntimeDebugHandler,
 	createSetActiveUnitHandler,
 	createSpamRequestHandlers,
@@ -215,6 +216,7 @@ export function activate(context: ExtensionContext) {
 	const activeUnitController = createActiveUnitController({
 		context,
 		unitStatusBarItem,
+		hasReadyClient: () => Boolean(client?.initializeResult),
 		beginRpcActivity,
 		endRpcActivity,
 		appendClientTrace,
@@ -611,6 +613,16 @@ registerInternalCommands(context, {
 			}
 			return client.sendRequest<InteractiveRuntimeDebugResponse>(
 				'nsf/_getInteractiveRuntimeDebug',
+				payload ?? {}
+			);
+		},
+		getWorkspaceIndexSymbolDebug: async (payload) => {
+			await ensureClientStarted(false);
+			if (!client) {
+				throw new Error('Language client is not ready yet');
+			}
+			return client.sendRequest<WorkspaceIndexSymbolDebugResponse>(
+				'nsf/_debugWorkspaceIndexSymbols',
 				payload ?? {}
 			);
 		},

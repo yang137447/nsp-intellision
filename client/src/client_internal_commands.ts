@@ -74,6 +74,23 @@ export type InteractiveRuntimeDebugResponse = {
 	lastMemberBaseResolutionPath?: string;
 };
 
+export type WorkspaceIndexSymbolDebugResponse = {
+	query?: string;
+	ready?: boolean;
+	indexingState?: unknown;
+	count?: number;
+	names?: string[];
+	items?: Array<{
+		name?: string;
+		type?: string;
+		uri?: string;
+		line?: number;
+		start?: number;
+		end?: number;
+		kind?: number;
+	}>;
+};
+
 export type InternalCommandDeps = {
 	getInternalStatus: () => InternalStatusSnapshot;
 	resetInternalStatus: () => void;
@@ -101,6 +118,10 @@ export type InternalCommandDeps = {
 	getInteractiveRuntimeDebug: (payload: {
 		uri?: string;
 	}) => Promise<InteractiveRuntimeDebugResponse>;
+	getWorkspaceIndexSymbolDebug: (payload?: {
+		query?: string;
+		limit?: number;
+	}) => Promise<WorkspaceIndexSymbolDebugResponse>;
 	sendServerRequest: (method: string, params?: unknown) => Promise<any>;
 	getLastCompletionDebug: () => Promise<LastCompletionDebugResponse>;
 	startReplayRecording: (payload?: Record<string, unknown>) => void;
@@ -175,6 +196,13 @@ export function registerInternalCommands(
 	context.subscriptions.push(
 		commands.registerCommand('nsf._getInteractiveRuntimeDebug', async (args?: { uri?: string }) =>
 			deps.getInteractiveRuntimeDebug(args ?? {})
+		)
+	);
+	context.subscriptions.push(
+		commands.registerCommand(
+			'nsf._getWorkspaceIndexSymbolDebug',
+			async (args?: { query?: string; limit?: number }) =>
+				deps.getWorkspaceIndexSymbolDebug(args ?? {})
 		)
 	);
 	context.subscriptions.push(

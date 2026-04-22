@@ -298,6 +298,7 @@ void WorkspaceIndex::buildAll(const std::string &key,
   IndexStore newStore;
   newStore.key = key;
   bool cacheHit = false;
+  bool publishedEarlySnapshot = false;
 
   if (clearDiskCache) {
     sendIndexingEvent("update", token, "backgroundIndex", 0, 0, "clearCache");
@@ -319,9 +320,49 @@ void WorkspaceIndex::buildAll(const std::string &key,
     }
   }
 
+  // If a persisted cache is available, publish it immediately so interactive
+  // queries can proceed while background validation/rebuild runs. We then
+  // re-load a working copy for the remainder of this build to avoid copying
+  // the potentially large in-memory store.
+  if (cacheHit) {
+    rebuildGlobals(newStore);
+    std::unordered_map<std::string, std::vector<std::string>> reverse;
+    buildReverseIncludes(newStore, reverse);
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      store = std::move(newStore);
+      reverseIncludeByTarget = std::move(reverse);
+      ready = true;
+      indexingUpdatedAtMs = nowUnixMs();
+    }
+    publishIndexingStateChanged(false);
+    publishedEarlySnapshot = true;
+
+    IndexStore reloaded;
+    if (loadIndexStoreFromDisk(key, workspaceFolders, reloaded)) {
+      newStore = std::move(reloaded);
+      cacheHit = true;
+    } else {
+      newStore = IndexStore{};
+      newStore.key = key;
+      cacheHit = false;
+    }
+  }
+
   std::unordered_set<std::string> indexedPaths;
 
-  const std::string unitPath = getActiveUnitPath();
+  // The active unit is typically provided by the client shortly after startup.
+  // Give it a brief window so we can prioritize indexing its include closure.
+  std::string unitPath = getActiveUnitPath();
+  if (reason == "startup" && unitPath.empty()) {
+    const auto waitBudget = std::chrono::milliseconds(1500);
+    const auto waitStartedAt = std::chrono::steady_clock::now();
+    while (unitPath.empty() &&
+           std::chrono::steady_clock::now() - waitStartedAt < waitBudget) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      unitPath = getActiveUnitPath();
+    }
+  }
   std::vector<std::string> includeClosure;
   collectIncludeClosureFiles(unitPath, workspaceFolders, includePaths,
                              extensions, includeClosure);
@@ -367,6 +408,36 @@ void WorkspaceIndex::buildAll(const std::string &key,
     newStore.filesByPath[entry.first] = std::move(entry.second);
   }
   publishIndexingStateChanged(false);
+
+  // When no persisted cache is available, still publish a minimal store based on
+  // the active-unit include closure so completion/signature help can use
+  // shared-visible/workspace summary while the full rebuild proceeds.
+  if (!publishedEarlySnapshot && !includeClosureFiles.empty()) {
+    IndexStore partial;
+    partial.key = key;
+    partial.filesByPath.reserve(includeClosureFiles.size());
+    for (const auto &filePath : includeClosureFiles) {
+      const std::string fileKey = normalizePathForCompare(filePath.string());
+      auto it = newStore.filesByPath.find(fileKey);
+      if (it == newStore.filesByPath.end())
+        continue;
+      partial.filesByPath[fileKey] = it->second;
+    }
+    if (!partial.filesByPath.empty()) {
+      rebuildGlobals(partial);
+      std::unordered_map<std::string, std::vector<std::string>> reverse;
+      buildReverseIncludes(partial, reverse);
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        store = std::move(partial);
+        reverseIncludeByTarget = std::move(reverse);
+        ready = true;
+        indexingUpdatedAtMs = nowUnixMs();
+      }
+      publishIndexingStateChanged(false);
+      publishedEarlySnapshot = true;
+    }
+  }
 
   std::vector<std::string> orderedRoots;
   if (!unitPath.empty()) {

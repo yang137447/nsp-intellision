@@ -4,11 +4,114 @@ import { detectReplayAnomalies } from './real_workspace_replay_analyzer';
 import { sampleReplayWindow } from './real_workspace_replay_sampler';
 import { resolveReplayAnchor } from './real_workspace_replay_targets';
 import type { ReplaySampleSnapshot, ReplayScript, ReplayStep } from './real_workspace_replay_types';
-import { deleteLeftForTests, typeTextForTests } from '../suite/test_helpers';
+import {
+    deleteLeftForTests,
+    typeTextForTests,
+    waitForClientQuiescent
+} from '../suite/test_helpers';
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+function completionLabelToString(label: unknown): string {
+    if (typeof label === 'string') {
+        return label;
+    }
+    const maybe = label as { label?: unknown } | null;
+    if (maybe && typeof maybe.label === 'string') {
+        return maybe.label;
+    }
+    return String(label ?? '');
+}
+
+function getCompletionItems(
+    result: vscode.CompletionList | vscode.CompletionItem[] | undefined
+): vscode.CompletionItem[] {
+    if (!result) {
+        return [];
+    }
+    return Array.isArray(result) ? result : result.items;
+}
+
+function getLineText(document: vscode.TextDocument, line: number): string {
+    try {
+        return document.lineAt(line).text;
+    } catch {
+        return '';
+    }
+}
+
+async function waitForReplayServerIndexingIdle(label: string, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let lastValue: unknown;
+    while (Date.now() < deadline) {
+        try {
+            lastValue = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
+                method: 'nsf/getIndexingState',
+                params: {}
+            });
+            const state = (lastValue as any)?.state;
+            const queued = (lastValue as any)?.pending?.queuedTasks ?? 0;
+            const running = (lastValue as any)?.pending?.runningWorkers ?? 0;
+            if (state === 'Idle' && queued === 0 && running === 0) {
+                return;
+            }
+        } catch {
+            // Keep polling; extension activation and server startup can race replay setup.
+        }
+        await delay(500);
+    }
+    throw new Error(`[real-replay] Timed out waiting for ${label}. Last=${JSON.stringify(lastValue)}`);
+}
+
+type CompletionCaptureReport = {
+    durationMs: number;
+    triggerCharacter?: string;
+    itemCount: number;
+    topLabels: string[];
+    expectedLabels?: string[];
+    expectedPresent?: Record<string, boolean>;
+    line?: number;
+    character?: number;
+    lineText?: string;
+    error?: string;
+    lastCompletionDebug?: unknown;
+    directServerCompletion?: {
+        durationMs: number;
+        itemCount: number;
+        topLabels: string[];
+        expectedPresent?: Record<string, boolean>;
+        error?: string;
+    };
+};
+
+type SignatureHelpCaptureReport = {
+    durationMs: number;
+    triggerCharacter?: string;
+    retrigger?: boolean;
+    signatureCount: number;
+    signatureLabels: string[];
+    activeSignature?: number;
+    activeParameter?: number;
+    expectedSubstrings?: string[];
+    expectedMatched?: Record<string, boolean>;
+    line?: number;
+    character?: number;
+    lineText?: string;
+    error?: string;
+};
+
+type WorkspaceSymbolCaptureReport = {
+    durationMs: number;
+    query: string;
+    symbolCount: number;
+    topNames: string[];
+    expectedNames?: string[];
+    expectedPresent?: Record<string, boolean>;
+    error?: string;
+    workspaceIndexDebug?: unknown;
+};
 
 type ReplayStepReport = {
     stepLabel: string;
@@ -18,6 +121,9 @@ type ReplayStepReport = {
     documentUri?: string;
     samples: ReplaySampleSnapshot[];
     anomalies: string[];
+    completionCapture?: CompletionCaptureReport;
+    signatureHelpCapture?: SignatureHelpCaptureReport;
+    workspaceSymbolCapture?: WorkspaceSymbolCaptureReport;
 };
 
 export async function runReplayScript(script: ReplayScript): Promise<{ scriptId: string; steps: ReplayStepReport[] }> {
@@ -42,6 +148,12 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
             if (delaysMs > 0) {
                 baselineInternalStatus = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
             }
+
+            let completionCapture: CompletionCaptureReport | undefined;
+            let signatureHelpCapture: SignatureHelpCaptureReport | undefined;
+            let workspaceSymbolCapture: WorkspaceSymbolCaptureReport | undefined;
+            let completionCapturePromise: Promise<CompletionCaptureReport> | undefined;
+            let signatureHelpCapturePromise: Promise<SignatureHelpCaptureReport> | undefined;
 
             switch (step.kind) {
                 case 'openDocument': {
@@ -100,6 +212,250 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                     recordDocumentSnapshot(activeEditor?.document);
                     break;
                 }
+                case 'captureCompletion': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] captureCompletion requires an active editor. Step: ${step.label}`);
+                    }
+
+                    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+                    const document = activeEditor.document;
+                    const position = activeEditor.selection.active;
+                    const lineText = getLineText(document, position.line);
+
+                    const triggerCharacter =
+                        typeof step.payload?.triggerCharacter === 'string' ? step.payload.triggerCharacter : undefined;
+                    const expectedLabels = Array.isArray(step.payload?.expectedLabels)
+                        ? step.payload?.expectedLabels.filter((entry): entry is string => typeof entry === 'string')
+                        : undefined;
+                    const maxLabels = Math.max(1, Math.min(200, step.payload?.maxLabels ?? 50));
+
+                    const startedAt = Date.now();
+                    const completionProviderPromise = Promise.resolve(
+                        vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[] | undefined>(
+                            'vscode.executeCompletionItemProvider',
+                            document.uri,
+                            position,
+                            triggerCharacter
+                        )
+                    )
+                        .then((completionResult) => ({ completionResult, endedAt: Date.now() }))
+                        .catch((error) => ({
+                            completionResult: undefined,
+                            endedAt: Date.now(),
+                            error: error instanceof Error ? error.message : String(error)
+                        }));
+
+                    // Do not await here: sample windows should run while the provider is in-flight.
+                    completionCapturePromise = (async (): Promise<CompletionCaptureReport> => {
+                        const finished = await completionProviderPromise;
+                        const durationMs = finished.endedAt - startedAt;
+                        const items = getCompletionItems(finished.completionResult);
+                        const labels = items
+                            .map((item) => completionLabelToString((item as unknown as { label?: unknown }).label))
+                            .filter((label) => label.length > 0);
+                        const topLabels = labels.slice(0, maxLabels);
+                        const expectedPresent = expectedLabels
+                            ? Object.fromEntries(expectedLabels.map((label) => [label, topLabels.includes(label)]))
+                            : undefined;
+
+                        let lastCompletionDebug: unknown | undefined;
+                        try {
+                            lastCompletionDebug = await vscode.commands.executeCommand<any>('nsf._getLastCompletionDebug');
+                        } catch {
+                            // ignore
+                        }
+                        let directServerCompletion: CompletionCaptureReport['directServerCompletion'] | undefined;
+                        const directStartedAt = Date.now();
+                        try {
+                            const directResult = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
+                                method: 'textDocument/completion',
+                                params: {
+                                    textDocument: { uri: document.uri.toString() },
+                                    position: { line: position.line, character: position.character }
+                                }
+                            });
+                            const directItems = getCompletionItems(directResult as vscode.CompletionList | vscode.CompletionItem[] | undefined);
+                            const directLabels = directItems
+                                .map((item) => completionLabelToString((item as unknown as { label?: unknown }).label))
+                                .filter((label) => label.length > 0);
+                            const directTopLabels = directLabels.slice(0, maxLabels);
+                            directServerCompletion = {
+                                durationMs: Date.now() - directStartedAt,
+                                itemCount: directLabels.length,
+                                topLabels: directTopLabels,
+                                expectedPresent: expectedLabels
+                                    ? Object.fromEntries(
+                                          expectedLabels.map((label) => [label, directTopLabels.includes(label)])
+                                      )
+                                    : undefined
+                            };
+                        } catch (error) {
+                            directServerCompletion = {
+                                durationMs: Date.now() - directStartedAt,
+                                itemCount: 0,
+                                topLabels: [],
+                                error: error instanceof Error ? error.message : String(error)
+                            };
+                        }
+
+                        return {
+                            durationMs,
+                            triggerCharacter,
+                            itemCount: labels.length,
+                            topLabels,
+                            expectedLabels,
+                            expectedPresent,
+                            line: position.line,
+                            character: position.character,
+                            lineText,
+                            error: 'error' in finished ? finished.error : undefined,
+                            lastCompletionDebug,
+                            directServerCompletion
+                        };
+                    })();
+                    break;
+                }
+                case 'captureSignatureHelp': {
+                    if (!activeEditor) {
+                        throw new Error(
+                            `[real-replay] captureSignatureHelp requires an active editor. Step: ${step.label}`
+                        );
+                    }
+
+                    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+                    const document = activeEditor.document;
+                    const position = activeEditor.selection.active;
+                    const lineText = getLineText(document, position.line);
+
+                    const triggerCharacter =
+                        typeof step.payload?.triggerCharacter === 'string' ? step.payload.triggerCharacter : undefined;
+                    const retrigger = typeof step.payload?.retrigger === 'boolean' ? step.payload.retrigger : undefined;
+                    const expectedSubstrings = Array.isArray(step.payload?.expectedSubstrings)
+                        ? step.payload?.expectedSubstrings.filter((entry): entry is string => typeof entry === 'string')
+                        : undefined;
+                    const maxSignatures = Math.max(1, Math.min(50, step.payload?.maxSignatures ?? 10));
+
+                    const startedAt = Date.now();
+                    const signatureProviderPromise = Promise.resolve(
+                        vscode.commands.executeCommand<vscode.SignatureHelp | undefined>(
+                            'vscode.executeSignatureHelpProvider',
+                            document.uri,
+                            position,
+                            triggerCharacter,
+                            retrigger
+                        )
+                    )
+                        .then((signatureHelp) => ({ signatureHelp, endedAt: Date.now() }))
+                        .catch((error) => ({
+                            signatureHelp: undefined,
+                            endedAt: Date.now(),
+                            error: error instanceof Error ? error.message : String(error)
+                        }));
+
+                    // Do not await here: sample windows should run while the provider is in-flight.
+                    signatureHelpCapturePromise = (async (): Promise<SignatureHelpCaptureReport> => {
+                        const finished = await signatureProviderPromise;
+                        const durationMs = finished.endedAt - startedAt;
+                        const allLabels = (finished.signatureHelp?.signatures ?? [])
+                            .map((signature) => String(signature.label ?? ''))
+                            .filter((label) => label.length > 0);
+                        const signatureLabels = allLabels.slice(0, maxSignatures);
+                        const expectedMatched = expectedSubstrings
+                            ? Object.fromEntries(
+                                  expectedSubstrings.map((needle) => [
+                                      needle,
+                                      signatureLabels.some((label) => label.includes(needle))
+                                  ])
+                              )
+                            : undefined;
+
+                        return {
+                            durationMs,
+                            triggerCharacter,
+                            retrigger,
+                            signatureCount: allLabels.length,
+                            signatureLabels,
+                            activeSignature: finished.signatureHelp?.activeSignature,
+                            activeParameter: finished.signatureHelp?.activeParameter,
+                            expectedSubstrings,
+                            expectedMatched,
+                            line: position.line,
+                            character: position.character,
+                            lineText,
+                            error: 'error' in finished ? finished.error : undefined
+                        };
+                    })();
+                    break;
+                }
+                case 'captureWorkspaceSymbols': {
+                    const query = String(step.payload?.query ?? '');
+                    const expectedNames = Array.isArray(step.payload?.expectedNames)
+                        ? step.payload.expectedNames.filter((entry): entry is string => typeof entry === 'string')
+                        : undefined;
+                    const maxNames = Math.max(1, Math.min(200, step.payload?.maxNames ?? 50));
+
+                    const startedAt = Date.now();
+                    let result: vscode.SymbolInformation[] | vscode.DocumentSymbol[] | undefined;
+                    let captureError: string | undefined;
+                    try {
+                        result = await vscode.commands.executeCommand<
+                            vscode.SymbolInformation[] | vscode.DocumentSymbol[] | undefined
+                        >('vscode.executeWorkspaceSymbolProvider', query);
+                    } catch (error) {
+                        captureError = error instanceof Error ? error.message : String(error);
+                        result = undefined;
+                    }
+                    const durationMs = Date.now() - startedAt;
+
+                    const names: string[] = [];
+                    if (Array.isArray(result)) {
+                        for (const item of result) {
+                            if (item && typeof (item as unknown as { name?: unknown }).name === 'string') {
+                                names.push((item as unknown as { name: string }).name);
+                            }
+                        }
+                    }
+                    const topNames = names.slice(0, maxNames);
+                    const expectedPresent = expectedNames
+                        ? Object.fromEntries(expectedNames.map((name) => [name, topNames.includes(name)]))
+                        : undefined;
+                    let workspaceIndexDebug: unknown | undefined;
+                    try {
+                        workspaceIndexDebug = await vscode.commands.executeCommand<any>(
+                            'nsf._getWorkspaceIndexSymbolDebug',
+                            { query, limit: maxNames }
+                        );
+                    } catch {
+                        // ignore; provider capture should stay report-only.
+                    }
+
+                    workspaceSymbolCapture = {
+                        durationMs,
+                        query,
+                        symbolCount: names.length,
+                        topNames,
+                        expectedNames,
+                        expectedPresent,
+                        error: captureError,
+                        workspaceIndexDebug
+                    };
+                    break;
+                }
+                case 'waitForInternalStatus': {
+                    const mode = step.payload?.mode === 'quiescent' ? 'quiescent' : 'idle';
+                    const timeoutMs = Math.max(1000, step.payload?.timeoutMs ?? 180000);
+                    if (mode === 'quiescent') {
+                        await waitForClientQuiescent(step.label || 'replay waitForInternalStatus quiescent');
+                    } else {
+                        await waitForReplayServerIndexingIdle(
+                            step.label || 'replay waitForInternalStatus idle',
+                            timeoutMs
+                        );
+                    }
+                    activeEditor = vscode.window.activeTextEditor ?? activeEditor;
+                    recordDocumentSnapshot(activeEditor?.document);
+                    break;
+                }
                 default:
                     throw new Error(`Unsupported replay step kind: ${(step as ReplayStep).kind}`);
             }
@@ -111,6 +467,13 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
             activeEditor = vscode.window.activeTextEditor ?? activeEditor;
             const documentUri = activeEditor?.document.uri.toString();
             const samples = await sampleReplayWindow(step, documentUri, baselineInternalStatus);
+
+            if (completionCapturePromise) {
+                completionCapture = await completionCapturePromise;
+            }
+            if (signatureHelpCapturePromise) {
+                signatureHelpCapture = await signatureHelpCapturePromise;
+            }
             stepReports.push({
                 stepLabel: step.label,
                 stepKind: step.kind,
@@ -118,7 +481,10 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                 actionEndedAtMs: Date.now(),
                 documentUri,
                 samples,
-                anomalies: detectReplayAnomalies(step, samples)
+                anomalies: detectReplayAnomalies(step, samples),
+                completionCapture,
+                signatureHelpCapture,
+                workspaceSymbolCapture
             });
         }
     } finally {

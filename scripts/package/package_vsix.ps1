@@ -7,6 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+. (Join-Path $repoRoot "scripts\common\server_build.ps1")
 $packageJsonPath = Join-Path $repoRoot "package.json"
 $packageJson = Get-Content -Raw -Encoding utf8 -Path $packageJsonPath | ConvertFrom-Json
 
@@ -16,15 +17,8 @@ if ([string]::IsNullOrWhiteSpace($OutFile)) {
 
 $stageRoot = Join-Path $repoRoot ".vsix-stage"
 $stagePackageJsonPath = Join-Path $stageRoot "package.json"
-$cleanBuildDir = Join-Path $repoRoot "server_cpp\build"
+$cleanBuildDir = Join-Path $repoRoot "server_cpp\build_vsix"
 $outputPath = Join-Path $repoRoot $OutFile
-
-function Reset-Directory([string]$Path) {
-	if (Test-Path $Path) {
-		Remove-Item -Recurse -Force $Path
-	}
-	New-Item -ItemType Directory -Force -Path $Path | Out-Null
-}
 
 function Ensure-Directory([string]$Path) {
 	New-Item -ItemType Directory -Force -Path $Path | Out-Null
@@ -73,15 +67,10 @@ Write-Host "[package:vsix] compile"
 npm run compile
 
 Write-Host "[package:vsix] configure clean server build"
-cmake -S (Join-Path $repoRoot "server_cpp") -B $cleanBuildDir -G "MinGW Makefiles"
+$serverBuild = Initialize-CleanServerBuild $repoRoot "server_cpp\build_vsix" "Release"
 
 Write-Host "[package:vsix] build clean server"
-Push-Location $cleanBuildDir
-try {
-	cmake --build .
-} finally {
-	Pop-Location
-}
+Invoke-ServerBuild $serverBuild.BuildDir 4
 
 Write-Host "[package:vsix] stage package contents"
 Reset-Directory $stageRoot
@@ -93,14 +82,17 @@ foreach ($dir in @(
 	"server_cpp",
 	"server_cpp\build",
 	"server_cpp\build\resources",
-	"syntaxes"
+	"syntaxes",
+	"snippets"
 )) {
 	Ensure-Directory (Join-Path $stageRoot $dir)
 }
 
 Copy-Item $packageJsonPath $stagePackageJsonPath -Force
 Copy-Item (Join-Path $repoRoot "README.md") (Join-Path $stageRoot "README.md") -Force
+Copy-Item (Join-Path $repoRoot "LICENSE") (Join-Path $stageRoot "LICENSE") -Force
 Copy-Item (Join-Path $repoRoot "syntaxes\*") (Join-Path $stageRoot "syntaxes") -Recurse -Force
+Copy-Item (Join-Path $repoRoot "snippets\*") (Join-Path $stageRoot "snippets") -Recurse -Force
 Copy-Item (Join-Path $cleanBuildDir "nsf_lsp.exe") (Join-Path $stageRoot "server_cpp\build\nsf_lsp.exe") -Force
 Copy-Item (Join-Path $cleanBuildDir "resources\*") (Join-Path $stageRoot "server_cpp\build\resources") -Recurse -Force
 Copy-Item (Join-Path $repoRoot "client\out\*.js") (Join-Path $stageRoot "client\out") -Force

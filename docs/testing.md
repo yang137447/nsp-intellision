@@ -165,21 +165,29 @@
 
 1. `npm run json:validate`
 2. `npm run compile`
-3. `cmake --build .\\server_cpp\\build`
-4. `python .\\server_cpp\\tools\\hover_smoke_test.py`
-5. `npm run test:client:all`
+3. 自动解析可用的 Clang 20+ 编译器，并 clean configure `server_cpp/build`
+4. `cmake --build .\\server_cpp\\build`
+5. `py -3 .\\server_cpp\\tools\\hover_smoke_test.py`
+6. `npm run test:client:all`
 
 适用场景：
 
 - 发版前
 - 大范围重构后
 
+说明：
+
+- 脚本与 `npm run package:vsix` 复用同一套 Clang 20+ 解析逻辑
+- 脚本优先使用 `NSF_PACKAGE_CXX_COMPILER`；未设置时会优先探测 `C:\Software\llvm-mingw-*`，再回退到 PATH 中的 `clang++`
+- 如果没有找到 Clang 20+，脚本会在 C++ 构建前直接失败
+
 ### `npm run package:vsix`
 
 用途：
 
 - 构建 TypeScript 客户端
-- 构建干净的 C++ server 输出目录 `server_cpp/build`
+- 自动解析可用的 Clang 20+ 编译器
+- 构建干净的 C++ server 输出目录 `server_cpp/build_vsix`
 - 生成只包含运行时必需文件的 `.vsix`
 
 适用场景：
@@ -190,6 +198,8 @@
 说明：
 
 - 这是当前推荐的打包方式
+- 脚本优先使用 `NSF_PACKAGE_CXX_COMPILER`；未设置时会优先探测 `C:\Software\llvm-mingw-*`，再回退到 PATH 中的 `clang++`
+- 如果最终没有找到 Clang 20+，脚本会直接失败并输出候选编译器信息
 - 不建议直接在仓库根目录运行 `npx vsce package`
 - 脚本会使用临时 staging 目录组装最小运行时内容
 
@@ -345,6 +355,8 @@
 - repo-mode / replay runner 测试不要使用 `vscode.commands.executeCommand('type')` / `vscode.commands.executeCommand('deleteLeft')` 驱动编辑。
   - 这两条命令依赖 editor focus，在 repo-mode 全量跑或 replay runner 下可能出现 no-op，导致后续断言基于旧文本误判
   - 优先使用 shared helper：`typeTextForTests(...)` / `deleteLeftForTests(...)`，对目标 editor 直接做 edit，并显式更新 selection
+  - 但如果测试目标本身就是验证 completion / signature help 这类 editor-native auto-trigger，则不能用 `typeTextForTests(...)` 代替真实输入
+  - 这类用例应改用 shared helper `typeWithEditorFocusForTests(...)`，先显式恢复目标 editor focus，再走 VS Code 原生 `type` 命令
 
 - real workspace 的 visible-range inlay / perf 用例不要把“冷请求一定命中 range-build 而不会命中 range-filter”写死。
   - 当前 deferred/inlay 路径允许后台预热与可见范围请求并发交错；在失效后首个可见范围请求上，`rangeBuild` 和基于已补齐 full-cache 的 `rangeFilter` 都属于当前架构内的合法路径

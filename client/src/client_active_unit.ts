@@ -13,6 +13,7 @@ import {
 type ActiveUnitOptions = {
 	context: ExtensionContext;
 	unitStatusBarItem: StatusBarItem;
+	hasReadyClient: () => boolean;
 	beginRpcActivity: (method: string) => void;
 	endRpcActivity: () => void;
 	appendClientTrace: (message: string) => void;
@@ -130,14 +131,21 @@ export function createActiveUnitController(options: ActiveUnitOptions): ActiveUn
 			return;
 		}
 		const uri = effectiveUnitUri.toString();
+		if (!options.hasReadyClient()) {
+			// Don't mark the unit as sent before the language client is ready.
+			// The extension's onReady callback will retry sending the active unit.
+			lastSentUnitUri = '';
+			return;
+		}
 		if (uri === lastSentUnitUri) {
 			return;
 		}
-		lastSentUnitUri = uri;
 		try {
 			options.beginRpcActivity(options.setActiveUnitMethod);
 			await options.sendSetActiveUnitNotification({ uri });
+			lastSentUnitUri = uri;
 		} catch (error) {
+			lastSentUnitUri = '';
 			options.appendClientTrace(`send nsf/setActiveUnit failed ${(error as Error).message ?? String(error)}`);
 			options.logClient(`send nsf/setActiveUnit failed ${(error as Error).message ?? String(error)}`);
 			options.pushRecentClientError('nsf/setActiveUnit', error);
