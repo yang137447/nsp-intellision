@@ -290,12 +290,6 @@ void installCrashHandler(const std::string &logPath) {
   SetUnhandledExceptionFilter(unhandledExceptionFilter);
 #endif
 
-  std::ofstream log(gCrashLogPath, std::ios::app);
-  if (log.is_open()) {
-    log << "Crash handler installed. Log path: " << logPath << std::endl;
-    log.flush();
-  }
-
   std::signal(SIGSEGV, signalHandler);
   std::signal(SIGABRT, signalHandler);
   std::signal(SIGFPE, signalHandler);

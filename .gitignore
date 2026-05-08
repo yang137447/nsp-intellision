@@ -1,20 +1,33 @@
-out
-node_modules
-.vscode-test
+# Dependencies
+node_modules/
+
+# TypeScript and test outputs
+out/
+.vscode-test/
 *.tsbuildinfo
-debug.log
-*.log
-.trae/
-.vscode/nsp/
+
+# C++ build and editor indexes
 server_cpp/build*/
 server_cpp/.cache/
+
+# VSIX packaging and local audit scratch
+*.vsix
+.vsix-stage*/
+.tmp*/
+
+# Logs, crash reports, and dumps
+*.log
 *.dmp
 nsf_lsp_*.log
 nsf_lsp_crash.log
+
+# Local tools and workspace state
+.agent-harness/
+.superpowers/
+.trae/
+.vscode/nsp/
+.worktrees/
+
+# OS/editor noise
 Thumbs.db
 .DS_Store
-.vsix-stage2/
-.agent-harness/
-.worktrees/
-.superpowers/
-./docs/superpowers/

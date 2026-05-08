@@ -72,6 +72,23 @@ $serverBuild = Initialize-CleanServerBuild $repoRoot "server_cpp\build_vsix" "Re
 Write-Host "[package:vsix] build clean server"
 Invoke-ServerBuild $serverBuild.BuildDir 4
 
+Write-Host "[package:vsix] collect mingw runtime dlls (if any)"
+$compilerBinDir = Split-Path $serverBuild.Compiler.Path -Parent
+foreach ($dllName in @(
+	"libstdc++-6.dll",
+	"libgcc_s_seh-1.dll",
+	"libwinpthread-1.dll",
+	"libunwind.dll",
+	"libc++.dll",
+	"libc++-shared.dll",
+	"libc++abi.dll"
+)) {
+	$dllSource = Join-Path $compilerBinDir $dllName
+	if (Test-Path $dllSource) {
+		Copy-Item $dllSource (Join-Path $cleanBuildDir $dllName) -Force
+	}
+}
+
 Write-Host "[package:vsix] stage package contents"
 Reset-Directory $stageRoot
 
@@ -90,10 +107,14 @@ foreach ($dir in @(
 
 Copy-Item $packageJsonPath $stagePackageJsonPath -Force
 Copy-Item (Join-Path $repoRoot "README.md") (Join-Path $stageRoot "README.md") -Force
-Copy-Item (Join-Path $repoRoot "LICENSE") (Join-Path $stageRoot "LICENSE") -Force
+$licensePath = Join-Path $repoRoot "LICENSE"
+if (Test-Path $licensePath) {
+	Copy-Item $licensePath (Join-Path $stageRoot "LICENSE") -Force
+}
 Copy-Item (Join-Path $repoRoot "syntaxes\*") (Join-Path $stageRoot "syntaxes") -Recurse -Force
 Copy-Item (Join-Path $repoRoot "snippets\*") (Join-Path $stageRoot "snippets") -Recurse -Force
 Copy-Item (Join-Path $cleanBuildDir "nsf_lsp.exe") (Join-Path $stageRoot "server_cpp\build\nsf_lsp.exe") -Force
+Copy-Item (Join-Path $cleanBuildDir "*.dll") (Join-Path $stageRoot "server_cpp\build") -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $cleanBuildDir "resources\*") (Join-Path $stageRoot "server_cpp\build\resources") -Recurse -Force
 Copy-Item (Join-Path $repoRoot "client\out\*.js") (Join-Path $stageRoot "client\out") -Force
 
@@ -136,7 +157,7 @@ Write-Host "[package:vsix] package"
 Remove-IfExists $outputPath
 Push-Location $stageRoot
 try {
-	npx vsce package --no-dependencies -o "..\$OutFile"
+	npx vsce package --no-dependencies --allow-missing-repository -o "..\$OutFile"
 } finally {
 	Pop-Location
 }

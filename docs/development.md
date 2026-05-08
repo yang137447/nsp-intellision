@@ -1,92 +1,75 @@
 # 开发文档
 
-本文档面向维护者和插件开发者，描述当前推荐的本地开发、调试和打包流程。
+本文档面向维护者和插件开发者，描述本地开发、调试和打包流程。验证命令如何选择，以 `docs/testing.md` 为准。
 
-## 目标读者
+## 适用范围
 
-- 调试 `client/` 或 `server_cpp/` 的开发者
-- 需要替换插件内置 server 的维护者
-- 需要生成可分发 `.vsix` 的发布者
+- 调试 `client/` 或 `server_cpp/`
+- 临时覆盖插件内置 server
+- 生成可分发 `.vsix`
 
 普通用户通常不需要阅读本文档。
 
-## 开发入口
+## Client 开发
 
-### 客户端
-
-- 源码：`client/src/extension.ts`
-- 编译输出：`client/out/*.js`
+- 源码：`client/src/`
+- 编译输出：`client/out/`
 - 常用命令：`npm run compile`
 - VS Code 调试入口：`.vscode/launch.json`
 - 编辑器壳层事实文档：`docs/client-editor-features.md`
 
-### VS Code 调试
-
-当前推荐使用仓库内置的 Run and Debug 入口，按用途分成两类：
+推荐调试入口：
 
 - 稳定启动：
   - `Launch Client (G66 Workspace)`
   - `Launch Client (Repo Workspace)`
   - `Launch Client (Open NSF Sample)`
-  - 这些入口都会先执行一次 `npm: compile`
-  - 适合日常直接按 `F5` 启动，避免被后台 watch task 卡住
-
 - 热更新开发：
   - `Launch Client (G66 Workspace, Watch)`
-  - 该入口会先执行 `npm: watch`
-  - 适合连续改动 `client/` 代码时长期挂着
 
-当前约定：
+约定：
 
-- 默认 `F5` 对应 `Launch Client (G66 Workspace)`，即稳定启动入口
-- `npm: watch` 任务会始终显示终端，方便直接看到 watch 状态和 TypeScript 报错
-- 如果只是想快速拉起调试，不要先选 watch 入口；优先用稳定入口
+- 默认 `F5` 对应稳定启动入口，并会先执行 `npm: compile`。
+- watch 入口适合连续修改 `client/` 时长期运行。
+- 如果只是快速拉起调试，优先使用稳定入口。
 
-### 服务端
+## Server 开发
 
 - 源码：`server_cpp/src/`
 - 资源：`server_cpp/resources/`
-- 推荐干净构建目录：`server_cpp/build`
-- 常用命令：
-  - `cmake -S .\\server_cpp -B .\\server_cpp\\build -G "MinGW Makefiles"`
-  - `cmake --build .\\server_cpp\\build`
-- Windows 上当前要求 `clang++` 至少为 20；如果 PATH 上默认命中的 `clang++` 版本过旧，应显式追加 `-D CMAKE_CXX_COMPILER=<llvm-mingw clang++.exe>` 再配置
+- 推荐构建目录：`server_cpp/build`
 
-## 内置 Server 与覆盖规则
+常用命令：
 
-插件安装包内会自带一个 C++ server。
+```powershell
+cmake -S .\server_cpp -B .\server_cpp\build -G "MinGW Makefiles"
+cmake --build .\server_cpp\build
+```
 
-当前客户端启动规则：
+Windows 上当前要求 `clang++` 至少为 20。如果 PATH 上默认命中的版本过旧，应在 configure 时显式追加：
 
-1. 优先使用插件内置 server
-2. 如果设置了 `nsf.serverPath`，则用该路径覆盖内置 server
+```powershell
+-D CMAKE_CXX_COMPILER=<llvm-mingw clang++.exe>
+```
 
-结论：
+如果链接阶段提示 `nsf_lsp.exe` 被占用，先关闭运行中的 VS Code 扩展宿主或测试进程，再重新构建。
 
-- 普通用户不需要手动设置 `nsf.serverPath`
-- `nsf.serverPath` 是开发/调试用的高级 override
+## 内置 Server 与覆盖
 
-## 本地替换内置 Server
+插件安装包内自带 C++ server。client 启动优先级：
 
-当你需要在 VS Code 中调试本地刚编出来的 server：
+1. 插件内置 server
+2. `nsf.serverPath` 指定的外部 server
 
-1. 构建 `server_cpp/build/nsf_lsp.exe`
-2. 在 VS Code 设置中配置 `nsf.serverPath`
-3. 执行命令 `NSF: Restart LSP Server`
+`nsf.serverPath` 仅用于开发和调试。需要验证本地 server 时：
 
-推荐只在以下场景使用 `nsf.serverPath`：
-
-- 本地调试新的 server 二进制
-- 验证临时修复
-- 对比插件内置 server 和外部 server
+1. 构建 `server_cpp/build/nsf_lsp.exe`。
+2. 在 VS Code 设置中配置 `nsf.serverPath`。
+3. 执行 `NSF: Restart LSP Server`。
 
 ## 设置分层
 
-当前设置分成两层：
-
-### 普通用户设置
-
-位于 `NSF` 分组：
+普通用户设置位于 `NSF` 分组：
 
 - include 路径
 - shader 扩展名
@@ -95,100 +78,46 @@
 - semantic tokens
 - `nsf.diagnostics.mode`
 
-### 高级设置
-
-位于 `NSF (Advanced)` 分组：
+高级设置位于 `NSF (Advanced)` 分组：
 
 - `nsf.serverPath`
 
-原则：
-
-- 普通用户只应接触 `NSF` 分组
-- `NSF (Advanced)` 在上线版里只保留稳定且有明确用途的高级 override
-
-## 开发者设置原则
-
-上线版只保留一个开发者可见高级设置：
-
-- `nsf.serverPath`
-
-其余历史上的内部调试/实验/细粒度 diagnostics 设置，已经不再作为支持的配置入口继续保留。
-
-如果未来确实需要重新引入某类开发开关，应优先通过以下方式之一处理：
-
-- 新增明确的开发命令
-- 在开发分支或开发构建中单独暴露
-- 通过代码常量或临时 patch 控制，而不是重新公开给所有用户
-
-示例文件：
-
-- `docs/settings.development.example.json`
+上线版只保留稳定且有明确用途的高级 override。历史内部调试、实验或细粒度 diagnostics 设置不再作为支持的用户入口。
 
 ## 诊断模式
 
-当前推荐用户通过 `nsf.diagnostics.mode` 控制诊断强度，而不是直接改预算参数。
-
-可选值：
+当前推荐通过 `nsf.diagnostics.mode` 控制诊断强度：
 
 - `basic`
 - `balanced`
 - `full`
 
-说明：
-
-- client 会把 mode 归一化成当前 server 仍然可理解的详细 diagnostics 配置
-- server 也能直接解析 `diagnostics.mode`
-- 细粒度 diagnostics 参数不再作为用户设置入口继续支持
-
-## 推荐验证顺序
-
-### 改资源
-
-1. `npm run json:validate`
-2. `cmake --build .\\server_cpp\\build`
-3. `npm run test:client:repo`
-
-### 改 client
-
-1. `npm run compile`
-2. `npm run test:client:repo`
-
-### 改 server
-
-1. `cmake --build .\\server_cpp\\build`
-2. `npm run test:client:repo`
-
-### 发版前
-
-1. `npm run gate:d3`
-2. `npm run package:vsix`
-
-其中：
-
-- `npm run gate:d3` 会先自动解析可用的 Clang 20+ 编译器，并 clean configure `server_cpp/build`
-- `npm run package:vsix` 会自动解析同一套编译器规则，但使用独立的 `server_cpp/build_vsix`
+client 会把 mode 归一化成 server 可理解的 diagnostics 配置；server 也能直接解析 `diagnostics.mode`。
 
 ## 打包
 
-当前推荐的正式打包命令：
+正式打包命令：
 
-- `npm run package:vsix`
+```powershell
+npm run package:vsix
+```
 
-它会做这些事：
+该命令会：
 
-1. 编译 TypeScript 客户端
-2. 自动解析可用的 Clang 20+ 编译器（优先 `NSF_PACKAGE_CXX_COMPILER`，其次 `C:\Software\llvm-mingw-*`，最后 PATH 中的 `clang++`）
-3. 在独立的 `server_cpp/build_vsix` 中构建干净的 release server
-4. 用临时 staging 目录收集运行时最小文件集
-5. 生成正式 `.vsix`
+1. 编译 TypeScript 客户端。
+2. 自动解析可用的 Clang 20+ 编译器，优先使用 `NSF_PACKAGE_CXX_COMPILER`，其次探测 `C:\Software\llvm-mingw-*`，最后回退到 PATH 中的 `clang++`。
+3. 在独立的 `server_cpp/build_vsix` 中构建干净 release server。
+4. 用临时 staging 目录收集运行时最小文件集。
+5. 把 `nsf_lsp.exe` 依赖的常见 MinGW 运行时 DLL 一并放到 server 同目录。
+6. 生成正式 `.vsix`。
 
-不建议直接在仓库根目录运行 `npx vsce package`，因为那样更容易把构建中间件、测试依赖或历史残留卷进包里。
+不建议直接在仓库根目录运行 `npx vsce package`，避免把构建中间件、测试依赖或历史残留卷进包里。
 
-## 何时更新本文档
+## 更新本文档
 
-以下内容变化时，必须更新本文档：
+以下变化必须同步更新本文档：
 
-- 内置 server 或 `nsf.serverPath` 的优先级规则变化
-- 打包流程变化
-- 设置分层变化
-- 诊断 mode 的语义变化
+- 内置 server 或 `nsf.serverPath` 优先级规则变化
+- 本地调试入口变化
+- 设置分层或诊断 mode 语义变化
+- 打包命令、编译器解析或 staging 内容变化

@@ -112,7 +112,7 @@ function Initialize-CleanServerBuild([string]$RepoRoot, [string]$BuildDirRelativ
     Write-Host "[server build] configure clean build $buildDir"
 
     Reset-Directory $buildDir
-    cmake -S (Join-Path $RepoRoot "server_cpp") -B $buildDir -G "MinGW Makefiles" -D CMAKE_BUILD_TYPE=$BuildType -D CMAKE_CXX_COMPILER="$($buildCompiler.Path)"
+    cmake -S (Join-Path $RepoRoot "server_cpp") -B $buildDir -G "MinGW Makefiles" -D CMAKE_BUILD_TYPE=$BuildType -D CMAKE_CXX_COMPILER="$($buildCompiler.Path)" | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to configure server build at $buildDir"
     }
@@ -127,7 +127,7 @@ function Initialize-CleanServerBuild([string]$RepoRoot, [string]$BuildDirRelativ
 function Invoke-ServerBuild([string]$BuildDir, [int]$Jobs = 4) {
     Push-Location $BuildDir
     try {
-        cmake --build . -j $Jobs
+        cmake --build . -j $Jobs | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to build server at $BuildDir"
         }
