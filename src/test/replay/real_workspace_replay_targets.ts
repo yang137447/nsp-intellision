@@ -1,7 +1,32 @@
 import * as path from 'path';
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 
 import type { ReplayAnchor } from './real_workspace_replay_types';
+
+async function resetDirtyDocumentToDisk(document: vscode.TextDocument): Promise<vscode.TextDocument> {
+	if (!document.isDirty || document.uri.scheme !== 'file') {
+		return document;
+	}
+	let diskText: string;
+	try {
+		diskText = fs.readFileSync(document.uri.fsPath, 'utf8');
+	} catch {
+		return document;
+	}
+	if (document.getText() === diskText) {
+		return document;
+	}
+
+	const edit = new vscode.WorkspaceEdit();
+	const fullRange = new vscode.Range(
+		document.positionAt(0),
+		document.positionAt(document.getText().length)
+	);
+	edit.replace(document.uri, fullRange, diskText);
+	await vscode.workspace.applyEdit(edit);
+	return vscode.workspace.openTextDocument(document.uri);
+}
 
 export async function resolveReplayAnchor(
 	anchor: ReplayAnchor
@@ -43,6 +68,7 @@ export async function resolveReplayAnchor(
 		let document: vscode.TextDocument;
 		try {
 			document = await vscode.workspace.openTextDocument(uri);
+			document = await resetDirtyDocumentToDisk(document);
 		} catch (error) {
 			attemptErrors.push(`${relativePath}: ${String(error)}`);
 			continue;

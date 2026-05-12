@@ -2,7 +2,7 @@
 
 NSF LSP 是面向 `.nsf/.hlsl/.hlsli/.fx/.usf/.ush` 的 VS Code 语言服务扩展，提供补全、悬停、签名帮助、定义跳转、引用、重命名、语义高亮、诊断和参数名提示。
 
-扩展也提供基础编辑器壳层能力，包括注释切换、自动配对、保守的 `wordPattern`、注释续写、`#region/#endregion` 折叠和最小 snippets。
+扩展也提供基础编辑器壳层能力，包括注释切换、自动配对、保守的 `wordPattern`、注释续写、`// #region` / `// #endregion` 折叠和最小 snippets。
 
 ## 安装
 

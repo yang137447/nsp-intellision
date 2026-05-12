@@ -66,7 +66,7 @@
 - `Ctrl+/` 行注释、`Shift+Alt+A` 块注释
 - 自动配对、包裹、基础缩进和 `wordPattern`
 - `///`、`/** */` 注释续写
-- `#region/#endregion` 折叠
+- `// #region` / `// #endregion` 折叠，并确认嵌套区域可折叠
 - snippets 出现和占位符顺序
 
 ## 集成测试结构
@@ -115,6 +115,7 @@ $env:NSF_TEST_FILE_FILTER = "<substring>"
 - background lane latest-only / cancellation 用例不要手搓原始并发请求；优先使用 test mode 内部命令 `nsf._spamInlayRequests`、`nsf._spamDocumentSymbolRequests`、`nsf._spamWorkspaceSymbolRequests`。
 - visible-range inlay / perf 用例不要把冷请求固定绑定为 range-build；range-build 或基于 full-cache 的 range-filter 都可能是合法路径。
 - real workspace 测试不要依赖外部工程里某一整行固定文本永远不变；优先用稳定前缀定位并缓存原始文本。
+- real replay 脚本解析锚点前会把已打开的 dirty 文档恢复到磁盘文本基线，避免前置 real workspace 用例的未保存 buffer 污染后续锚点解析。
 
 ## 失败处理
 

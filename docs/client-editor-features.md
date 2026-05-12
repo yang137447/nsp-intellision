@@ -48,13 +48,14 @@
 - 基础缩进
 - 保守版 `wordPattern`
 - `///` 与 `/** */` 注释续写
-- `#region/#endregion` 折叠
+- `// #region` / `// #endregion` 折叠，支持嵌套；裸 `#region/#endregion` 不作为 folding marker 支持
 - 最小 snippets 集
 
 当前边界：
 
 - 不对 `<` / `>` 做自动配对，避免误伤 `Texture2D<float4>` 和比较表达式。
 - `wordPattern` 优先保证 `SV_Position`、宏名、常见标识符和大写开头泛型对象类型；复杂 swizzle 或模板样式只承诺不明显退化。
+- 推荐使用 `// #region name` 和 `// #endregion` 标记可折叠区域；`// #endregion name` 也会被识别，但 VS Code 不按名称配对，名称主要用于人工阅读。
 - 还没有固定注释块折叠的正式规则。
 
 ## 语言扩展名一致性
@@ -108,7 +109,7 @@
 - 基础缩进
 - `wordPattern`
 - 注释续写
-- `#region/#endregion`
+- `// #region` / `// #endregion`，并确认嵌套区域可折叠
 - snippets
 
 ## 更新本文档
