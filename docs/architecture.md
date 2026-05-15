@@ -141,7 +141,7 @@
 - 小范围 syntax-only 编辑和纯注释编辑优先让 immediate syntax diagnostics 抢占热路径。
 - fast diagnostics 会先发布 immediate syntax，再异步补 full diagnostics；等待 full 结果时可保留 last-good full diagnostics，避免无关语义波浪线被整份清空。
 - diagnostics payload 在构建返回和发布层合并后按 document URI、range、message、code 和 source 去重；同一位置的不同原因应通过不同 code/source 保持可区分。
-- client completion request coordinator 只调度 identifier-prefix auto-trigger / quick suggest 请求：发往 LSP 前按 coordinator key 做短窗口 latest-only 合并；发往 LSP 后如果同 key 前进前缀或新的 completion key 使旧 auto-trigger visible request 过期，旧 visible provider promise 会立即 neutral resolve，并取消 coordinator 持有的 underlying `next(...)` token；已启动的 `next(...)` 只做 detached cleanup 和指标记录。同 key prefix shrink 不走 stale supersession。显式用户触发、`.` member completion、retrigger 和无法安全归类的请求自身直接绕过 coordinator，server completion 候选、排序和文档渲染仍由 server 侧共享语义入口决定。
+- client completion request coordinator 只调度 identifier-prefix auto-trigger / quick suggest 请求：发往 LSP 前按 coordinator key 做短窗口 latest-only 合并；发往 LSP 后如果同 key 前进前缀或新的 completion key 使旧 auto-trigger visible request 过期，旧 visible provider promise 会立即 neutral resolve，并取消 coordinator 持有的 underlying `next(...)` token；已启动的 `next(...)` 只做 detached cleanup 和指标记录。同 key prefix shrink 不走 stale supersession。只有已归类为 identifier auto-trigger 的请求会刷新 quick-suggest burst recent 状态，单独的显式 `Invoke` 不会种下后续 coalescing。显式用户触发、`.` member completion、retrigger 和无法安全归类的请求自身直接绕过 coordinator，server completion 候选、排序和文档渲染仍由 server 侧共享语义入口决定。
 - inlay hints 优先复用 deferred doc runtime 的 full-document cache；对 indexing 抖动、请求取消或瞬态 RPC 错误，client 侧可续用 last-good hints。
 - workspace warm-cache 启动时，`workspaceSummaryRuntimeIsReady()` 表示“当前可查询”，不等同于后台校验已经全部完成。
 

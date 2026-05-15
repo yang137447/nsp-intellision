@@ -167,6 +167,60 @@ repoDescribe('NSF real workspace replay runner', () => {
         assert.ok((capture.directServerCompletion?.durationMs ?? -1) >= 0);
     });
 
+    it('records full-document inlay continuity without transient drops', async function () {
+        this.timeout(120000);
+
+        await waitForClientReady('replay runner inlay continuity client ready');
+        await waitForIndexingIdle('replay runner inlay continuity indexing idle');
+
+        const anchor = {
+            workspaceFolderSuffix: 'nsp-intellision',
+            relativePath: 'test_files/module_inlay_hints.nsf',
+            anchorText: 'float4 BlendColor',
+            occurrence: 1,
+            characterOffset: 0
+        };
+        const script: ReplayScript = {
+            id: 'repo-runner-inlay-continuity',
+            title: 'Repo runner inlay continuity',
+            workspaceHint: 'nsp-intellision',
+            targetDocument: anchor,
+            intent: 'Verify full-document replay detects transient inlay hint disappearance.',
+            tags: ['repo', 'inlay', 'continuity'],
+            steps: [
+                {
+                    kind: 'openDocument',
+                    label: 'open inlay fixture',
+                    target: anchor
+                },
+                {
+                    kind: 'typeDocumentFromDisk',
+                    label: 'type inlay fixture from empty buffer',
+                    payload: {
+                        charactersPerEdit: 64,
+                        checkpointEveryLines: 2,
+                        checkpointSamplingDelaysMs: [0],
+                        captureInlayContinuity: true
+                    }
+                }
+            ],
+            cleanup: { restoreTouchedDocuments: true }
+        };
+
+        const report = await runReplayScript(script);
+        const fullDocumentTyping = report.steps[1].fullDocumentTyping;
+        const continuity = fullDocumentTyping?.inlayContinuity;
+        assert.ok(continuity?.enabled, 'expected inlay continuity report');
+        assert.ok((continuity.sampleCount ?? 0) > 0, 'expected inlay continuity samples');
+        assert.ok((continuity.nonEmptySampleCount ?? 0) > 0, 'expected at least one non-empty inlay sample');
+        assert.strictEqual(continuity.transientDropDetected, false, JSON.stringify(continuity.drops));
+        assert.strictEqual(continuity.endedMissingAfterVisible, false, JSON.stringify(continuity.drops));
+        assert.ok(
+            !(fullDocumentTyping?.anomalies ?? []).some((item) => item.startsWith('inlay-hints-')),
+            JSON.stringify(fullDocumentTyping?.anomalies)
+        );
+    });
+
     it('summarizes replay probe latency and duplicated request paths', () => {
         const summary = buildReplayLatencySummary({
             scriptId: 'summary-fixture',
@@ -561,11 +615,17 @@ repoDescribe('NSF real workspace replay runner', () => {
         assert.strictEqual(separated?.uiLatestVisibleServerLastDidChangeGapMs, 0.2);
         assert.strictEqual(separated?.uiLatestVisibleHasServerDebug, true);
         assert.strictEqual(separated?.postLatestVisibleCleanupMs, 105);
+        assert.strictEqual(separated?.postLatestVisibleProviderActivityMs, 0);
+        assert.strictEqual(separated?.postLatestVisibleQuietGuardMs, 105);
+        assert.strictEqual(separated?.uiProviderActivityDrainMs, 55);
+        assert.strictEqual(separated?.uiQueueQuietGuardMs, 105);
         const explicitOverlap = summary.completion?.slowest.find((row) => row.label === 'explicit overlap completion');
         assert.strictEqual(explicitOverlap?.uiCoverageTriggerSource, 'explicitSuggest');
         assert.strictEqual(explicitOverlap?.explicitInvokeOverlapRequests, 1);
         assert.strictEqual(explicitOverlap?.uiLatestVisibleProviderReturnMs, 12);
         assert.strictEqual(explicitOverlap?.postLatestVisibleCleanupMs, 18);
+        assert.strictEqual(explicitOverlap?.postLatestVisibleProviderActivityMs, 0);
+        assert.strictEqual(explicitOverlap?.postLatestVisibleQuietGuardMs, 18);
         assert.strictEqual(summary.completion?.uiRequestBurst.maxMs, 4);
         assert.strictEqual(summary.completion?.uiLatestVisibleProviderReturn.maxMs, 55);
         assert.strictEqual(summary.completion?.uiLatestVisibleNextWait.maxMs, 4);
@@ -584,6 +644,9 @@ repoDescribe('NSF real workspace replay runner', () => {
         assert.strictEqual(summary.completion?.uiLatestVisibleServerLastDidChangeGap.maxMs, 0.2);
         assert.strictEqual(summary.completion?.uiLatestVisibleWithServerDebugCount, 1);
         assert.strictEqual(summary.completion?.postLatestVisibleCleanup.maxMs, 105);
+        assert.strictEqual(summary.completion?.postLatestVisibleProviderActivity.maxMs, 0);
+        assert.strictEqual(summary.completion?.postLatestVisibleQuietGuard.maxMs, 105);
+        assert.strictEqual(summary.completion?.uiQueueQuietGuard.maxMs, 105);
         const simulation = separated?.coalescingSimulation;
         assert.ok(simulation, 'expected completion coalescing simulation');
         assert.strictEqual(simulation.defaultDebounceWindowMs, 40);
@@ -681,14 +744,116 @@ repoDescribe('NSF real workspace replay runner', () => {
         assert.strictEqual(nativeSummary?.uiLatestVisibleServerLastDidChangeDuration.maxMs, 12);
         assert.strictEqual(nativeSummary?.uiLatestVisibleServerLastDidChangeGap.maxMs, 0.2);
         assert.strictEqual(nativeSummary?.postLatestVisibleCleanup.maxMs, 105);
+        assert.strictEqual(nativeSummary?.postLatestVisibleProviderActivity.maxMs, 0);
+        assert.strictEqual(nativeSummary?.postLatestVisibleQuietGuard.maxMs, 105);
+        assert.strictEqual(nativeSummary?.uiQueueQuietGuard.maxMs, 105);
         assert.strictEqual(nativeSummary?.explicitInvokeOverlapRequests, 0);
         assert.strictEqual(nativeSummary?.latestExecutedWithServerDebugCount, 1);
         assert.strictEqual(explicitSummary?.probeCount, 2);
         assert.strictEqual(explicitSummary?.uiQueueQuiet.maxMs, 30);
         assert.strictEqual(explicitSummary?.uiLatestVisibleProviderReturn.maxMs, 12);
         assert.strictEqual(explicitSummary?.postLatestVisibleCleanup.maxMs, 18);
+        assert.strictEqual(explicitSummary?.postLatestVisibleProviderActivity.maxMs, 0);
+        assert.strictEqual(explicitSummary?.postLatestVisibleQuietGuard.maxMs, 18);
         assert.strictEqual(explicitSummary?.explicitInvokeOverlapRequests, 1);
         assert.strictEqual(explicitSummary?.latestExecutedWithServerDebugCount, 0);
         assert.strictEqual(summary.signatureHelp?.clientLspRequest.maxMs, 26);
+    });
+
+    it('summarizes top-level signature capture latency and quiet guard split', () => {
+        const summary = buildReplayLatencySummary({
+            scriptId: 'top-level-signature-summary-fixture',
+            steps: [
+                {
+                    stepLabel: 'capture top-level signature help',
+                    stepKind: 'captureSignatureHelp',
+                    signatureHelpCapture: {
+                        measurementMode: 'separated-ui-provider',
+                        durationMs: 240,
+                        executeProviderDurationMs: 20,
+                        signatureCount: 1,
+                        uiCoverage: {
+                            requestBurstCount: 2,
+                            firstProviderRequestAtMs: 10,
+                            lastProviderRequestCompletedAtMs: 90,
+                            providerRequestSequence: [
+                                {
+                                    sequence: 1,
+                                    relativeStartedAtMs: 10,
+                                    relativeCompletedAtMs: 50,
+                                    totalMs: 40,
+                                    nextWaitMs: 2,
+                                    nextExecutionMs: 38,
+                                    lspStartDelayMs: 3,
+                                    lspRequestMs: 35,
+                                    lspCompletionToProviderReturnMs: 1,
+                                    activeSameKindProviderCountAtStart: 0,
+                                    activeSameKindNextCountAtStart: 0
+                                },
+                                {
+                                    sequence: 2,
+                                    relativeStartedAtMs: 60,
+                                    relativeCompletedAtMs: 90,
+                                    totalMs: 30,
+                                    nextWaitMs: 1,
+                                    nextExecutionMs: 29,
+                                    lspStartDelayMs: 2,
+                                    lspRequestMs: 25,
+                                    lspCompletionToProviderReturnMs: 2,
+                                    activeSameKindProviderCountAtStart: 1,
+                                    activeSameKindNextCountAtStart: 0
+                                }
+                            ],
+                            queueQuiet: {
+                                durationMs: 180,
+                                timedOut: false,
+                                relativeStartedAtMs: 0,
+                                relativeCompletedAtMs: 250
+                            },
+                            requestCounters: {
+                                totalTriggerDelta: { completionRequests: 0, signatureHelpRequests: 2 }
+                            }
+                        },
+                        providerVerification: {
+                            durationMs: 20,
+                            uiQueueQuietTimedOut: false,
+                            requestCounters: {
+                                delta: { completionRequests: 0, signatureHelpRequests: 1 }
+                            },
+                            clientProviderTiming: {
+                                totalMs: 18,
+                                lspRequestMs: 17
+                            }
+                        },
+                        requestCounters: {
+                            providerDelta: { completionRequests: 0, signatureHelpRequests: 1 },
+                            totalDelta: { completionRequests: 0, signatureHelpRequests: 3 }
+                        }
+                    }
+                }
+            ]
+        });
+
+        assert.ok(summary, 'expected latency summary for top-level signature capture');
+        assert.strictEqual(summary.probeCounts.total, 1);
+        assert.strictEqual(summary.probeCounts.signatureHelp, 1);
+        assert.strictEqual(summary.signatureHelp?.capture.maxMs, 240);
+        assert.strictEqual(summary.signatureHelp?.executeProvider.maxMs, 20);
+        assert.strictEqual(summary.signatureHelp?.clientLspRequest.maxMs, 17);
+        assert.strictEqual(summary.signatureHelp?.uiRequestBurst.maxMs, 2);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleProviderReturn.maxMs, 90);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleProviderExecution.maxMs, 30);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleNextWait.maxMs, 1);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleNextExecution.maxMs, 29);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleLspStartDelay.maxMs, 2);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleLspRequest.maxMs, 25);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleLspCompletionToProviderReturn.maxMs, 2);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleActiveProviderOverlapAtStart.maxMs, 1);
+        assert.strictEqual(summary.signatureHelp?.uiLatestVisibleActiveNextOverlapAtStart.maxMs, 0);
+        assert.strictEqual(summary.signatureHelp?.postLatestVisibleCleanup.maxMs, 160);
+        assert.strictEqual(summary.signatureHelp?.postLatestVisibleProviderActivity.maxMs, 0);
+        assert.strictEqual(summary.signatureHelp?.postLatestVisibleQuietGuard.maxMs, 160);
+        assert.strictEqual(summary.signatureHelp?.uiQueueQuietGuard.maxMs, 160);
+        assert.strictEqual(summary.signatureHelp?.slowest[0].label, 'capture top-level signature help');
     });
 });

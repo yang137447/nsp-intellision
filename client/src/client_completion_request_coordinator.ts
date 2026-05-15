@@ -274,7 +274,11 @@ export class CompletionRequestCoordinator {
 	}
 
 	private rememberRecentIdentifierRequest(decision: CompletionCoordinatorDecision): void {
-		if (!decision.key || decision.prefixLength === undefined || decision.source === 'member') {
+		if (
+			decision.source !== 'identifierPrefixAutoTrigger' ||
+			!decision.key ||
+			decision.prefixLength === undefined
+		) {
 			return;
 		}
 		const now = Date.now();

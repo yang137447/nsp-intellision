@@ -63,6 +63,7 @@
         "charactersPerEdit": 16,
         "checkpointEveryLines": 5,
         "checkpointSamplingDelaysMs": [0],
+        "captureInlayContinuity": true,
         "nativeTrigger": true,
         "triggerSuggestUi": true,
         "triggerParameterHintsUi": true,

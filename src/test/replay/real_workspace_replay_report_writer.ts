@@ -46,6 +46,10 @@ type ProbeLatencyRow = {
 	uiLatestVisibleServerLastDidChangeGapMs?: number;
 	uiLatestVisibleHasServerDebug?: boolean;
 	postLatestVisibleCleanupMs?: number;
+	postLatestVisibleProviderActivityMs?: number;
+	postLatestVisibleQuietGuardMs?: number;
+	uiProviderActivityDrainMs?: number;
+	uiQueueQuietGuardMs?: number;
 	uiCoverageRequests?: number;
 	uiRequestBurstCount?: number;
 	firstProviderRequestAtMs?: number;
@@ -78,6 +82,9 @@ type CompletionUiCoverageTriggerSourceSummary = {
 	uiLatestVisibleServerLastDidChangeDuration: NumericStats;
 	uiLatestVisibleServerLastDidChangeGap: NumericStats;
 	postLatestVisibleCleanup: NumericStats;
+	postLatestVisibleProviderActivity: NumericStats;
+	postLatestVisibleQuietGuard: NumericStats;
+	uiQueueQuietGuard: NumericStats;
 	uiExecutedLspRequest: NumericStats;
 	executeProvider: NumericStats;
 	directServer: NumericStats;
@@ -308,6 +315,9 @@ type ReplayLatencySummary = {
 		uiLatestVisibleServerLastDidChangeGap: NumericStats;
 		uiLatestVisibleWithServerDebugCount: number;
 		postLatestVisibleCleanup: NumericStats;
+		postLatestVisibleProviderActivity: NumericStats;
+		postLatestVisibleQuietGuard: NumericStats;
+		uiQueueQuietGuard: NumericStats;
 		coalescingSimulation?: CompletionCoalescingSimulationSummary;
 		coordinatorActual?: CompletionCoordinatorActualSummary;
 		uiExecutedLspRequest: NumericStats;
@@ -324,6 +334,19 @@ type ReplayLatencySummary = {
 		uiQueueQuietTimedOutProbeCount: number;
 		uiQueueQuiet: NumericStats;
 		uiRequestBurst: NumericStats;
+		uiLatestVisibleProviderReturn: NumericStats;
+		uiLatestVisibleProviderExecution: NumericStats;
+		uiLatestVisibleNextWait: NumericStats;
+		uiLatestVisibleNextExecution: NumericStats;
+		uiLatestVisibleLspStartDelay: NumericStats;
+		uiLatestVisibleLspRequest: NumericStats;
+		uiLatestVisibleLspCompletionToProviderReturn: NumericStats;
+		uiLatestVisibleActiveProviderOverlapAtStart: NumericStats;
+		uiLatestVisibleActiveNextOverlapAtStart: NumericStats;
+		postLatestVisibleCleanup: NumericStats;
+		postLatestVisibleProviderActivity: NumericStats;
+		postLatestVisibleQuietGuard: NumericStats;
+		uiQueueQuietGuard: NumericStats;
 		slowest: ProbeLatencyRow[];
 	};
 };
@@ -860,14 +883,77 @@ function latestVisibleCompletionProviderReturn(
 	return visible[visible.length - 1];
 }
 
+function latestVisibleSignatureProviderReturn(
+	capture: Record<string, any> | undefined
+): Record<string, any> | undefined {
+	const visible = uiCoverageProviderRequestSequence(capture).filter(
+		(entry) => finiteNumber(entry.relativeCompletedAtMs) !== undefined
+	);
+	return visible[visible.length - 1];
+}
+
+function uiCoverageQueueQuiet(capture: Record<string, any> | undefined): Record<string, any> | undefined {
+	return asRecord(asRecord(capture?.uiCoverage)?.queueQuiet);
+}
+
+function latestUiCoverageProviderCompletedAtMs(capture: Record<string, any> | undefined): number | undefined {
+	const completed = uiCoverageProviderRequestSequence(capture)
+		.map((entry) => finiteNumber(entry.relativeCompletedAtMs))
+		.filter((value): value is number => value !== undefined);
+	return completed.length === 0 ? undefined : Math.max(...completed);
+}
+
+function uiProviderActivityDrainMs(capture: Record<string, any> | undefined): number | undefined {
+	const latestProviderCompletedAtMs = latestUiCoverageProviderCompletedAtMs(capture);
+	if (latestProviderCompletedAtMs !== undefined) {
+		return latestProviderCompletedAtMs;
+	}
+	return finiteNumber(uiCoverageQueueQuiet(capture)?.relativeStartedAtMs);
+}
+
+function uiQueueQuietGuardMs(capture: Record<string, any> | undefined): number | undefined {
+	const drainMs = uiProviderActivityDrainMs(capture);
+	const queueQuietCompletedAtMs = finiteNumber(uiCoverageQueueQuiet(capture)?.relativeCompletedAtMs);
+	if (drainMs === undefined || queueQuietCompletedAtMs === undefined) {
+		return undefined;
+	}
+	return Math.max(0, queueQuietCompletedAtMs - drainMs);
+}
+
+function postLatestVisibleProviderActivityMs(
+	capture: Record<string, any> | undefined,
+	latestVisible: Record<string, any> | undefined
+): number | undefined {
+	const latestCompletedAtMs = finiteNumber(latestVisible?.relativeCompletedAtMs);
+	const latestProviderCompletedAtMs = latestUiCoverageProviderCompletedAtMs(capture);
+	if (latestCompletedAtMs === undefined || latestProviderCompletedAtMs === undefined) {
+		return undefined;
+	}
+	return Math.max(0, latestProviderCompletedAtMs - latestCompletedAtMs);
+}
+
+function postLatestVisibleQuietGuardMs(
+	capture: Record<string, any> | undefined,
+	latestVisible: Record<string, any> | undefined
+): number | undefined {
+	const latestCompletedAtMs = finiteNumber(latestVisible?.relativeCompletedAtMs);
+	const queueQuietCompletedAtMs = finiteNumber(uiCoverageQueueQuiet(capture)?.relativeCompletedAtMs);
+	if (latestCompletedAtMs === undefined || queueQuietCompletedAtMs === undefined) {
+		return undefined;
+	}
+	const providerDrainMs = Math.max(
+		latestCompletedAtMs,
+		latestUiCoverageProviderCompletedAtMs(capture) ?? latestCompletedAtMs
+	);
+	return Math.max(0, queueQuietCompletedAtMs - providerDrainMs);
+}
+
 function postLatestVisibleCleanupMs(
 	capture: Record<string, any> | undefined,
 	latestVisible: Record<string, any> | undefined
 ): number | undefined {
 	const latestCompletedAtMs = finiteNumber(latestVisible?.relativeCompletedAtMs);
-	const queueQuietCompletedAtMs = finiteNumber(
-		asRecord(asRecord(capture?.uiCoverage)?.queueQuiet)?.relativeCompletedAtMs
-	);
+	const queueQuietCompletedAtMs = finiteNumber(uiCoverageQueueQuiet(capture)?.relativeCompletedAtMs);
 	if (latestCompletedAtMs === undefined || queueQuietCompletedAtMs === undefined) {
 		return undefined;
 	}
@@ -1345,6 +1431,10 @@ function completionRow(probe: Record<string, any>): ProbeLatencyRow | undefined 
 			latestVisibleServerAttribution?.serverLastDidChangeEndToRequestReceivedMs,
 		uiLatestVisibleHasServerDebug: latestVisibleServerAttribution?.serverRequestObserved === true,
 		postLatestVisibleCleanupMs: postLatestVisibleCleanupMs(capture, latestVisibleProviderReturn),
+		postLatestVisibleProviderActivityMs: postLatestVisibleProviderActivityMs(capture, latestVisibleProviderReturn),
+		postLatestVisibleQuietGuardMs: postLatestVisibleQuietGuardMs(capture, latestVisibleProviderReturn),
+		uiProviderActivityDrainMs: uiProviderActivityDrainMs(capture),
+		uiQueueQuietGuardMs: uiQueueQuietGuardMs(capture),
 		uiCoverageRequests,
 		uiRequestBurstCount: finiteNumber(uiCoverage?.requestBurstCount),
 		firstProviderRequestAtMs: finiteNumber(uiCoverage?.firstProviderRequestAtMs),
@@ -1385,6 +1475,7 @@ function signatureRow(probe: Record<string, any>): ProbeLatencyRow | undefined {
 	const providerRequests = requestCount(providerDelta, 'signatureHelpRequests');
 	const separated = capture.measurementMode === 'separated-ui-provider';
 	const uiQueueQuietTimedOut = Boolean(providerVerification?.uiQueueQuietTimedOut ?? uiQueueQuiet?.timedOut);
+	const latestVisibleProviderReturn = latestVisibleSignatureProviderReturn(capture);
 	return {
 		label: String(probe.label ?? ''),
 		category: typeof probe.category === 'string' ? probe.category : undefined,
@@ -1411,16 +1502,56 @@ function signatureRow(probe: Record<string, any>): ProbeLatencyRow | undefined {
 		duplicatedRequestPath: separated
 			? uiQueueQuietTimedOut && (providerRequests ?? 0) > 0
 			: (nativeTriggerRequests ?? 0) + (uiTriggerRequests ?? 0) > 0 && (providerRequests ?? 0) > 0,
+		uiLatestVisibleProviderReturnMs: finiteNumber(latestVisibleProviderReturn?.relativeCompletedAtMs),
+		uiLatestVisibleProviderExecutionMs: finiteNumber(latestVisibleProviderReturn?.totalMs),
+		uiLatestVisibleLspRequestMs: finiteNumber(latestVisibleProviderReturn?.lspRequestMs),
+		uiLatestVisibleNextWaitMs: finiteNumber(latestVisibleProviderReturn?.nextWaitMs),
+		uiLatestVisibleNextExecutionMs: finiteNumber(latestVisibleProviderReturn?.nextExecutionMs),
+		uiLatestVisibleLspStartDelayMs: finiteNumber(latestVisibleProviderReturn?.lspStartDelayMs),
+		uiLatestVisibleLspCompletionToProviderReturnMs:
+			finiteNumber(latestVisibleProviderReturn?.lspCompletionToProviderReturnMs),
+		uiLatestVisibleActiveProviderOverlapAtStart:
+			finiteNumber(latestVisibleProviderReturn?.activeSameKindProviderCountAtStart),
+		uiLatestVisibleActiveNextOverlapAtStart:
+			finiteNumber(latestVisibleProviderReturn?.activeSameKindNextCountAtStart),
+		postLatestVisibleCleanupMs: postLatestVisibleCleanupMs(capture, latestVisibleProviderReturn),
+		postLatestVisibleProviderActivityMs: postLatestVisibleProviderActivityMs(capture, latestVisibleProviderReturn),
+		postLatestVisibleQuietGuardMs: postLatestVisibleQuietGuardMs(capture, latestVisibleProviderReturn),
+		uiProviderActivityDrainMs: uiProviderActivityDrainMs(capture),
+		uiQueueQuietGuardMs: uiQueueQuietGuardMs(capture),
 		signatureCount: finiteNumber(capture.signatureCount)
 	};
 }
 
-function collectTypingProbes(report: unknown): Array<Record<string, any>> {
+function collectReplayLatencyProbes(report: unknown): Array<Record<string, any>> {
 	const root = asRecord(report);
 	const steps = Array.isArray(root?.steps) ? root.steps : [];
 	const probes: Array<Record<string, any>> = [];
 	for (const step of steps) {
-		const fullDocumentTyping = asRecord(asRecord(step)?.fullDocumentTyping);
+		const stepRecord = asRecord(step);
+		if (!stepRecord) {
+			continue;
+		}
+		const stepLabel = typeof stepRecord.stepLabel === 'string'
+			? stepRecord.stepLabel
+			: typeof stepRecord.label === 'string'
+				? stepRecord.label
+				: '';
+		if (asRecord(stepRecord.completionCapture)) {
+			probes.push({
+				label: stepLabel,
+				kind: 'completion',
+				completionCapture: stepRecord.completionCapture
+			});
+		}
+		if (asRecord(stepRecord.signatureHelpCapture)) {
+			probes.push({
+				label: stepLabel,
+				kind: 'signatureHelp',
+				signatureHelpCapture: stepRecord.signatureHelpCapture
+			});
+		}
+		const fullDocumentTyping = asRecord(stepRecord.fullDocumentTyping);
 		const stepProbes = Array.isArray(fullDocumentTyping?.probes) ? fullDocumentTyping.probes : [];
 		for (const probe of stepProbes) {
 			const record = asRecord(probe);
@@ -1477,6 +1608,9 @@ function buildCompletionUiCoverageTriggerSourceSummary(
 				sourceRows.map((row) => row.uiLatestVisibleServerLastDidChangeGapMs)
 			),
 			postLatestVisibleCleanup: stats(sourceRows.map((row) => row.postLatestVisibleCleanupMs)),
+			postLatestVisibleProviderActivity: stats(sourceRows.map((row) => row.postLatestVisibleProviderActivityMs)),
+			postLatestVisibleQuietGuard: stats(sourceRows.map((row) => row.postLatestVisibleQuietGuardMs)),
+			uiQueueQuietGuard: stats(sourceRows.map((row) => row.uiQueueQuietGuardMs)),
 			uiExecutedLspRequest: stats(sourceRows.map((row) => row.uiExecutedAttribution?.latestExecutedLspRequestMs)),
 			executeProvider: stats(sourceRows.map((row) => row.executeProviderMs)),
 			directServer: stats(sourceRows.map((row) => row.directServerMs)),
@@ -1492,7 +1626,7 @@ function buildCompletionUiCoverageTriggerSourceSummary(
 }
 
 export function buildReplayLatencySummary(report: unknown): ReplayLatencySummary | undefined {
-	const probes = collectTypingProbes(report);
+	const probes = collectReplayLatencyProbes(report);
 	if (probes.length === 0) {
 		return undefined;
 	}
@@ -1561,6 +1695,11 @@ export function buildReplayLatencySummary(report: unknown): ReplayLatencySummary
 				(row) => row.uiLatestVisibleHasServerDebug === true
 			).length,
 			postLatestVisibleCleanup: stats(completionRows.map((row) => row.postLatestVisibleCleanupMs)),
+			postLatestVisibleProviderActivity: stats(
+				completionRows.map((row) => row.postLatestVisibleProviderActivityMs)
+			),
+			postLatestVisibleQuietGuard: stats(completionRows.map((row) => row.postLatestVisibleQuietGuardMs)),
+			uiQueueQuietGuard: stats(completionRows.map((row) => row.uiQueueQuietGuardMs)),
 			coalescingSimulation: buildCompletionCoalescingSimulationSummary(completionRows),
 			coordinatorActual: buildCompletionCoordinatorActualSummary(completionRows),
 			uiExecutedLspRequest: stats(completionRows.map((row) => row.uiExecutedAttribution?.latestExecutedLspRequestMs)),
@@ -1579,6 +1718,27 @@ export function buildReplayLatencySummary(report: unknown): ReplayLatencySummary
 			uiQueueQuietTimedOutProbeCount: signatureRows.filter((row) => row.uiQueueQuietTimedOut).length,
 			uiQueueQuiet: stats(signatureRows.map((row) => row.uiQueueQuietMs)),
 			uiRequestBurst: stats(signatureRows.map((row) => row.uiRequestBurstCount)),
+			uiLatestVisibleProviderReturn: stats(signatureRows.map((row) => row.uiLatestVisibleProviderReturnMs)),
+			uiLatestVisibleProviderExecution: stats(signatureRows.map((row) => row.uiLatestVisibleProviderExecutionMs)),
+			uiLatestVisibleNextWait: stats(signatureRows.map((row) => row.uiLatestVisibleNextWaitMs)),
+			uiLatestVisibleNextExecution: stats(signatureRows.map((row) => row.uiLatestVisibleNextExecutionMs)),
+			uiLatestVisibleLspStartDelay: stats(signatureRows.map((row) => row.uiLatestVisibleLspStartDelayMs)),
+			uiLatestVisibleLspRequest: stats(signatureRows.map((row) => row.uiLatestVisibleLspRequestMs)),
+			uiLatestVisibleLspCompletionToProviderReturn: stats(
+				signatureRows.map((row) => row.uiLatestVisibleLspCompletionToProviderReturnMs)
+			),
+			uiLatestVisibleActiveProviderOverlapAtStart: stats(
+				signatureRows.map((row) => row.uiLatestVisibleActiveProviderOverlapAtStart)
+			),
+			uiLatestVisibleActiveNextOverlapAtStart: stats(
+				signatureRows.map((row) => row.uiLatestVisibleActiveNextOverlapAtStart)
+			),
+			postLatestVisibleCleanup: stats(signatureRows.map((row) => row.postLatestVisibleCleanupMs)),
+			postLatestVisibleProviderActivity: stats(
+				signatureRows.map((row) => row.postLatestVisibleProviderActivityMs)
+			),
+			postLatestVisibleQuietGuard: stats(signatureRows.map((row) => row.postLatestVisibleQuietGuardMs)),
+			uiQueueQuietGuard: stats(signatureRows.map((row) => row.uiQueueQuietGuardMs)),
 			slowest: slowestRows(signatureRows)
 		};
 	}

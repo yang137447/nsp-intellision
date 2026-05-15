@@ -97,6 +97,40 @@ describe('CompletionRequestCoordinator', () => {
 		assert.strictEqual(snapshot.completionCoordinatorCoalescedBeforeLspCount, 1);
 	});
 
+	it('does not let explicit invoke seed identifier-prefix coalescing', async () => {
+		const coordinator = new CompletionRequestCoordinator();
+		const firstDecisions: CompletionCoordinatorDecision[] = [];
+		const secondDecisions: CompletionCoordinatorDecision[] = [];
+		let executeCount = 0;
+
+		const first = await coordinator.coordinate(
+			request('a', vscode.CompletionTriggerKind.Invoke),
+			() => {
+				executeCount++;
+				return [item('first-explicit')];
+			},
+			(decision) => firstDecisions.push(decision)
+		);
+		const second = await coordinator.coordinate(
+			request('ab', vscode.CompletionTriggerKind.Invoke),
+			() => {
+				executeCount++;
+				return [item('second-explicit')];
+			},
+			(decision) => secondDecisions.push(decision)
+		);
+
+		assert.strictEqual(Array.isArray(first) ? first[0].label : undefined, 'first-explicit');
+		assert.strictEqual(Array.isArray(second) ? second[0].label : undefined, 'second-explicit');
+		assert.strictEqual(executeCount, 2);
+		assert.strictEqual(firstDecisions[firstDecisions.length - 1]?.action, 'bypassedExplicit');
+		assert.strictEqual(secondDecisions[secondDecisions.length - 1]?.action, 'bypassedExplicit');
+		const snapshot = coordinator.getSnapshot();
+		assert.strictEqual(snapshot.completionCoordinatorExecutedCount, 2);
+		assert.strictEqual(snapshot.completionCoordinatorCoalescedBeforeLspCount, 0);
+		assert.strictEqual(snapshot.completionCoordinatorBypassedExplicitCount, 2);
+	});
+
 	it('neutralizes older visible in-flight requests and detaches their LSP cleanup', async () => {
 		const coordinator = new CompletionRequestCoordinator();
 		const firstDecisions: CompletionCoordinatorDecision[] = [];

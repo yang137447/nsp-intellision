@@ -160,6 +160,27 @@ type FullDocumentTypingCheckpointReport = {
     line: number;
     samples: ReplaySampleSnapshot[];
     diagnostics: DiagnosticsCaptureReport;
+    inlayContinuitySample?: InlayContinuitySampleReport;
+};
+
+type InlayContinuitySampleReport = {
+    label: string;
+    offset: number;
+    line: number;
+    durationMs: number;
+    hintCount: number;
+    rangeStartLine: number;
+    rangeEndLine: number;
+    topLabels: string[];
+    error?: string;
+};
+
+type InlayContinuityDropReport = {
+    startLabel: string;
+    startLine: number;
+    recoveredAtLabel?: string;
+    recoveredAtLine?: number;
+    sampleCount: number;
 };
 
 type FullDocumentTypingProbeReport = {
@@ -194,6 +215,21 @@ type FullDocumentTypingReport = {
     checkpointEveryLines: number;
     checkpointCount: number;
     probeCount: number;
+    inlayContinuity?: {
+        enabled: boolean;
+        sampleCount: number;
+        nonEmptySampleCount: number;
+        firstNonEmptyLabel?: string;
+        firstNonEmptyLine?: number;
+        zeroAfterFirstNonEmptyCount: number;
+        errorAfterFirstNonEmptyCount: number;
+        transientDropCount: number;
+        trailingMissingRunLength: number;
+        transientDropDetected: boolean;
+        endedMissingAfterVisible: boolean;
+        drops: InlayContinuityDropReport[];
+        samples: InlayContinuitySampleReport[];
+    };
     anomalies: string[];
     checkpoints: FullDocumentTypingCheckpointReport[];
     probes: FullDocumentTypingProbeReport[];
@@ -743,6 +779,138 @@ function diagnosticSeverityName(severity: vscode.DiagnosticSeverity | undefined)
         default:
             return 'unknown';
     }
+}
+
+function inlayHintLabelToText(label: unknown): string {
+    if (typeof label === 'string') {
+        return label;
+    }
+    if (Array.isArray(label)) {
+        return label
+            .map((part) => {
+                if (part && typeof (part as { value?: unknown }).value === 'string') {
+                    return (part as { value: string }).value;
+                }
+                return '';
+            })
+            .join('');
+    }
+    return '';
+}
+
+async function captureInlayContinuityAtEditor(
+    activeEditor: vscode.TextEditor,
+    label: string,
+    offset: number,
+    line: number
+): Promise<InlayContinuitySampleReport> {
+    const document = activeEditor.document;
+    const startedAt = Date.now();
+    const range = new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length));
+    let hints: vscode.InlayHint[] = [];
+    let error: string | undefined;
+    try {
+        const result = await vscode.commands.executeCommand<vscode.InlayHint[]>(
+            'vscode.executeInlayHintProvider',
+            document.uri,
+            range
+        );
+        hints = Array.isArray(result) ? result : [];
+    } catch (captureError) {
+        error = captureError instanceof Error ? captureError.message : String(captureError);
+    }
+    const topLabels = hints
+        .slice(0, 20)
+        .map((hint) => `${hint.position.line}:${inlayHintLabelToText(hint.label)}`)
+        .filter((entry) => entry.length > 0);
+    return {
+        label,
+        offset,
+        line,
+        durationMs: Date.now() - startedAt,
+        hintCount: hints.length,
+        rangeStartLine: range.start.line,
+        rangeEndLine: range.end.line,
+        topLabels,
+        error
+    };
+}
+
+function summarizeInlayContinuity(samples: InlayContinuitySampleReport[]): NonNullable<FullDocumentTypingReport['inlayContinuity']> {
+    let firstNonEmpty: InlayContinuitySampleReport | undefined;
+    let zeroAfterFirstNonEmptyCount = 0;
+    let errorAfterFirstNonEmptyCount = 0;
+    let currentDropStart: InlayContinuitySampleReport | undefined;
+    let currentDropLength = 0;
+    let trailingMissingRunLength = 0;
+    const drops: InlayContinuityDropReport[] = [];
+
+    const closeDrop = (recoveredAt: InlayContinuitySampleReport | undefined) => {
+        if (!currentDropStart || currentDropLength <= 0) {
+            return;
+        }
+        drops.push({
+            startLabel: currentDropStart.label,
+            startLine: currentDropStart.line,
+            recoveredAtLabel: recoveredAt?.label,
+            recoveredAtLine: recoveredAt?.line,
+            sampleCount: currentDropLength
+        });
+        currentDropStart = undefined;
+        currentDropLength = 0;
+    };
+
+    for (const sample of samples) {
+        const nonEmpty = !sample.error && sample.hintCount > 0;
+        if (nonEmpty) {
+            if (!firstNonEmpty) {
+                firstNonEmpty = sample;
+            } else {
+                closeDrop(sample);
+            }
+            trailingMissingRunLength = 0;
+            continue;
+        }
+
+        if (!firstNonEmpty) {
+            continue;
+        }
+        zeroAfterFirstNonEmptyCount++;
+        if (sample.error) {
+            errorAfterFirstNonEmptyCount++;
+        }
+        if (!currentDropStart) {
+            currentDropStart = sample;
+        }
+        currentDropLength++;
+        trailingMissingRunLength = currentDropLength;
+    }
+
+    const hasOpenDrop = Boolean(currentDropStart && currentDropLength > 0);
+    if (hasOpenDrop) {
+        drops.push({
+            startLabel: currentDropStart!.label,
+            startLine: currentDropStart!.line,
+            sampleCount: currentDropLength
+        });
+    }
+    const transientDropCount = drops.filter((drop) => typeof drop.recoveredAtLabel === 'string').length;
+
+    return {
+        enabled: true,
+        sampleCount: samples.length,
+        nonEmptySampleCount: samples.filter((sample) => !sample.error && sample.hintCount > 0).length,
+        firstNonEmptyLabel: firstNonEmpty?.label,
+        firstNonEmptyLine: firstNonEmpty?.line,
+        zeroAfterFirstNonEmptyCount,
+        errorAfterFirstNonEmptyCount,
+        transientDropCount,
+        trailingMissingRunLength: hasOpenDrop ? trailingMissingRunLength : 0,
+        transientDropDetected: transientDropCount > 0,
+        endedMissingAfterVisible: hasOpenDrop,
+        drops,
+        samples
+    };
 }
 
 async function captureDiagnosticsAtEditor(
@@ -1322,6 +1490,12 @@ function collectFullDocumentTypingAnomalies(report: FullDocumentTypingReport): s
     if (!report.finalTextMatchesSource) {
         anomalies.push('typed-document-mismatch');
     }
+    if (report.inlayContinuity?.transientDropDetected) {
+        anomalies.push('inlay-hints-transient-drop');
+    }
+    if (report.inlayContinuity?.endedMissingAfterVisible) {
+        anomalies.push('inlay-hints-ended-missing-after-visible');
+    }
     for (const probe of report.probes) {
         const label = probe.label.replace(/\s+/g, '-').toLowerCase();
         if (probe.error) {
@@ -1379,6 +1553,7 @@ async function runFullDocumentTypingStep(
     const charactersPerEdit = clampInt(step.payload?.charactersPerEdit, 24, 1, 512);
     const checkpointEveryLines = clampInt(step.payload?.checkpointEveryLines, 40, 1, 10000);
     const checkpointSamplingDelaysMs = step.payload?.checkpointSamplingDelaysMs ?? [0, 80, 240, 640];
+    const captureInlayContinuity = step.payload?.captureInlayContinuity === true;
     const rawProbes = Array.isArray(step.payload?.probes) ? step.payload?.probes : [];
     const probePlans = createTypingProbePlans(sourceText, rawProbes, step.payload);
 
@@ -1388,6 +1563,7 @@ async function runFullDocumentTypingStep(
     const startedAt = Date.now();
     const checkpoints: FullDocumentTypingCheckpointReport[] = [];
     const probes: FullDocumentTypingProbeReport[] = [];
+    const inlayContinuitySamples: InlayContinuitySampleReport[] = [];
     let typedOffset = 0;
     let nextCheckpointLine = checkpointEveryLines;
     let probeIndex = 0;
@@ -1519,12 +1695,24 @@ async function runFullDocumentTypingStep(
                 activeEditor.document.uri.toString(),
                 baselineInternalStatus
             );
+            const inlayContinuitySample = captureInlayContinuity
+                ? await captureInlayContinuityAtEditor(
+                    activeEditor,
+                    checkpointStep.label,
+                    typedOffset,
+                    currentLine
+                )
+                : undefined;
+            if (inlayContinuitySample) {
+                inlayContinuitySamples.push(inlayContinuitySample);
+            }
             checkpoints.push({
                 label: checkpointStep.label,
                 offset: typedOffset,
                 line: currentLine,
                 samples,
-                diagnostics: await captureDiagnosticsAtEditor(activeEditor)
+                diagnostics: await captureDiagnosticsAtEditor(activeEditor),
+                inlayContinuitySample
             });
             activeEditor = await restoreTypingCursorToDocumentEnd(document);
             while (currentLine + 1 >= nextCheckpointLine) {
@@ -1565,6 +1753,9 @@ async function runFullDocumentTypingStep(
         checkpointEveryLines,
         checkpointCount: checkpoints.length,
         probeCount: probes.length,
+        inlayContinuity: captureInlayContinuity
+            ? summarizeInlayContinuity(inlayContinuitySamples)
+            : undefined,
         anomalies: [],
         checkpoints,
         probes

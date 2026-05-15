@@ -94,6 +94,7 @@ export type ReplayStep =
 				triggerSuggestUi?: boolean;
 				completionUiMode?: 'nativeOnly' | 'explicitSuggest';
 				triggerParameterHintsUi?: boolean;
+				captureInlayContinuity?: boolean;
 				uiTriggerDelayMs?: number;
 				probes?: ReplayTypingProbe[];
 			};

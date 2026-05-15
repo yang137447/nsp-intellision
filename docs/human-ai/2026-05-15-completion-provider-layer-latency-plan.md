@@ -526,6 +526,28 @@ Validation update on 2026-05-15:
 - The gate covered json validation, TypeScript compile, clean C++ configure /
   build, hover smoke, client all tests, real workspace smoke and real replay.
 
+Tail audit on 2026-05-15:
+
+- The latest `rw-pbr-flow-water-full-input.json` report shows the remaining
+  completion tail is no longer server input-thread blocking:
+  - latest visible provider return P95/max: 109ms
+  - latest visible LSP request P95/max: 9ms
+  - server didChange overlap P95/max: 2.4ms
+  - server handler P95/max: 6.8ms
+- The apparent `postLatestVisibleCleanup` P95/max of 226ms is dominated by the
+  replay queue-quiet guard. For every visible completion probe in that report,
+  the last observed provider request completed at the same time as the latest
+  visible provider return; the remaining delay is the measurement quiet window
+  plus polling slack, not additional provider work.
+- Report attribution was tightened to keep the old
+  `postLatestVisibleCleanup` total while adding:
+  - `postLatestVisibleProviderActivity`
+  - `postLatestVisibleQuietGuard`
+  - `uiQueueQuietGuard`
+- Runtime completion behavior remains unchanged. Identifier trigger
+  characters, member completion, explicit invoke bypass and server candidate
+  semantics are untouched.
+
 ## Phase M: Coordinator Contract Review
 
 Purpose: after Phase L metric split and any accepted lifecycle changes, remove
@@ -550,6 +572,21 @@ Acceptance:
 - Coordinator behavior is still narrow, understandable and test-covered.
 - No old/new dual behavior path remains.
 
+Initial implementation on 2026-05-15:
+
+- Kept `isAmbiguousInvokeContinuation` because native quick suggest still
+  arrives as `Invoke` in identifier-prefix bursts; removing it would re-expand
+  provider/LSP fan-out while identifier trigger characters remain enabled.
+- Tightened the recent-burst source instead: only requests already classified
+  as `identifierPrefixAutoTrigger` refresh the recent identifier state.
+  Standalone explicit `Invoke` requests still bypass the coordinator and no
+  longer seed later coalescing.
+- Kept cross-key stale cancellation for older visible auto-trigger requests.
+  A new completion key still neutral-resolves stale auto-trigger work so old
+  results cannot outlive the user's current completion context.
+- Runtime candidate semantics and advertised trigger characters remain
+  unchanged.
+
 ## Phase N: Finalize Current Facts
 
 If Phase L or M changes accepted runtime behavior, promote the resulting
@@ -565,6 +602,7 @@ accepted lifecycle contract and validation matrix.
 
 ## Recommended Next Action
 
-Continue Phase L with the handfeel-preserving metric split first. Do not remove
-identifier trigger characters; the current optimization target is the provider
-lifecycle above the server handler, not delayed identifier triggering.
+Continue Phase M coordinator contract review with identifier trigger
+characters retained. The current provider-lifecycle tail should be judged from
+`postLatestVisibleProviderActivity` and `postLatestVisibleQuietGuard` rather
+than the legacy combined `postLatestVisibleCleanup` total.
