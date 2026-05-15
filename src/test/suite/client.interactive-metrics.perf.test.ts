@@ -24,7 +24,7 @@ const testMode = process.env.NSF_TEST_MODE ?? 'repo';
 const perfDescribe = testMode === 'perf' ? describe : describe.skip;
 
 perfDescribe('NSF perf baseline: Interactive hot-path metrics', () => {
-	it('captures queue wait, context build, owner didChange, and prewarm metrics for current-doc completion flow', async function () {
+	it('captures queue wait, context build, owner didChange, and lazy snapshot metrics for current-doc completion flow', async function () {
 		this.timeout(180000);
 
 		const iterations = readPerfIntEnv('NSF_PERF_INTERACTIVE_METRIC_ITERATIONS', 4, 1, 20);
@@ -83,7 +83,12 @@ perfDescribe('NSF perf baseline: Interactive hot-path metrics', () => {
 		assert.ok((interactiveRuntime?.requestQueueWaitSamples ?? 0) >= iterations);
 		assert.ok((interactiveRuntime?.requestContextBuildSamples ?? 0) >= iterations);
 		assert.ok((interactiveRuntime?.ownerDidChangeSamples ?? 0) >= iterations);
-		assert.ok((interactiveRuntime?.prewarmSamples ?? 0) >= iterations);
+		assert.strictEqual(interactiveRuntime?.prewarmSamples ?? 0, 0);
+		assert.ok(
+			(interactiveRuntime?.snapshotBuildSuccess ?? 0) +
+				(interactiveRuntime?.lastGoodServed ?? 0) +
+				(interactiveRuntime?.incrementalPromoted ?? 0) >= iterations
+		);
 		assert.ok((completionMetrics?.interactiveCollectSamples ?? 0) >= iterations);
 		assert.ok((completionMetrics?.workspaceSummaryQuerySamples ?? 0) >= iterations);
 		assert.ok((completionMetrics?.itemAssemblySamples ?? 0) >= iterations);
@@ -98,10 +103,6 @@ perfDescribe('NSF perf baseline: Interactive hot-path metrics', () => {
 		assert.ok(
 			(interactiveRuntime?.ownerDidChangeAvgMs ?? Number.POSITIVE_INFINITY) <= 10,
 			`Expected owner didChange avg <= 10ms. Actual=${interactiveRuntime?.ownerDidChangeAvgMs ?? 'n/a'}`
-		);
-		assert.ok(
-			(interactiveRuntime?.prewarmAvgMs ?? Number.POSITIVE_INFINITY) <= 10,
-			`Expected interactive prewarm avg <= 10ms. Actual=${interactiveRuntime?.prewarmAvgMs ?? 'n/a'}`
 		);
 		assert.ok(
 			(completionMetrics?.interactiveCollectAvgMs ?? Number.POSITIVE_INFINITY) <= 50,

@@ -2,10 +2,49 @@
 
 #include <string>
 
+namespace {
+
+static bool settingReplacementToString(const Json &value, std::string &out) {
+  if (value.type == Json::Type::String) {
+    out = getStringValue(value);
+    return true;
+  }
+  if (value.type == Json::Type::Number) {
+    const double number = getNumberValue(value);
+    const int asInt = static_cast<int>(number);
+    out = number == static_cast<double>(asInt) ? std::to_string(asInt)
+                                               : std::to_string(number);
+    return true;
+  }
+  if (value.type == Json::Type::Bool) {
+    out = value.b ? "1" : "0";
+    return true;
+  }
+  return false;
+}
+
+static void applyConfiguredPreprocessorMacroEntries(
+    const Json &root, ConfiguredPreprocessorMacros &preprocessorMacros) {
+  if (root.type != Json::Type::Object)
+    return;
+  preprocessorMacros.clear();
+  for (const auto &entry : root.o) {
+    if (entry.first.empty())
+      continue;
+    std::string replacement;
+    if (!settingReplacementToString(entry.second, replacement))
+      continue;
+    preprocessorMacros[entry.first] = std::move(replacement);
+  }
+}
+
+} // namespace
+
 void applySettingsFromJson(
     const Json &settings, std::vector<std::string> &includePaths,
     std::vector<std::string> &shaderExtensions,
     std::unordered_map<std::string, int> &preprocessorDefines,
+    ConfiguredPreprocessorMacros &preprocessorMacros,
     bool &inlayHintsEnabled, bool &inlayHintsParameterNamesEnabled,
     bool &semanticTokensEnabled, bool &diagnosticsExpensiveRulesEnabled,
     int &diagnosticsTimeBudgetMs, int &diagnosticsMaxItems,
@@ -63,6 +102,11 @@ void applySettingsFromJson(
       }
       preprocessorDefines[name] = parsed;
     }
+  }
+  const Json *configuredMacros = getObjectValue(*target, "preprocessorMacros");
+  if (configuredMacros && configuredMacros->type == Json::Type::Object) {
+    applyConfiguredPreprocessorMacroEntries(*configuredMacros,
+                                            preprocessorMacros);
   }
   const Json *inlayHints = getObjectValue(*target, "inlayHints");
   if (inlayHints && inlayHints->type == Json::Type::Object) {

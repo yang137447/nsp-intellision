@@ -27,19 +27,46 @@ export type LatestMetricsSnapshot = {
 	receivedAtMs: number;
 };
 
-export type LastCompletionDebugResponse = {
+export type CompletionDebugSnapshotResponse = {
+	nsfDebugRequestId?: string;
+	clientSendStartedAtUnixMs?: number;
+	serverReceivedAtUnixMs?: number;
+	serverWorkerStartedAtUnixMs?: number;
+	serverResponseWriteCompletedAtUnixMs?: number;
+	serverDidChangeCompletedBeforeRequestCount?: number;
+	serverDidChangeOverlapClientSendCount?: number;
+	serverDidChangeOverlapClientSendMs?: number;
+	serverLastDidChangeDurationMs?: number;
+	serverLastDidChangeEndToRequestReceivedMs?: number;
 	memberAccessDetected?: boolean;
+	documentFound?: boolean;
 	line?: number;
 	character?: number;
+	documentVersion?: number;
+	requestDocumentVersion?: number;
 	lineText?: string;
+	completionPrefix?: string;
 	base?: string;
 	member?: string;
 	memberTypeResolved?: boolean;
 	resolvedType?: string;
 	memberItemsReturned?: boolean;
+	itemCount?: number;
 	fieldCount?: number;
 	methodCount?: number;
 	path?: string;
+	requestQueueWaitMs?: number;
+	requestContextBuildMs?: number;
+	handlerTotalMs?: number;
+	interactiveCollectMs?: number;
+	memberBaseResolveMs?: number;
+	memberQueryMs?: number;
+	itemAssemblyMs?: number;
+	responseWriteMs?: number;
+};
+
+export type LastCompletionDebugResponse = CompletionDebugSnapshotResponse & {
+	recent?: CompletionDebugSnapshotResponse[];
 };
 
 export type MetricsHistoryEntry = {
@@ -93,6 +120,7 @@ export type WorkspaceIndexSymbolDebugResponse = {
 
 export type InternalCommandDeps = {
 	getInternalStatus: () => InternalStatusSnapshot;
+	getProviderTimingStatus: () => unknown;
 	resetInternalStatus: () => void;
 	clearActiveUnitForTests: () => Promise<void>;
 	setActiveUnitForTests: (uriText?: string) => Promise<void>;
@@ -134,6 +162,9 @@ export function registerInternalCommands(
 ): void {
 	context.subscriptions.push(
 		commands.registerCommand('nsf._getInternalStatus', async () => deps.getInternalStatus())
+	);
+	context.subscriptions.push(
+		commands.registerCommand('nsf._getProviderTimingStatus', async () => deps.getProviderTimingStatus())
 	);
 	context.subscriptions.push(
 		commands.registerCommand('nsf._resetInternalStatus', async () => deps.resetInternalStatus())
@@ -374,6 +405,7 @@ export function createClearActiveUnitHandler(deps: ClearActiveUnitDeps) {
 export type SetActiveUnitDeps = {
 	ensureClientStarted: (forceRestart: boolean) => Promise<void>;
 	setPinnedUnit: (uri: Uri | undefined) => Promise<void>;
+	sendSetActiveUnitNotification: (payload: { uri?: string }) => Promise<void>;
 };
 
 export function createSetActiveUnitHandler(deps: SetActiveUnitDeps) {
@@ -382,6 +414,8 @@ export function createSetActiveUnitHandler(deps: SetActiveUnitDeps) {
 			return;
 		}
 		await deps.ensureClientStarted(false);
-		await deps.setPinnedUnit(Uri.parse(uriText));
+		const uri = Uri.parse(uriText);
+		await deps.setPinnedUnit(uri);
+		await deps.sendSetActiveUnitNotification({ uri: uri.toString() });
 	};
 }

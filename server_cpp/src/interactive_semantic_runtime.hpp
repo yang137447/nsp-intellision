@@ -107,9 +107,11 @@ std::shared_ptr<const InteractiveSnapshot> getOrBuildInteractiveSnapshot(
     const std::string &uri, const Document &doc, const ServerRequestContext &ctx,
     bool *usedLastGoodOut = nullptr);
 
-// Prewarms the current-doc interactive snapshot after didOpen/didChange or
-// analysis-context refresh. Callers should use owner orchestration APIs instead
-// of invoking this directly in parallel with runtime mutation.
+// Prewarms the current-doc interactive snapshot after didOpen or
+// analysis-context refresh. didChange keeps the input thread lightweight and
+// lets follow-up interactive requests build or promote the latest snapshot on
+// demand. Callers should use owner orchestration APIs instead of invoking this
+// directly in parallel with runtime mutation.
 void interactiveSemanticRuntimePrewarm(const std::string &uri,
                                        const Document &doc,
                                        const ServerRequestContext &ctx);

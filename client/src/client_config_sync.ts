@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { commands, ExtensionContext, workspace, window } from 'vscode';
+import { commands, ConfigurationTarget, ExtensionContext, workspace, window } from 'vscode';
 
 export type DiagnosticsMode = 'basic' | 'balanced' | 'full';
 
@@ -32,6 +32,21 @@ export type DiagnosticsRuntimeSettings = {
 };
 
 export const INTELLISION_PATH_PROMPT_DISMISSED_KEY = 'nsf.intellisionPathPromptDismissed';
+export const PREPROCESSOR_MACROS_SEEDED_KEY = 'nsf.preprocessorMacrosSeeded';
+
+export type PreprocessorMacroPresetResponse = {
+	entries?: Array<{
+		name?: unknown;
+		replacement?: unknown;
+	}>;
+};
+
+export type SeedPreprocessorMacroOptions = {
+	context: ExtensionContext;
+	isTestMode: boolean;
+	fetchPreset: () => Promise<PreprocessorMacroPresetResponse>;
+	logClient: (message: string) => void;
+};
 
 export function resolveDiagnosticsMode(): DiagnosticsMode {
 	const mode = workspace.getConfiguration('nsf').get<string>('diagnostics.mode', 'balanced');
@@ -204,6 +219,16 @@ export function normalizeIncludePaths(paths: string[]): string[] {
 	return kept;
 }
 
+export function readPreprocessorMacroSettings(): Record<string, unknown> {
+	const inspected = workspace.getConfiguration('nsf').inspect<Record<string, unknown>>('preprocessorMacros');
+	return (
+		inspected?.workspaceFolderValue ??
+		inspected?.workspaceValue ??
+		inspected?.globalValue ??
+		{}
+	);
+}
+
 export function buildRuntimeSettings(
 	isTestMode: boolean,
 	isPerfTestMode: boolean,
@@ -215,9 +240,10 @@ export function buildRuntimeSettings(
 			includePathsOverride ?? normalizeIncludePaths(config.get<string[]>('intellisionPath', [])),
 		shaderFileExtensions: config.get<string[]>(
 			'shaderFileExtensions',
-			['.nsf', '.hlsl', '.hlsli', '.fx', '.usf', '.ush']
+			['.nsf', '.hlsl']
 		),
 		defines: config.get<string[]>('defines', []),
+		preprocessorMacros: readPreprocessorMacroSettings(),
 		debugDefinitionTrace: false,
 		inlayHints: {
 			enabled: config.get<boolean>('inlayHints.enabled', true),
@@ -248,6 +274,69 @@ export function buildRuntimeSettings(
 			queueCapacity: 4096
 		}
 	};
+}
+
+function hasExplicitPreprocessorMacroSetting(): boolean {
+	const inspected = workspace.getConfiguration('nsf').inspect<Record<string, unknown>>('preprocessorMacros');
+	return (
+		inspected?.globalValue !== undefined ||
+		inspected?.workspaceValue !== undefined ||
+		inspected?.workspaceFolderValue !== undefined
+	);
+}
+
+function normalizePreprocessorMacroPreset(
+	response: PreprocessorMacroPresetResponse
+): Record<string, string | number | boolean> {
+	const macros: Record<string, string | number | boolean> = {};
+	const entries = Array.isArray(response.entries) ? response.entries : [];
+	for (const entry of entries) {
+		const name = typeof entry?.name === 'string' ? entry.name.trim() : '';
+		const replacement = entry?.replacement;
+		if (
+			name.length === 0 ||
+			!(
+				typeof replacement === 'string' ||
+				typeof replacement === 'number' ||
+				typeof replacement === 'boolean'
+			)
+		) {
+			continue;
+		}
+		macros[name] = replacement;
+	}
+	return macros;
+}
+
+export async function seedPreprocessorMacrosSettingIfMissing(
+	options: SeedPreprocessorMacroOptions
+): Promise<boolean> {
+	if (options.isTestMode) {
+		return false;
+	}
+	if (!workspace.workspaceFolders || workspace.workspaceFolders.length === 0) {
+		return false;
+	}
+	if (hasExplicitPreprocessorMacroSetting()) {
+		await options.context.workspaceState.update(PREPROCESSOR_MACROS_SEEDED_KEY, true);
+		return false;
+	}
+	if (options.context.workspaceState.get<boolean>(PREPROCESSOR_MACROS_SEEDED_KEY, false)) {
+		return false;
+	}
+
+	const preset = normalizePreprocessorMacroPreset(await options.fetchPreset());
+	if (Object.keys(preset).length === 0) {
+		options.logClient('preprocessor macro preset is empty; workspace setting seed skipped');
+		return false;
+	}
+
+	await workspace
+		.getConfiguration('nsf')
+		.update('preprocessorMacros', preset, ConfigurationTarget.Workspace);
+	await options.context.workspaceState.update(PREPROCESSOR_MACROS_SEEDED_KEY, true);
+	options.logClient(`seeded nsf.preprocessorMacros workspace setting with ${Object.keys(preset).length} entries`);
+	return true;
 }
 
 export async function promptIntellisionPathIfMissing(

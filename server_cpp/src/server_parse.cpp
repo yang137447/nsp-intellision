@@ -168,6 +168,55 @@ bool isFunctionLikeHeader(const std::vector<LexToken> &tokens,
   return false;
 }
 
+bool nextLineStartsWith(const std::string &nextTrimmed,
+                        const std::string &prefix) {
+  return !prefix.empty() && nextTrimmed.rfind(prefix, 0) == 0;
+}
+
+bool isMetadataBlockHeaderBeforeLine(const std::string &trimmed,
+                                     const std::string &nextTrimmed) {
+  if (!nextLineStartsWith(nextTrimmed, "<"))
+    return false;
+  std::string typeName;
+  std::string symbolName;
+  return extractMetadataDeclarationHeaderShared(trimmed, typeName, symbolName);
+}
+
+bool isStateBlockHeaderBeforeLine(const std::string &trimmed,
+                                  const std::string &nextTrimmed) {
+  if (!nextLineStartsWith(nextTrimmed, "{"))
+    return false;
+  std::string typeName;
+  std::string symbolName;
+  return extractFxBlockDeclarationHeaderShared(trimmed, typeName, symbolName);
+}
+
+bool isMultilineFunctionSignatureTailBeforeLine(
+    const std::vector<LexToken> &tokens, const std::string &nextTrimmed) {
+  if (tokens.empty() || !nextLineStartsWith(nextTrimmed, "{"))
+    return false;
+  const auto &last = tokens.back();
+  if (last.kind != LexToken::Kind::Punct || last.text != ")")
+    return false;
+  bool sawColon = false;
+  bool sawAssignment = false;
+  int identifiers = 0;
+  for (const auto &token : tokens) {
+    if (token.kind == LexToken::Kind::Punct) {
+      if (token.text == ":")
+        sawColon = true;
+      if (token.text == "=" || token.text == ";")
+        sawAssignment = true;
+      continue;
+    }
+    if (token.kind == LexToken::Kind::Identifier &&
+        !isQualifierToken(token.text)) {
+      identifiers++;
+    }
+  }
+  return sawColon && !sawAssignment && identifiers >= 2;
+}
+
 } // namespace
 
 bool extractIncludePath(const std::string &lineText, std::string &includePath) {
@@ -1124,6 +1173,12 @@ bool shouldReportMissingSemicolonShared(const std::string &trimmed,
       extractCBufferNameInLineShared(trimmed, ignoredName) ||
       extractTechniquePassDeclarationHeaderShared(trimmed, effectKind,
                                                  ignoredName)) {
+    return false;
+  }
+  if (isMetadataBlockHeaderBeforeLine(trimmed, nextTrimmed) ||
+      isStateBlockHeaderBeforeLine(trimmed, nextTrimmed) ||
+      isMultilineFunctionSignatureTailBeforeLine(tokens, nextTrimmed) ||
+      nextTrimmed == "};") {
     return false;
   }
   if (isFunctionLikeHeader(tokens, nextTrimmed))

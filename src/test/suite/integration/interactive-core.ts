@@ -147,7 +147,7 @@ export function registerInteractiveRuntimeCoreTests(): void {
 				);
 				assert.ok(
 					definitions.every((location) =>
-						path.basename(toFsPath(location)) !== 'shadowed_symbols.ush'
+						path.basename(toFsPath(location)) !== 'shadowed_symbols.hlsl'
 					),
 					'Expected workspace summary conflict not to replace current-doc definition.'
 				);
@@ -542,12 +542,12 @@ export function registerInteractiveRuntimeCoreTests(): void {
 					),
 				(value) =>
 					Array.isArray(value) &&
-					value.some((location) => path.basename(toFsPath(location)) === 'runtime_only_shared.ush'),
+					value.some((location) => path.basename(toFsPath(location)) === 'runtime_only_shared.hlsl'),
 				'definition results for runtime include root A'
 			);
 			assert.ok(
 				definitionsForRootA.some(
-					(location) => path.basename(toFsPath(location)) === 'runtime_only_shared.ush'
+					(location) => path.basename(toFsPath(location)) === 'runtime_only_shared.hlsl'
 				)
 			);
 
@@ -562,14 +562,14 @@ export function registerInteractiveRuntimeCoreTests(): void {
 					),
 				(value) =>
 					Array.isArray(value) &&
-					value.some((location) => path.basename(toFsPath(location)) === 'runtime_only_shared_alt.ush'),
+					value.some((location) => path.basename(toFsPath(location)) === 'runtime_only_shared_alt.hlsl'),
 				'definition results for runtime include root B'
 			);
 
 			const resolvedFiles = definitionsForRootB.map((location) => path.basename(toFsPath(location)));
-			assert.ok(resolvedFiles.includes('runtime_only_shared_alt.ush'), resolvedFiles.join(','));
+			assert.ok(resolvedFiles.includes('runtime_only_shared_alt.hlsl'), resolvedFiles.join(','));
 			assert.ok(
-				!resolvedFiles.includes('runtime_only_shared.ush'),
+				!resolvedFiles.includes('runtime_only_shared.hlsl'),
 				`Expected intellisionPath switch to invalidate stale current-doc context. Actual=${resolvedFiles.join(',')}`
 			);
 		} finally {
@@ -760,7 +760,7 @@ export function registerInteractiveRuntimeCoreTests(): void {
 
 	it('shows struct hover members from active inline include fragments in included struct files', async () => {
 		await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
-		const document = await openFixture('module_hover_struct_inline_include_external.ush');
+		const document = await openFixture('module_hover_struct_inline_include_external.hlsl');
 
 		const hoverPosition = positionOf(document, 'HoverInlineIncludeExternal', 1, 2);
 		const hovers = await waitFor(

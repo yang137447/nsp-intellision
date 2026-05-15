@@ -4,6 +4,7 @@ float4 UseIncludeGraphSymbols(float2 uv : TEXCOORD0) : SV_Target0
 {
     PixelMaterialInputs x = (PixelMaterialInputs)0;
     float t = u_frame_time_radian;
+    float metadataScale = u_include_metadata_scale;
     float2 d = t_distort1.Sample(s_distort1, uv).rg;
-    return float4(x.base_color.rg, d);
+    return float4(x.base_color.rg + d * metadataScale, 0.0, 1.0);
 }

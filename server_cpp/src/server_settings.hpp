@@ -1,6 +1,7 @@
 #pragma once
 
 #include "json.hpp"
+#include "preprocessor_macro_settings.hpp"
 
 #include <string>
 #include <unordered_map>
@@ -10,6 +11,7 @@ void applySettingsFromJson(
     const Json &settings, std::vector<std::string> &includePaths,
     std::vector<std::string> &shaderExtensions,
     std::unordered_map<std::string, int> &preprocessorDefines,
+    ConfiguredPreprocessorMacros &preprocessorMacros,
     bool &inlayHintsEnabled, bool &inlayHintsParameterNamesEnabled,
     bool &semanticTokensEnabled, bool &diagnosticsExpensiveRulesEnabled,
     int &diagnosticsTimeBudgetMs, int &diagnosticsMaxItems,

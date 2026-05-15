@@ -401,8 +401,9 @@ AnalysisSnapshotKey buildAnalysisSnapshotKey(
 
 std::string getDocumentRuntimeResourceModelHash() {
   static const std::vector<std::string> kBundleKeys = {
-      "builtins/intrinsics",  "language/keywords", "language/directives",
-      "language/semantics",   "methods/object_methods",
+      "builtins/intrinsics",  "language/keywords",
+      "language/directives",  "language/semantics",
+      "methods/object_methods",
       "types/object_types",   "types/object_families",
       "types/type_overrides"};
   static std::mutex gResourceModelHashMutex;

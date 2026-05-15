@@ -14,7 +14,7 @@ import {
 } from './test_helpers';
 
 repoDescribe('NSF client integration: Interactive Runtime / Metrics', () => {
-	it('exports request queue, context build, owner didChange, and prewarm timings for current-doc interactive flow', async function () {
+	it('exports request queue, context build, owner didChange, and lazy snapshot timings for current-doc interactive flow', async function () {
 		this.timeout(90000);
 
 		let document = await openFixture('module_completion_current_doc.nsf');
@@ -72,9 +72,16 @@ repoDescribe('NSF client integration: Interactive Runtime / Metrics', () => {
 			(interactiveRuntime?.ownerDidChangeSamples ?? 0) > 0,
 			`Expected ownerDidChangeSamples > 0. Actual=${JSON.stringify(interactiveRuntime)}`
 		);
+		assert.strictEqual(
+			interactiveRuntime?.prewarmSamples ?? 0,
+			0,
+			`Expected didChange not to synchronously prewarm interactive snapshots. Actual=${JSON.stringify(interactiveRuntime)}`
+		);
 		assert.ok(
-			(interactiveRuntime?.prewarmSamples ?? 0) > 0,
-			`Expected prewarmSamples > 0. Actual=${JSON.stringify(interactiveRuntime)}`
+			(interactiveRuntime?.snapshotBuildSuccess ?? 0) > 0 ||
+				(interactiveRuntime?.lastGoodServed ?? 0) > 0 ||
+				(interactiveRuntime?.incrementalPromoted ?? 0) > 0,
+			`Expected the follow-up completion request to build or reuse the current snapshot lazily. Actual=${JSON.stringify(interactiveRuntime)}`
 		);
 		assert.ok(
 			(completionMetrics?.interactiveCollectSamples ?? 0) > 0,

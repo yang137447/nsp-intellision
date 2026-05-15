@@ -1,4 +1,4 @@
-#include "module_shared.ush"
+#include "module_shared.hlsl"
 
 struct SuiteInput
 {

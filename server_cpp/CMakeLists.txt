@@ -95,8 +95,10 @@ add_executable(nsf_lsp
 target_compile_features(nsf_lsp PRIVATE cxx_std_17)
 target_include_directories(nsf_lsp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-add_custom_command(TARGET nsf_lsp POST_BUILD
+add_custom_target(nsf_lsp_resources ALL
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_SOURCE_DIR}/resources
           $<TARGET_FILE_DIR:nsf_lsp>/resources
+  COMMENT "Copying NSF LSP resources"
+  VERBATIM
 )

@@ -243,7 +243,7 @@ export function registerInteractiveVisibilityTests(): void {
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 				const root = await openFixture('visibility_member_closure_root.nsf');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
-				const fragment = await openFixture('visibility_member_closure_fragment.hlsli');
+				const fragment = await openFixture('visibility_member_closure_fragment.hlsl');
 				await waitFor(
 					() => getDocumentRuntimeDebug([fragment.uri.toString()]),
 					(value) =>

@@ -1,0 +1,557 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "ADAPTIVE_VLM_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "AHD_TEX_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "ALPHA_TEST_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "ALPHA_TEST_GREATER_EQUAL",
+      "replacement": "0"
+    },
+    {
+      "name": "BILLBOARD_BATCH_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "CASCADE_SHADOW_MAP",
+      "replacement": "0"
+    },
+    {
+      "name": "CLUSTERED_LIGHT",
+      "replacement": "1"
+    },
+    {
+      "name": "CLUSTERED_LIGHT_TYPE",
+      "replacement": "CLUSTERED_NONE"
+    },
+    {
+      "name": "CLUSTERED_NONE",
+      "replacement": "0"
+    },
+    {
+      "name": "CLUSTERED_SH",
+      "replacement": "2"
+    },
+    {
+      "name": "DECAL_MAPPING_CUBE",
+      "replacement": "1"
+    },
+    {
+      "name": "DECAL_MAPPING_PLANE",
+      "replacement": "0"
+    },
+    {
+      "name": "DECAL_MAPPING_SPHERE",
+      "replacement": "2"
+    },
+    {
+      "name": "DECAL_MAPPING_TYPE",
+      "replacement": "DECAL_MAPPING_PLANE"
+    },
+    {
+      "name": "DEFERRED_MINIMAL_GBUFFER",
+      "replacement": "0"
+    },
+    {
+      "name": "DYNAMIC_SH_BUFFER_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "ENABLE_DEFERRED_PIPELINE",
+      "replacement": "0"
+    },
+    {
+      "name": "ENABLE_DETAIL",
+      "replacement": "0"
+    },
+    {
+      "name": "ENABLE_SPOT_LIGHT",
+      "replacement": "0"
+    },
+    {
+      "name": "ENV_MAP_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "ENV_MAP_SUPPORT",
+      "replacement": "(ENV_MAP_ENABLE&&QUALITY_SUPPORT_HIGH)"
+    },
+    {
+      "name": "FORCE_USE_DYNAMIC_SH_TEXTURE",
+      "replacement": "0"
+    },
+    {
+      "name": "FRUSTUM_CSM_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "GENERATE_SHADOW",
+      "replacement": "0"
+    },
+    {
+      "name": "GPU_SKIN_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "INSTANCE_TYPE",
+      "replacement": "INSTANCE_TYPE_NONE"
+    },
+    {
+      "name": "INSTANCE_TYPE_NONE",
+      "replacement": "0"
+    },
+    {
+      "name": "INSTANCE_TYPE_PRS",
+      "replacement": "1"
+    },
+    {
+      "name": "INSTANCE_TYPE_PRS_LM",
+      "replacement": "2"
+    },
+    {
+      "name": "INSTANCE_TYPE_PRS_UV",
+      "replacement": "3"
+    },
+    {
+      "name": "INSTANCING_ENABLE",
+      "replacement": "(INSTANCE_TYPE!=INSTANCE_TYPE_NONE)"
+    },
+    {
+      "name": "LIGHT_ATTR_ITEM_NUM",
+      "replacement": "2"
+    },
+    {
+      "name": "LIGHT_MAP_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "LITMAP_SHADOW_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "LOD_SUPPORTED",
+      "replacement": "0"
+    },
+    {
+      "name": "MAX_RENDER_TARGET_COUNT",
+      "replacement": "8"
+    },
+    {
+      "name": "MEADOW_USE_VTF",
+      "replacement": "0"
+    },
+    {
+      "name": "METALLIC_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "MTL_SPECULAR_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "MTL_USE_DEPTHBUFFER_FETCH",
+      "replacement": "0"
+    },
+    {
+      "name": "MTL_USE_FRAMEBUFFER_FETCH",
+      "replacement": "0"
+    },
+    {
+      "name": "NEED_NORMAL_POS",
+      "replacement": "(POINT_SHADE_PHONG||NORMAL_MAP_SUPPORT)"
+    },
+    {
+      "name": "NEED_SCREEN_POS",
+      "replacement": "((POINT_SHADE_PHONG&&POINT_LIGHT_TEXTURE)||SHADOW_AA_PCF_ENABLE)"
+    },
+    {
+      "name": "NEOX_D3D11",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_D3D9",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_DEBUG_ALBEDO",
+      "replacement": "5"
+    },
+    {
+      "name": "NEOX_DEBUG_AO",
+      "replacement": "4"
+    },
+    {
+      "name": "NEOX_DEBUG_DIFFUSE",
+      "replacement": "1"
+    },
+    {
+      "name": "NEOX_DEBUG_FOG",
+      "replacement": "9"
+    },
+    {
+      "name": "NEOX_DEBUG_LIGHTMAP",
+      "replacement": "2"
+    },
+    {
+      "name": "NEOX_DEBUG_LITMAP_SHADOW",
+      "replacement": "8"
+    },
+    {
+      "name": "NEOX_DEBUG_METALLIC",
+      "replacement": "10"
+    },
+    {
+      "name": "NEOX_DEBUG_NONE",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_DEBUG_NORMAL",
+      "replacement": "6"
+    },
+    {
+      "name": "NEOX_DEBUG_ROUGHNESS",
+      "replacement": "11"
+    },
+    {
+      "name": "NEOX_DEBUG_SHADOW",
+      "replacement": "7"
+    },
+    {
+      "name": "NEOX_DEBUG_SPECULAR",
+      "replacement": "3"
+    },
+    {
+      "name": "NEOX_EDITOR_UNIFORM",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_ENABLE_SHADER_DEBUG",
+      "replacement": "(NEOX_SHADER_DEBUG!=NEOX_DEBUG_NONE)"
+    },
+    {
+      "name": "NEOX_GLES_USE_LOCAL_UBO",
+      "replacement": "1"
+    },
+    {
+      "name": "NEOX_GLSL",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_HDR_COMPATIBLE",
+      "replacement": "2"
+    },
+    {
+      "name": "NEOX_HDR_ENCODE",
+      "replacement": "(NEOX_HDR_MODE&NEOX_HDR_COMPATIBLE)"
+    },
+    {
+      "name": "NEOX_HDR_FULL",
+      "replacement": "1"
+    },
+    {
+      "name": "NEOX_HDR_MODE",
+      "replacement": "NEOX_HDR_OFF"
+    },
+    {
+      "name": "NEOX_HDR_OFF",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_HLSL",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_METAL",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_OUTPUT_SHADOW",
+      "replacement": "(!(NEOX_SHADER_DEBUG-NEOX_DEBUG_SHADOW))"
+    },
+    {
+      "name": "NEOX_PP_BLOOM",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_PP_DOF",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_PP_GAUSSIAN_BLUR",
+      "replacement": "0"
+    },
+    {
+      "name": "NEOX_RAW_LIGHTMAP",
+      "replacement": "!(NEOX_SHADER_DEBUG-NEOX_DEBUG_LIGHTMAP)"
+    },
+    {
+      "name": "NEOX_SHADER_DEBUG",
+      "replacement": "NEOX_DEBUG_NONE"
+    },
+    {
+      "name": "NEOX_SSS_ENABLE",
+      "replacement": "(SSS_ENABLE&&QUALITY_SUPPORT_HIGH)"
+    },
+    {
+      "name": "NEOX_VULKAN",
+      "replacement": "0"
+    },
+    {
+      "name": "NORMAL_MAP_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "NORMAL_MAP_SUPPORT",
+      "replacement": "(NORMAL_MAP_ENABLE&&QUALITY_SUPPORT_HIGH)"
+    },
+    {
+      "name": "NO_POINT_SHADE",
+      "replacement": "QUALITY_SUPPORT_VERY_HIGH && (CLUSTERED_LIGHT_TYPE != CLUSTERED_NONE)"
+    },
+    {
+      "name": "PENUMBRA_MASK_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "PER_OBJ_SHADOW_MAP",
+      "replacement": "0"
+    },
+    {
+      "name": "PHONG_SPECULAR_SUPPORT",
+      "replacement": "(MTL_SPECULAR_ENABLE&&QUALITY_SUPPORT_HIGH)"
+    },
+    {
+      "name": "PLAYERS_SELF",
+      "replacement": "0"
+    },
+    {
+      "name": "POINT_LIGHT_LIST_LEN",
+      "replacement": "0"
+    },
+    {
+      "name": "POINT_LIGHT_LIST_NUM",
+      "replacement": "POINT_LIGHT_LIST_LEN*LIGHT_ATTR_ITEM_NUM"
+    },
+    {
+      "name": "POINT_LIGHT_TEXTURE",
+      "replacement": "0"
+    },
+    {
+      "name": "POINT_SHADE_PHONG",
+      "replacement": "0"
+    },
+    {
+      "name": "POST_PROCESS_DECAL",
+      "replacement": "0"
+    },
+    {
+      "name": "POS_VIEWPORT",
+      "replacement": "0"
+    },
+    {
+      "name": "QUALITY_HIGH",
+      "replacement": "2"
+    },
+    {
+      "name": "QUALITY_LOW",
+      "replacement": "0"
+    },
+    {
+      "name": "QUALITY_MIDDLE",
+      "replacement": "1"
+    },
+    {
+      "name": "QUALITY_SUPER_HIGH",
+      "replacement": "4"
+    },
+    {
+      "name": "QUALITY_SUPPORT_HIGH",
+      "replacement": "(SHADER_QUALITY!=QUALITY_LOW&&SHADER_QUALITY!=QUALITY_MIDDLE)"
+    },
+    {
+      "name": "QUALITY_SUPPORT_MIDDLE",
+      "replacement": "(SHADER_QUALITY!=QUALITY_LOW)"
+    },
+    {
+      "name": "QUALITY_SUPPORT_SUPER_HIGH",
+      "replacement": "(SHADER_QUALITY==QUALITY_SUPER_HIGH)"
+    },
+    {
+      "name": "QUALITY_SUPPORT_ULTRA_HIGH",
+      "replacement": "(SHADER_QUALITY==QUALITY_ULTRA_HIGH)"
+    },
+    {
+      "name": "QUALITY_SUPPORT_VERY_HIGH",
+      "replacement": "(SHADER_QUALITY==QUALITY_VERY_HIGH||SHADER_QUALITY==QUALITY_SUPER_HIGH)"
+    },
+    {
+      "name": "QUALITY_ULTRA_HIGH",
+      "replacement": "5"
+    },
+    {
+      "name": "QUALITY_VERY_HIGH",
+      "replacement": "3"
+    },
+    {
+      "name": "REFLECT_MAP_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "REFLECT_MAP_SUPPORT",
+      "replacement": "(REFLECT_MAP_ENABLE&&QUALITY_SUPPORT_MIDDLE)"
+    },
+    {
+      "name": "RENDER_2020_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "SCREEN_SPACE_FOG",
+      "replacement": "0"
+    },
+    {
+      "name": "SHADER_QUALITY",
+      "replacement": "QUALITY_HIGH"
+    },
+    {
+      "name": "SHADER_USE_FRAMEBUFFER_FETCH",
+      "replacement": "(MTL_USE_FRAMEBUFFER_FETCH&&SYSTEM_FRAMEBUFFER_FETCH)"
+    },
+    {
+      "name": "SHADER_USE_FRAMEDEPTH_FETCH",
+      "replacement": "(MTL_USE_DEPTHBUFFER_FETCH&&SYSTEM_DEPTH_FETCH)"
+    },
+    {
+      "name": "SHADER_USE_PIXEL_LOCAL_STORAGE",
+      "replacement": "0"
+    },
+    {
+      "name": "SHADE_PHONG",
+      "replacement": "(NORMAL_MAP_SUPPORT||NEOX_ENABLE_SHADER_DEBUG)"
+    },
+    {
+      "name": "SHADOW_AA",
+      "replacement": "SHADOW_AA_NONE"
+    },
+    {
+      "name": "SHADOW_AA_ESM",
+      "replacement": "3"
+    },
+    {
+      "name": "SHADOW_AA_NONE",
+      "replacement": "0"
+    },
+    {
+      "name": "SHADOW_AA_PCF_4TAP",
+      "replacement": "1"
+    },
+    {
+      "name": "SHADOW_AA_PCF_8TAP",
+      "replacement": "2"
+    },
+    {
+      "name": "SHADOW_AA_PCF_ENABLE",
+      "replacement": "(!(SHADOW_AA-SHADOW_AA_PCF_4TAP)||!(SHADOW_AA-SHADOW_AA_PCF_8TAP))"
+    },
+    {
+      "name": "SHADOW_DEBUG",
+      "replacement": "0"
+    },
+    {
+      "name": "SHADOW_MAP_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "SHADOW_MAP_ENABLE_PER_OBJ",
+      "replacement": "(SHADOW_MAP_ENABLE && PER_OBJ_SHADOW_MAP)"
+    },
+    {
+      "name": "SHADOW_NORMAL_OFFSET",
+      "replacement": "0"
+    },
+    {
+      "name": "SRGB_2_LINEAR_TYPE",
+      "replacement": "SRGB_2_LINEAR_TYPE_COMMON"
+    },
+    {
+      "name": "SRGB_2_LINEAR_TYPE_COMMON",
+      "replacement": "0"
+    },
+    {
+      "name": "SRGB_2_LINEAR_TYPE_REAL",
+      "replacement": "0"
+    },
+    {
+      "name": "SRGB_2_LINEAR_TYPE_SIMPLE",
+      "replacement": "0"
+    },
+    {
+      "name": "SSS_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "SUPPORT_LIGHTMAP_ARRAY",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_DEPTH_FETCH",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_DEPTH_RANGE_NEGATIVE",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_DERIVATIVES",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_FRAMEBUFFER_FETCH",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_GL",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_HALF_PIXEL",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_MATRIX_ROW_MAJOR",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_PS_SAMPLER_EXCEED_8",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_SUPPORT_VTF",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_UV_ORIGIN_LEFT_BOTTOM",
+      "replacement": "0"
+    },
+    {
+      "name": "USE_TWO_LIGHTMAPS",
+      "replacement": "0"
+    },
+    {
+      "name": "UV_SCALE_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "VLM_BUFFER_USE_TEXTURE",
+      "replacement": "1"
+    }
+  ]
+}

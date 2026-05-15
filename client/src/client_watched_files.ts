@@ -44,7 +44,7 @@ export function registerWatchedFileForwarding(
 		}, 40);
 	};
 
-	const fileWatcher = workspace.createFileSystemWatcher('**/*.{nsf,hlsl,fx,usf,ush}');
+	const fileWatcher = workspace.createFileSystemWatcher('**/*.{nsf,hlsl}');
 	context.subscriptions.push(fileWatcher);
 	context.subscriptions.push(
 		fileWatcher.onDidCreate((uri) => queueWatchedFileChange(uri, 1)),

@@ -177,7 +177,7 @@ void DiagnosticsBackgroundRuntime::schedulerLoop() {
       nextDue = std::min(nextDue, entry.second.due);
     }
 
-    cv.wait_until(lock, nextDue, [&]() { return stopping; });
+    cv.wait_until(lock, nextDue);
     if (stopping)
       break;
 

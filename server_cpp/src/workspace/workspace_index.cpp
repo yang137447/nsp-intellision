@@ -191,8 +191,6 @@ void WorkspaceIndex::configure(
     }
   }
   std::vector<std::string> exts = shaderExtensions;
-  addUnique(exts, ".hlsli");
-  addUnique(exts, ".h");
 
   std::string newKey = computeIndexKey(roots, includePaths, exts, modelsHash);
   bool shouldNotify = false;

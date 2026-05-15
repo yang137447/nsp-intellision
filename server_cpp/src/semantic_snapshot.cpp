@@ -4,6 +4,7 @@
 #include "expanded_source.hpp"
 #include "hlsl_ast.hpp"
 #include "nsf_lexer.hpp"
+#include "preprocessor_view.hpp"
 #include "server_parse.hpp"
 #include "uri_utils.hpp"
 
@@ -14,9 +15,6 @@ namespace {
 
 static std::string
 makeDefinesFingerprint(const std::unordered_map<std::string, int> &defines) {
-  if (defines.empty())
-    return std::string();
-
   std::vector<std::pair<std::string, int>> ordered(defines.begin(),
                                                    defines.end());
   std::sort(ordered.begin(), ordered.end(),
@@ -27,6 +25,7 @@ makeDefinesFingerprint(const std::unordered_map<std::string, int> &defines) {
     oss << entry.first.size() << ":" << entry.first << "=" << entry.second
         << ";";
   }
+  oss << "preset=" << getConfiguredPreprocessorMacrosFingerprint() << ";";
   return oss.str();
 }
 

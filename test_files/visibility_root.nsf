@@ -1,4 +1,4 @@
-#include "visibility_shared.hlsli"
+#include "visibility_shared.hlsl"
 
 float4 main_ps(float3 normal : NORMAL) : SV_Target
 {

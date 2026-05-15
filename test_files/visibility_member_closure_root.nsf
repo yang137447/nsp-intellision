@@ -1,6 +1,6 @@
-#include "visibility_member_types.hlsli"
-#include "visibility_member_closure_decl.hlsli"
-#include "visibility_member_closure_fragment.hlsli"
+#include "visibility_member_types.hlsl"
+#include "visibility_member_closure_decl.hlsl"
+#include "visibility_member_closure_fragment.hlsl"
 
 float4 main_ps() : SV_Target
 {

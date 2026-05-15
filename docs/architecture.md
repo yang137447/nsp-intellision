@@ -59,6 +59,7 @@
 
 - server lifecycle、restart 和 `onReady` 装配
 - 配置同步，包括 include 路径、defines、diagnostics、inlay hints、semantic tokens 和 metrics
+- 预处理宏 preset 首次填充与配置同步；client 从 server 共享 registry 读取默认 preset，写入工作区 `nsf.preprocessorMacros` 后再作为普通用户配置传给 server
 - 状态栏、trace 输出、诊断和索引状态展示
 - 测试模式下的固定启动和内部命令
 - 编辑器壳层挂接，如语言注册、language configuration 和 snippets
@@ -79,7 +80,7 @@
 
 ### 进程与调度
 
-- `app/main.cpp`: server 启动、全局调度、interactive/background lane 区分，以及文档 / active unit / 配置 / workspace summary 事件回流
+- `app/main.cpp`: server 启动、全局调度、interactive/background lane 区分、request-scoped 调度归因遥测，以及文档 / active unit / 配置 / workspace summary 事件回流
 - `app/main_background_refresh.*`: diagnostics background queue、latest-only 调度和 worker runtime
 - `app/main_did_change_classification.*`: didChange 分类
 - `app/main_include_graph_cache.*`: include graph cache
@@ -88,7 +89,7 @@
 
 ### 文档运行时
 
-- `document_owner.*`: 打开文档的单 owner 串行入口；`didOpen`、`didChange` 和 analysis-context refresh 都应先切 `document_runtime.*`，再预热 current-doc semantic snapshot
+- `document_owner.*`: 打开文档的单 owner 串行入口；`didOpen`、`didChange` 和 analysis-context refresh 都应先切 `document_runtime.*`，其中 `didOpen` / analysis-context refresh 主动预热 current-doc semantic snapshot，`didChange` 保持输入线程轻量并交给后续交互请求按需构建最新 snapshot
 - `document_runtime.*`: `AnalysisSnapshotKey`、`ActiveUnitSnapshot`、changed ranges、current / last-good / deferred snapshot 的统一所有者
 - `interactive_semantic_runtime.*`: current-doc interactive 查询入口；请求热路径读取 current、last-good、shared-visible、deferred 和 workspace summary，不在热路径现建 snapshot
 - `interactive_visibility_runtime.*`: active unit include closure 约束下的 cross-file visible symbols
@@ -100,7 +101,7 @@
 
 - `server_parse.*`: 共享行级 declaration/header 解析、宏定义头解析、注释/字符串剥离后的 shared line scan 和多行 nesting 结果
 - `conditional_ast.*`: 每文件预处理结构真相
-- `preprocessor_view.*`: active branch、branch signature 和 include 链宏传播求值
+- `preprocessor_view.*`: active branch、branch signature、配置预处理宏初始化和 include 链宏传播求值
 - `expanded_source.*`: line-preserving active-only 展开与基础 line source map
 - `hlsl_ast.*`: 顶层 HLSL AST 骨架、include、function、struct/cbuffer/typedef、全局声明和 inline include 元数据
 - `semantic_snapshot.*`: 共享语义快照构建入口，产出函数、overload、参数、局部变量、struct 字段、全局类型等语义
@@ -108,13 +109,13 @@
 
 ### 能力与资源
 
-- `server_request_handlers.hpp` / `requests/server_request_handlers.cpp`: LSP 请求编排层；interactive miss 可以查询 `workspace_summary_runtime.*`，但不应重新引入 include-graph 直扫或全工作区现算热路径
+- `server_request_handlers.hpp` / `requests/server_request_handlers.cpp`: LSP 请求编排层；`ServerRequestContext` 携带只读文档 / 配置快照和 attribution-only 的 request queue/context-build 耗时；interactive miss 可以查询 `workspace_summary_runtime.*`，但不应重新引入 include-graph 直扫或全工作区现算热路径
 - `hover_markdown.*` / `hover_rendering.*`: hover 内容渲染
 - `completion_rendering.*`: completion item 拼装
 - `diagnostics/*`: diagnostics facade、semantic rules、expression type、symbol type、emit、preprocessor、syntax 和 indeterminate 分层
 - `semantic_tokens.*`: 语义高亮主入口；comment / string 着色继续由 TextMate grammar / 编辑器壳层负责
 - `hlsl_builtin_docs.*`: builtin 函数 registry 和文档 / 签名查询
-- `language_registry.*`: language/keywords、language/directives、language/semantics 的统一加载与查询
+- `language_registry.*`: language/keywords、language/directives、language/semantics、language/preprocessor_macros 的统一加载与查询
 - `type_model.*`: 对象类型、对象族、兼容关系和 consumer-ready 维度查询
 - `resource_registry.*`: bundle 路径解析、JSON 加载和 schema 校验
 
@@ -125,7 +126,7 @@
 - `workspace/workspace_index_cache.*`: cache 路径、磁盘 load/save 和旧索引兼容迁移
 - `workspace/workspace_index_scan.*`: path 归一化、include-closure 扫描和 file-to-meta 解析
 - `workspace/workspace_index_scheduler.*`: rebuild、file-watch update、后台线程和并行索引调度
-- `workspace/workspace_index_extract.*`: struct / definition 提取
+- `workspace/workspace_index_extract.*`: struct / definition 提取，包括 FX/NSF metadata-block 全局变量声明
 - `workspace/workspace_index_reverse_include.*`: reverse include 聚合
 - `workspace/workspace_index_internal.*`: 序列化、反序列化和基础内部结构
 
@@ -134,9 +135,13 @@
 - interactive lane: completion、hover、signature help、当前文档短路径 definition
 - background lane: semantic tokens、inlay hints、references、rename、document symbols、workspace symbol
 - background 请求统一 latest-only + cancellation；过期 analysis key 的结果只能 drop，不能发布。
-- current-doc semantic snapshot 在 `didOpen`、`didChange`、active unit 变化、配置变化和 workspace summary version 刷新后主动预热。
+- current-doc semantic snapshot 在 `didOpen`、active unit 变化、配置变化和 workspace summary version 刷新后主动预热；`didChange` 只同步维护最新文档和 runtime key，completion / hover / signature help 等交互请求按需 build 或 promote 最新 current-doc snapshot，fast diagnostics worker 按 latest-only 构建并存储最新 local structural snapshot，fast diagnostics publish 启用时再由该 snapshot 发布 local-structural diagnostics，避免逐字符输入时在 server 输入线程上重建每个中间版本。
+- request worker 写入 `ServerRequestContext` 的 queue wait / context build / request document version / debug wall-clock timestamp / didChange 输入线程重叠摘要只用于 debug 和 replay 归因，不参与 completion、hover、signature help、diagnostics 等公开行为决策。completion replay 归因可在现有 LSP completion params 上附加 `nsfDebugRequestId` 和 client send-start timestamp 调试字段，server 只把它们写入 completion debug snapshot/history；这些字段不得参与候选生成、排序、过滤或触发行为。
+- 预处理宏 preset 属于配置输入：`nsf.preprocessorMacros` 是完整有效 preset 表，`nsf.defines` 和源码 `#define/#undef` 按顺序覆盖；preset fingerprint 必须参与 active-unit / semantic cache 复用判断。
 - 小范围 syntax-only 编辑和纯注释编辑优先让 immediate syntax diagnostics 抢占热路径。
 - fast diagnostics 会先发布 immediate syntax，再异步补 full diagnostics；等待 full 结果时可保留 last-good full diagnostics，避免无关语义波浪线被整份清空。
+- diagnostics payload 在构建返回和发布层合并后按 document URI、range、message、code 和 source 去重；同一位置的不同原因应通过不同 code/source 保持可区分。
+- client completion request coordinator 只调度 identifier-prefix auto-trigger / quick suggest 请求：发往 LSP 前按 coordinator key 做短窗口 latest-only 合并；发往 LSP 后如果同 key 前进前缀或新的 completion key 使旧 auto-trigger visible request 过期，旧 visible provider promise 会立即 neutral resolve，并取消 coordinator 持有的 underlying `next(...)` token；已启动的 `next(...)` 只做 detached cleanup 和指标记录。同 key prefix shrink 不走 stale supersession。显式用户触发、`.` member completion、retrigger 和无法安全归类的请求自身直接绕过 coordinator，server completion 候选、排序和文档渲染仍由 server 侧共享语义入口决定。
 - inlay hints 优先复用 deferred doc runtime 的 full-document cache；对 indexing 抖动、请求取消或瞬态 RPC 错误，client 侧可续用 last-good hints。
 - workspace warm-cache 启动时，`workspaceSummaryRuntimeIsReady()` 表示“当前可查询”，不等同于后台校验已经全部完成。
 
@@ -151,7 +156,8 @@
 ## 单一事实来源
 
 - HLSL builtin 函数：`hlsl_builtin_docs.*` + `server_cpp/resources/builtins/intrinsics/`
-- HLSL 关键字、预处理指令、系统语义：`language_registry.*` + `server_cpp/resources/language/`
+- HLSL 关键字、预处理指令、系统语义、默认预处理宏填充 preset：`language_registry.*` + `server_cpp/resources/language/`
+- 有效用户预处理宏 preset：`nsf.preprocessorMacros` + `preprocessor_view.*`
 - HLSL 对象类型 / 对象族：`type_model.*` + `server_cpp/resources/types/`
 - HLSL 对象方法：`hover_markdown.*` + `server_cpp/resources/methods/object_methods/`
 - 资源 bundle 规则：`resource_registry.*` + `docs/resources.md`
@@ -166,6 +172,7 @@
 - `language/keywords`: completion、hover、diagnostics 和 semantic tokens
 - `language/directives`: 预处理指令 completion / hover
 - `language/semantics`: `SV_*` 系统语义 hover / 识别
+- `language/preprocessor_macros`: 用于首次填充 `nsf.preprocessorMacros` 工作区设置的默认 preset；`#if` / `#elif` 表达式求值、active branch 判断和预处理宏 diagnostics 消费设置同步后的完整宏表
 - `types/*`: texture / sampler / buffer 家族识别、成员方法匹配和 diagnostics 类型兼容辅助
 - `methods/object_methods`: texture-like / buffer-like 方法签名与文档
 

@@ -36,24 +36,6 @@ Json makeSyntaxDiagnostic(const std::string &text, int line, int startByte,
 PreprocessorView buildDiagnosticsPreprocessorView(
     const std::string &uri, const std::string &text,
     const ImmediateSyntaxDiagnosticsOptions &options) {
-  auto sameDocumentUri = [](const std::string &lhs,
-                            const std::string &rhs) -> bool {
-    if (lhs == rhs)
-      return true;
-    if (lhs.empty() || rhs.empty())
-      return false;
-    std::string lhsPath = uriToPath(lhs);
-    std::string rhsPath = uriToPath(rhs);
-    if (lhsPath.empty() || rhsPath.empty())
-      return false;
-    std::replace(lhsPath.begin(), lhsPath.end(), '/', '\\');
-    std::replace(rhsPath.begin(), rhsPath.end(), '/', '\\');
-    std::transform(lhsPath.begin(), lhsPath.end(), lhsPath.begin(),
-                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    std::transform(rhsPath.begin(), rhsPath.end(), rhsPath.begin(),
-                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    return lhsPath == rhsPath;
-  };
   PreprocessorIncludeContext includeContext;
   includeContext.currentUri = uri;
   includeContext.workspaceFolders = options.workspaceFolders;
@@ -61,14 +43,13 @@ PreprocessorView buildDiagnosticsPreprocessorView(
   includeContext.shaderExtensions = options.shaderExtensions;
   includeContext.loadText =
       [uri, text, activeUnitUri = options.activeUnitUri,
-       sameDocumentUri,
        activeUnitText = options.activeUnitText](const std::string &includeUri,
                                                 std::string &textOut) -> bool {
-        if (!uri.empty() && sameDocumentUri(includeUri, uri)) {
+        if (!uri.empty() && uriEquivalent(includeUri, uri)) {
           textOut = text;
           return true;
         }
-        if (!activeUnitUri.empty() && sameDocumentUri(includeUri, activeUnitUri) &&
+        if (!activeUnitUri.empty() && uriEquivalent(includeUri, activeUnitUri) &&
             !activeUnitText.empty()) {
           textOut = activeUnitText;
           return true;

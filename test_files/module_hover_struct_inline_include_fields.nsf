@@ -1,6 +1,6 @@
 struct HoverInlineInclude
 {
-#include "module_hover_struct_inline_include_fields_members.ush"
+#include "module_hover_struct_inline_include_fields_members.hlsl"
 };
 
 float4 HoverInlineIncludeEntry(float2 uv : TEXCOORD0) : SV_Target0

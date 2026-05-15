@@ -3,6 +3,14 @@ texture Tex0: DiffuseMap
     string TextureFile="common\\textures\\white.tga";
 >;
 
+float u_multiline_fx_scale
+<
+    string SasUiLabel = "Scale";
+    string SasUiControl = "FloatSlider";
+    float SasUiMin = 0.0;
+    float SasUiMax = 4.0;
+> = 1.0f;
+
 SamplerState s_diffuse
 {
     MipLODBias = -1;

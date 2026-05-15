@@ -29,6 +29,9 @@ std::unordered_set<std::string> gSystemSemanticLookup;
 std::unordered_map<std::string, HlslSystemSemanticInfo> gSemanticInfoByName;
 std::vector<std::string> gSystemSemanticNames;
 
+std::unordered_map<std::string, HlslPreprocessorMacroInfo>
+    gPreprocessorMacroInfoByName;
+
 static std::string normalizeDirectiveName(const std::string &directiveToken) {
   if (!directiveToken.empty() && directiveToken[0] == '#')
     return directiveToken.substr(1);
@@ -132,6 +135,34 @@ static bool applySemanticEntries(
   return true;
 }
 
+static bool applyPreprocessorMacroEntries(
+    const Json &root,
+    std::unordered_map<std::string, HlslPreprocessorMacroInfo> &macroInfo,
+    std::string &errorOut) {
+  const Json *entries = getObjectValue(root, "entries");
+  if (!entries || entries->type != Json::Type::Array) {
+    errorOut = "preprocessor macro entries missing or invalid";
+    return false;
+  }
+  for (const auto &entryValue : entries->a) {
+    const Json *nameValue = getObjectValue(entryValue, "name");
+    const std::string name = nameValue ? getStringValue(*nameValue) : "";
+    if (name.empty())
+      continue;
+    const Json *disabledValue = getObjectValue(entryValue, "disabled");
+    if (disabledValue && getBoolValue(*disabledValue, false)) {
+      macroInfo.erase(name);
+      continue;
+    }
+    HlslPreprocessorMacroInfo info;
+    const Json *replacementValue = getObjectValue(entryValue, "replacement");
+    if (replacementValue)
+      info.replacement = getStringValue(*replacementValue);
+    macroInfo[name] = std::move(info);
+  }
+  return true;
+}
+
 static void ensureLanguageRegistryLoaded() {
   std::call_once(gLanguageRegistryOnce, []() {
     Json keywordBaseRoot;
@@ -140,6 +171,8 @@ static void ensureLanguageRegistryLoaded() {
     Json directiveOverrideRoot;
     Json semanticBaseRoot;
     Json semanticOverrideRoot;
+    Json preprocessorMacroBaseRoot;
+    Json preprocessorMacroOverrideRoot;
     std::string error;
 
     if (!loadResourceBundleJson("language/keywords", keywordBaseRoot,
@@ -147,7 +180,10 @@ static void ensureLanguageRegistryLoaded() {
         !loadResourceBundleJson("language/directives", directiveBaseRoot,
                                 directiveOverrideRoot, error) ||
         !loadResourceBundleJson("language/semantics", semanticBaseRoot,
-                                semanticOverrideRoot, error)) {
+                                semanticOverrideRoot, error) ||
+        !loadResourceBundleJson("language/preprocessor_macros",
+                                preprocessorMacroBaseRoot,
+                                preprocessorMacroOverrideRoot, error)) {
       gLanguageRegistryError = error;
       gLanguageRegistryState = LanguageRegistryState::Unavailable;
       return;
@@ -159,6 +195,8 @@ static void ensureLanguageRegistryLoaded() {
     std::unordered_map<std::string, HlslDirectiveInfo> directiveInfo;
     std::unordered_set<std::string> semanticNames;
     std::unordered_map<std::string, HlslSystemSemanticInfo> semanticInfo;
+    std::unordered_map<std::string, HlslPreprocessorMacroInfo>
+        preprocessorMacroInfo;
 
     if (!applyKeywordEntries(keywordBaseRoot, keywordNames, keywordDocs,
                              error) ||
@@ -171,13 +209,18 @@ static void ensureLanguageRegistryLoaded() {
         !applySemanticEntries(semanticBaseRoot, semanticNames, semanticInfo,
                               error) ||
         !applySemanticEntries(semanticOverrideRoot, semanticNames, semanticInfo,
-                              error)) {
+                              error) ||
+        !applyPreprocessorMacroEntries(preprocessorMacroBaseRoot,
+                                       preprocessorMacroInfo, error) ||
+        !applyPreprocessorMacroEntries(preprocessorMacroOverrideRoot,
+                                       preprocessorMacroInfo, error)) {
       gLanguageRegistryError = error;
       gLanguageRegistryState = LanguageRegistryState::Unavailable;
       return;
     }
 
-    if (keywordNames.empty() || directiveNames.empty() || semanticNames.empty()) {
+    if (keywordNames.empty() || directiveNames.empty() ||
+        semanticNames.empty() || preprocessorMacroInfo.empty()) {
       gLanguageRegistryError = "merged language registry empty";
       gLanguageRegistryState = LanguageRegistryState::Unavailable;
       return;
@@ -207,6 +250,8 @@ static void ensureLanguageRegistryLoaded() {
                                 gSystemSemanticLookup.end());
     std::sort(gSystemSemanticNames.begin(), gSystemSemanticNames.end());
     gSemanticInfoByName = std::move(semanticInfo);
+
+    gPreprocessorMacroInfoByName = std::move(preprocessorMacroInfo);
 
     gLanguageRegistryError.clear();
     gLanguageRegistryState = LanguageRegistryState::Loaded;
@@ -309,6 +354,15 @@ const std::vector<std::string> &getHlslSystemSemanticNames() {
   if (gLanguageRegistryState != LanguageRegistryState::Loaded)
     return empty;
   return gSystemSemanticNames;
+}
+
+const std::unordered_map<std::string, HlslPreprocessorMacroInfo> &
+getHlslPreprocessorMacros() {
+  ensureLanguageRegistryLoaded();
+  static const std::unordered_map<std::string, HlslPreprocessorMacroInfo> empty;
+  if (gLanguageRegistryState != LanguageRegistryState::Loaded)
+    return empty;
+  return gPreprocessorMacroInfoByName;
 }
 
 bool isHlslKeywordRegistryAvailable() { return isHlslLanguageRegistryAvailable(); }

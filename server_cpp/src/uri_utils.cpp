@@ -1,6 +1,7 @@
 #include "uri_utils.hpp"
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 
 std::string uriDecode(const std::string &text) {
   std::string out;
@@ -51,4 +52,27 @@ std::string pathToUri(const std::string &path) {
     generic = "/" + generic;
   }
   return "file://" + generic;
+}
+
+std::string normalizeUriComparisonKey(const std::string &uriOrPath) {
+  std::string path = uriToPath(uriOrPath);
+  if (path.empty())
+    path = uriOrPath;
+  if (!path.empty()) {
+    path = std::filesystem::path(path).lexically_normal().string();
+  }
+  std::replace(path.begin(), path.end(), '/', '\\');
+  std::transform(path.begin(), path.end(), path.begin(),
+                 [](unsigned char ch) {
+                   return static_cast<char>(std::tolower(ch));
+                 });
+  return path;
+}
+
+bool uriEquivalent(const std::string &lhs, const std::string &rhs) {
+  if (lhs == rhs)
+    return true;
+  if (lhs.empty() || rhs.empty())
+    return false;
+  return normalizeUriComparisonKey(lhs) == normalizeUriComparisonKey(rhs);
 }

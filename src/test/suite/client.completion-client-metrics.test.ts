@@ -14,6 +14,9 @@ type InternalStatusWithCompletionClientMetrics = {
 	completionRequestCount?: number;
 	completionAwaitSyncSamples?: number;
 	completionNextSamples?: number;
+	completionCoordinatorReceivedCount?: number;
+	completionCoordinatorExecutedCount?: number;
+	completionCoordinatorBypassedExplicitCount?: number;
 };
 
 repoDescribe('NSF client integration: Completion Client Metrics', () => {
@@ -65,12 +68,17 @@ repoDescribe('NSF client integration: Completion Client Metrics', () => {
 			(value) =>
 				(value?.completionRequestCount ?? 0) > 0 &&
 				(value?.completionNextSamples ?? 0) > 0 &&
-				(value?.completionAwaitSyncSamples ?? 0) > 0,
+				(value?.completionAwaitSyncSamples ?? 0) > 0 &&
+				(value?.completionCoordinatorReceivedCount ?? 0) > 0 &&
+				(value?.completionCoordinatorExecutedCount ?? 0) > 0,
 			'completion client await-sync metrics'
 		);
 
 		assert.ok((status?.completionRequestCount ?? 0) > 0);
 		assert.ok((status?.completionNextSamples ?? 0) > 0);
 		assert.ok((status?.completionAwaitSyncSamples ?? 0) > 0);
+		assert.ok((status?.completionCoordinatorReceivedCount ?? 0) > 0);
+		assert.ok((status?.completionCoordinatorExecutedCount ?? 0) > 0);
+		assert.ok((status?.completionCoordinatorBypassedExplicitCount ?? 0) > 0);
 	});
 });

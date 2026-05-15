@@ -1,9 +1,24 @@
 import * as vscode from 'vscode';
 
-import type { ReplaySampleSnapshot, ReplayStep } from './real_workspace_replay_types';
+import type { ReplaySampleSnapshot, ReplaySamplingWindow, ReplayStep } from './real_workspace_replay_types';
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function resolveReplaySamplingDelays(window: ReplaySamplingWindow | undefined): number[] {
+    if (!window) {
+        return [];
+    }
+    if (Array.isArray(window.delaysMs) && window.delaysMs.length > 0) {
+        return window.delaysMs;
+    }
+    const sampleCount = Math.max(0, Math.min(10000, Math.trunc(window.sampleCount ?? 0)));
+    if (sampleCount <= 0) {
+        return [];
+    }
+    const sampleIntervalMs = Math.max(0, Math.min(60000, Math.trunc(window.sampleIntervalMs ?? 0)));
+    return Array.from({ length: sampleCount }, (_, index) => index * sampleIntervalMs);
 }
 
 export async function sampleReplayWindow(
@@ -11,7 +26,7 @@ export async function sampleReplayWindow(
     documentUri?: string,
     baselineInternalStatus?: unknown
 ): Promise<ReplaySampleSnapshot[]> {
-    const delaysMs = step.samplingWindow?.delaysMs ?? [];
+    const delaysMs = resolveReplaySamplingDelays(step.samplingWindow);
     if (delaysMs.length === 0) {
         return [];
     }

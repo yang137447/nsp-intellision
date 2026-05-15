@@ -126,7 +126,12 @@ export function registerEditingRuntimeLayeredTests(): void {
 				const invalidatedDiagnosticsRuntime = diagnosticsInvalidated[0];
 				assert.strictEqual(invalidatedDiagnosticsRuntime?.exists, true);
 				assert.strictEqual(invalidatedDiagnosticsRuntime?.lastDiagnosticsPublishLayer, '');
-				assert.strictEqual(invalidatedDiagnosticsRuntime?.localStructuralSnapshotReady, true);
+				const localStructuralReady = await waitFor(
+					() => getDocumentRuntimeDebug([diagnosticsDoc.uri.toString()]),
+					(entries) => entries[0]?.localStructuralSnapshotReady === true,
+					'layered runtime local structural async rebuild'
+				);
+				assert.strictEqual(localStructuralReady[0]?.localStructuralSnapshotReady, true);
 			} finally {
 				const diagnosticsRestoreEdit = new vscode.WorkspaceEdit();
 				diagnosticsRestoreEdit.delete(diagnosticsDoc.uri, new vscode.Range(0, 0, 0, 1));
@@ -139,7 +144,7 @@ export function registerEditingRuntimeLayeredTests(): void {
 			this.timeout(120000);
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 				let root = await openFixture('layered_runtime_macro_root.nsf');
-				let shared = await openFixture('layered_runtime_macro_shared.ush');
+				let shared = await openFixture('layered_runtime_macro_shared.hlsl');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
 				await waitForClientReady('client ready before global context debug');
 

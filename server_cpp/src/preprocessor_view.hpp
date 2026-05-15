@@ -1,6 +1,7 @@
 #pragma once
 
 #include "conditional_ast.hpp"
+#include "preprocessor_macro_settings.hpp"
 
 #include <functional>
 #include <string>
@@ -34,6 +35,14 @@ struct PreprocessorIncludeContext {
   int maxDepth = 32;
   bool collectIncludeConditionDiagnostics = false;
 };
+
+// Updates the process-wide effective `nsf.preprocessorMacros` table consumed
+// by preprocessor view construction. The caller owns configuration parsing and
+// must refresh document analysis context after changing this map.
+void setConfiguredPreprocessorMacros(
+    const ConfiguredPreprocessorMacros &macros);
+
+std::string getConfiguredPreprocessorMacrosFingerprint();
 
 PreprocessorView
 buildPreprocessorView(const ConditionalAst &ast,

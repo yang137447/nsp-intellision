@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
 
 import { detectReplayAnomalies } from './real_workspace_replay_analyzer';
-import { sampleReplayWindow } from './real_workspace_replay_sampler';
+import { resolveReplaySamplingDelays, sampleReplayWindow } from './real_workspace_replay_sampler';
 import { resolveReplayAnchor } from './real_workspace_replay_targets';
-import type { ReplaySampleSnapshot, ReplayScript, ReplayStep } from './real_workspace_replay_types';
+import type { ReplaySampleSnapshot, ReplayScript, ReplayStep, ReplayTypingProbe } from './real_workspace_replay_types';
 import {
     deleteLeftForTests,
+    touchDocument,
     typeTextForTests,
+    typeWithEditorFocusForTests,
     waitForClientQuiescent
 } from '../suite/test_helpers';
 
@@ -66,8 +68,15 @@ async function waitForReplayServerIndexingIdle(label: string, timeoutMs: number)
 }
 
 type CompletionCaptureReport = {
+    measurementMode?: 'combined' | 'separated-ui-provider';
+    uiCoverageTriggerSource?: CompletionUiCoverageTriggerSource;
     durationMs: number;
+    executeProviderDurationMs?: number;
+    triggerKind: 'Invoked' | 'TriggerCharacter';
     triggerCharacter?: string;
+    triggerText?: string;
+    triggerStartOffset?: number;
+    triggerEndOffset?: number;
     itemCount: number;
     topLabels: string[];
     expectedLabels?: string[];
@@ -75,10 +84,15 @@ type CompletionCaptureReport = {
     line?: number;
     character?: number;
     lineText?: string;
+    uiTrigger?: UiTriggerReport;
+    uiCoverage?: UiCoverageReport;
+    providerVerification?: ProviderVerificationReport;
+    requestCounters?: RequestCounterTrace;
     error?: string;
     lastCompletionDebug?: unknown;
     directServerCompletion?: {
         durationMs: number;
+        triggerKind: 'Invoked' | 'TriggerCharacter';
         itemCount: number;
         topLabels: string[];
         expectedPresent?: Record<string, boolean>;
@@ -87,8 +101,13 @@ type CompletionCaptureReport = {
 };
 
 type SignatureHelpCaptureReport = {
+    measurementMode?: 'combined' | 'separated-ui-provider';
     durationMs: number;
+    executeProviderDurationMs?: number;
     triggerCharacter?: string;
+    triggerText?: string;
+    triggerStartOffset?: number;
+    triggerEndOffset?: number;
     retrigger?: boolean;
     signatureCount: number;
     signatureLabels: string[];
@@ -99,6 +118,10 @@ type SignatureHelpCaptureReport = {
     line?: number;
     character?: number;
     lineText?: string;
+    uiTrigger?: UiTriggerReport;
+    uiCoverage?: UiCoverageReport;
+    providerVerification?: ProviderVerificationReport;
+    requestCounters?: RequestCounterTrace;
     error?: string;
 };
 
@@ -113,6 +136,224 @@ type WorkspaceSymbolCaptureReport = {
     workspaceIndexDebug?: unknown;
 };
 
+type DiagnosticsCaptureReport = {
+    durationMs: number;
+    diagnosticCount: number;
+    errorCount: number;
+    warningCount: number;
+    runtimeReadyObserved?: boolean;
+    requireRuntimeReady?: boolean;
+    touchCount?: number;
+    firstTouchAtMs?: number;
+    lastTouchAtMs?: number;
+    readyWaitTimedOut?: boolean;
+    expectedMaxDiagnostics?: number;
+    expectedMaxErrors?: number;
+    withinExpectedDiagnostics?: boolean;
+    withinExpectedErrors?: boolean;
+    topMessages: string[];
+};
+
+type FullDocumentTypingCheckpointReport = {
+    label: string;
+    offset: number;
+    line: number;
+    samples: ReplaySampleSnapshot[];
+    diagnostics: DiagnosticsCaptureReport;
+};
+
+type FullDocumentTypingProbeReport = {
+    label: string;
+    category?: string;
+    kind: ReplayTypingProbe['kind'];
+    offset: number;
+    line: number;
+    triggerText?: string;
+    triggerCharacter?: string;
+    triggerStartOffset?: number;
+    triggerEndOffset?: number;
+    nativeTrigger?: boolean;
+    triggerTyping?: TriggerTypingReport;
+    samples: ReplaySampleSnapshot[];
+    completionCapture?: CompletionCaptureReport;
+    signatureHelpCapture?: SignatureHelpCaptureReport;
+    diagnosticsCapture?: DiagnosticsCaptureReport;
+    error?: string;
+};
+
+type FullDocumentTypingReport = {
+    durationMs: number;
+    sourceLineCount: number;
+    sourceCharacterCount: number;
+    finalCharacterCount: number;
+    finalTextMatchesSource: boolean;
+    firstMismatchOffset?: number;
+    sourceMismatchSnippet?: string;
+    finalMismatchSnippet?: string;
+    charactersPerEdit: number;
+    checkpointEveryLines: number;
+    checkpointCount: number;
+    probeCount: number;
+    anomalies: string[];
+    checkpoints: FullDocumentTypingCheckpointReport[];
+    probes: FullDocumentTypingProbeReport[];
+};
+
+type TypingProbePlan = {
+    probe: ReplayTypingProbe;
+    offset: number;
+    triggerText?: string;
+    triggerCharacter?: string;
+    triggerStartOffset: number;
+    nativeTrigger: boolean;
+    triggerError?: string;
+};
+
+type UiTriggerReport = {
+    command: string;
+    durationMs: number;
+    commandDurationMs: number;
+    delayMs: number;
+    error?: string;
+};
+
+type RequestCounterSnapshot = {
+    completionRequestCount?: number;
+    signatureHelpRequestCount?: number;
+    activeRpcCount?: number;
+    completionLastProviderTiming?: unknown;
+    signatureHelpLastProviderTiming?: unknown;
+    completionRecentProviderTimings?: unknown[];
+    signatureHelpRecentProviderTimings?: unknown[];
+};
+
+type RequestCounterDelta = {
+    completionRequests: number;
+    signatureHelpRequests: number;
+};
+
+type RequestCounterTrace = {
+    beforeCapture?: RequestCounterSnapshot;
+    beforeUiTrigger?: RequestCounterSnapshot;
+    afterUiTrigger?: RequestCounterSnapshot;
+    uiTriggerDelta?: RequestCounterDelta;
+    beforeProvider?: RequestCounterSnapshot;
+    afterProvider?: RequestCounterSnapshot;
+    providerDelta?: RequestCounterDelta;
+    beforeDirectServer?: RequestCounterSnapshot;
+    afterDirectServer?: RequestCounterSnapshot;
+    directServerDelta?: RequestCounterDelta;
+    totalDelta?: RequestCounterDelta;
+    nativeTriggerDelta?: RequestCounterDelta;
+    afterUiQueueQuiet?: RequestCounterSnapshot;
+    uiQueueQuietDelta?: RequestCounterDelta;
+};
+
+type ProviderQueueQuietReport = {
+    durationMs: number;
+    quietMs: number;
+    timeoutMs: number;
+    timedOut: boolean;
+    startedAtMs: number;
+    completedAtMs: number;
+    relativeStartedAtMs?: number;
+    relativeCompletedAtMs?: number;
+    before?: RequestCounterSnapshot;
+    after?: RequestCounterSnapshot;
+    requestDelta?: RequestCounterDelta;
+};
+
+type UiCoverageReport = {
+    measurementMode: 'uiCoverage';
+    triggerSource?: CompletionUiCoverageTriggerSource;
+    nativeTriggerDelta?: RequestCounterDelta;
+    uiTrigger?: UiTriggerReport;
+    providerRequestSequence?: ProviderRequestSequenceEntry[];
+    latestCompletionDebug?: unknown;
+    completionDebugHistory?: unknown[];
+    requestBurstCount?: number;
+    firstProviderRequestAtMs?: number;
+    lastProviderRequestCompletedAtMs?: number;
+    requestCounters: {
+        before?: RequestCounterSnapshot;
+        afterUiTrigger?: RequestCounterSnapshot;
+        afterQueueQuiet?: RequestCounterSnapshot;
+        uiTriggerDelta?: RequestCounterDelta;
+        totalTriggerDelta?: RequestCounterDelta;
+    };
+    queueQuiet?: ProviderQueueQuietReport;
+};
+
+type CompletionUiCoverageTriggerSource = 'nativeOnly' | 'explicitSuggest';
+
+type ProviderRequestSequenceEntry = {
+    sequence?: number;
+    documentVersion?: number;
+    documentIsDirty?: boolean;
+    documentVersionAtNextStart?: number;
+    documentIsDirtyAtNextStart?: boolean;
+    documentVersionAtLspStart?: number;
+    documentIsDirtyAtLspStart?: boolean;
+    documentVersionAtProviderReturn?: number;
+    documentIsDirtyAtProviderReturn?: boolean;
+    triggerKind?: number;
+    triggerCharacter?: string;
+    isRetrigger?: boolean;
+    line?: number;
+    character?: number;
+    prefixLength?: number;
+    totalMs?: number;
+    nextWaitMs?: number;
+    nextExecutionMs?: number;
+    lspRequestMs?: number;
+    lspStartDelayMs?: number;
+    lspCompletionToProviderReturnMs?: number;
+    lspRequestCount?: number;
+    activeSameKindProviderCountAtStart?: number;
+    activeSameKindNextCountAtStart?: number;
+    itemCount?: number;
+    signatureCount?: number;
+    startedAtMs?: number;
+    completedAtMs?: number;
+    nextStartedAtMs?: number;
+    nextCompletedAtMs?: number;
+    lspRequestStartedAtMs?: number;
+    lspRequestCompletedAtMs?: number;
+    relativeStartedAtMs?: number;
+    relativeCompletedAtMs?: number;
+    relativeNextStartedAtMs?: number;
+    relativeNextCompletedAtMs?: number;
+    relativeLspRequestStartedAtMs?: number;
+    relativeLspRequestCompletedAtMs?: number;
+    completionCoordinatorAction?: string;
+    completionCoordinatorSource?: string;
+    completionCoordinatorKey?: string;
+    completionCoordinatorPrefixLength?: number;
+    completionDebugRequestId?: string;
+};
+
+type ProviderVerificationReport = {
+    measurementMode: 'providerVerification';
+    durationMs: number;
+    requestCounters: {
+        before?: RequestCounterSnapshot;
+        after?: RequestCounterSnapshot;
+        delta?: RequestCounterDelta;
+    };
+    clientProviderTiming?: unknown;
+    uiQueueQuietTimedOut?: boolean;
+};
+
+type TriggerTypingReport = {
+    durationMs: number;
+    typedText: string;
+    nativeTrigger: boolean;
+    before?: RequestCounterSnapshot;
+    after?: RequestCounterSnapshot;
+    requestDelta?: RequestCounterDelta;
+    providerRequestSequence?: ProviderRequestSequenceEntry[];
+};
+
 type ReplayStepReport = {
     stepLabel: string;
     stepKind: ReplayStep['kind'];
@@ -124,7 +365,1213 @@ type ReplayStepReport = {
     completionCapture?: CompletionCaptureReport;
     signatureHelpCapture?: SignatureHelpCaptureReport;
     workspaceSymbolCapture?: WorkspaceSymbolCaptureReport;
+    fullDocumentTyping?: FullDocumentTypingReport;
 };
+
+function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
+    const resolved = Number.isFinite(value) ? Math.trunc(value as number) : fallback;
+    return Math.max(min, Math.min(max, resolved));
+}
+
+function countLines(text: string): number {
+    if (text.length === 0) {
+        return 0;
+    }
+    return text.split(/\r\n|\r|\n/).length;
+}
+
+function lineAtOffset(text: string, offset: number): number {
+    const prefix = text.slice(0, Math.max(0, Math.min(text.length, offset)));
+    return Math.max(0, countLines(prefix) - 1);
+}
+
+function lastCharacter(text: string | undefined): string | undefined {
+    if (!text || text.length === 0) {
+        return undefined;
+    }
+    return text[text.length - 1];
+}
+
+function completionTriggerKind(triggerCharacter: string | undefined): 'Invoked' | 'TriggerCharacter' {
+    return triggerCharacter ? 'TriggerCharacter' : 'Invoked';
+}
+
+function uiTriggerDelayMs(payload: ReplayTypingProbe['payload'] | undefined): number {
+    return clampInt(payload?.uiTriggerDelayMs, 80, 0, 5000);
+}
+
+function normalizeCompletionUiMode(value: unknown): CompletionUiCoverageTriggerSource | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'native' || normalized === 'native-only' || normalized === 'nativeonly') {
+        return 'nativeOnly';
+    }
+    if (normalized === 'explicit' || normalized === 'explicit-suggest' || normalized === 'explicitsuggest') {
+        return 'explicitSuggest';
+    }
+    return undefined;
+}
+
+function completionUiModeOverride(): CompletionUiCoverageTriggerSource | undefined {
+    return normalizeCompletionUiMode(process.env.NSF_REAL_REPLAY_COMPLETION_UI_MODE);
+}
+
+function completionUiCoverageTriggerSource(
+    payload: ReplayTypingProbe['payload'] | undefined
+): CompletionUiCoverageTriggerSource {
+    const mode = completionUiModeOverride() ?? normalizeCompletionUiMode(payload?.completionUiMode);
+    if (mode) {
+        return mode;
+    }
+    return payload?.triggerSuggestUi === true ? 'explicitSuggest' : 'nativeOnly';
+}
+
+async function readRequestCounterSnapshot(): Promise<RequestCounterSnapshot | undefined> {
+    try {
+        const [status, providerTimingStatus] = await Promise.all([
+            vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+            Promise.resolve(vscode.commands.executeCommand<any>('nsf._getProviderTimingStatus')).catch(() => undefined)
+        ]);
+        return {
+            completionRequestCount:
+                typeof status?.completionRequestCount === 'number' ? status.completionRequestCount : undefined,
+            signatureHelpRequestCount:
+                typeof status?.signatureHelpRequestCount === 'number' ? status.signatureHelpRequestCount : undefined,
+            activeRpcCount:
+                typeof status?.activeRpcCount === 'number' ? status.activeRpcCount : undefined,
+            completionLastProviderTiming: status?.completionLastProviderTiming,
+            signatureHelpLastProviderTiming: status?.signatureHelpLastProviderTiming,
+            completionRecentProviderTimings: Array.isArray(providerTimingStatus?.completionRecentProviderTimings)
+                ? providerTimingStatus.completionRecentProviderTimings
+                : undefined,
+            signatureHelpRecentProviderTimings: Array.isArray(providerTimingStatus?.signatureHelpRecentProviderTimings)
+                ? providerTimingStatus.signatureHelpRecentProviderTimings
+                : undefined
+        };
+    } catch {
+        return undefined;
+    }
+}
+
+function recentProviderTimings(
+    snapshot: RequestCounterSnapshot | undefined,
+    kind: 'completion' | 'signatureHelp'
+): unknown[] {
+    const timings = kind === 'completion'
+        ? snapshot?.completionRecentProviderTimings
+        : snapshot?.signatureHelpRecentProviderTimings;
+    return Array.isArray(timings) ? timings : [];
+}
+
+function timingSequence(value: unknown): number {
+    const sequence = (value as { sequence?: unknown } | undefined)?.sequence;
+    return typeof sequence === 'number' && Number.isFinite(sequence) ? sequence : 0;
+}
+
+function timingNumber(value: unknown, field: string): number | undefined {
+    const raw = (value as Record<string, unknown> | undefined)?.[field];
+    return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
+}
+
+function timingString(value: unknown, field: string): string | undefined {
+    const raw = (value as Record<string, unknown> | undefined)?.[field];
+    return typeof raw === 'string' ? raw : undefined;
+}
+
+function timingBoolean(value: unknown, field: string): boolean | undefined {
+    const raw = (value as Record<string, unknown> | undefined)?.[field];
+    return typeof raw === 'boolean' ? raw : undefined;
+}
+
+async function readLastCompletionDebug(): Promise<unknown | undefined> {
+    try {
+        return await vscode.commands.executeCommand<any>('nsf._getLastCompletionDebug');
+    } catch {
+        return undefined;
+    }
+}
+
+function completionDebugHistoryFromSnapshot(snapshot: unknown): unknown[] | undefined {
+    const recent = (snapshot as { recent?: unknown } | undefined)?.recent;
+    return Array.isArray(recent) ? recent : undefined;
+}
+
+function providerRequestSequence(
+    kind: 'completion' | 'signatureHelp',
+    before: RequestCounterSnapshot | undefined,
+    after: RequestCounterSnapshot | undefined,
+    captureStartedAt: number
+): ProviderRequestSequenceEntry[] {
+    const beforeSequence = providerLastSequence(before, kind);
+    return recentProviderTimings(after, kind)
+        .filter((timing) => timingSequence(timing) > beforeSequence)
+        .map((timing) => {
+            const startedAtMs = timingNumber(timing, 'startedAtMs');
+            const completedAtMs = timingNumber(timing, 'completedAtMs');
+            const nextStartedAtMs = timingNumber(timing, 'nextStartedAtMs');
+            const nextCompletedAtMs = timingNumber(timing, 'nextCompletedAtMs');
+            const lspRequestStartedAtMs = timingNumber(timing, 'lspRequestStartedAtMs');
+            const lspRequestCompletedAtMs = timingNumber(timing, 'lspRequestCompletedAtMs');
+            return {
+                sequence: timingNumber(timing, 'sequence'),
+                documentVersion: timingNumber(timing, 'documentVersion'),
+                documentIsDirty: timingBoolean(timing, 'documentIsDirty'),
+                documentVersionAtNextStart: timingNumber(timing, 'documentVersionAtNextStart'),
+                documentIsDirtyAtNextStart: timingBoolean(timing, 'documentIsDirtyAtNextStart'),
+                documentVersionAtLspStart: timingNumber(timing, 'documentVersionAtLspStart'),
+                documentIsDirtyAtLspStart: timingBoolean(timing, 'documentIsDirtyAtLspStart'),
+                documentVersionAtProviderReturn: timingNumber(timing, 'documentVersionAtProviderReturn'),
+                documentIsDirtyAtProviderReturn: timingBoolean(timing, 'documentIsDirtyAtProviderReturn'),
+                triggerKind: timingNumber(timing, 'triggerKind'),
+                triggerCharacter: timingString(timing, 'triggerCharacter'),
+                isRetrigger: timingBoolean(timing, 'isRetrigger'),
+                line: timingNumber(timing, 'line'),
+                character: timingNumber(timing, 'character'),
+                prefixLength: timingNumber(timing, 'prefixLength'),
+                totalMs: timingNumber(timing, 'totalMs'),
+                nextWaitMs: timingNumber(timing, 'nextWaitMs'),
+                nextExecutionMs: timingNumber(timing, 'nextExecutionMs'),
+                lspRequestMs: timingNumber(timing, 'lspRequestMs'),
+                lspStartDelayMs: timingNumber(timing, 'lspStartDelayMs'),
+                lspCompletionToProviderReturnMs: timingNumber(timing, 'lspCompletionToProviderReturnMs'),
+                lspRequestCount: timingNumber(timing, 'lspRequestCount'),
+                activeSameKindProviderCountAtStart: timingNumber(timing, 'activeSameKindProviderCountAtStart'),
+                activeSameKindNextCountAtStart: timingNumber(timing, 'activeSameKindNextCountAtStart'),
+                itemCount: timingNumber(timing, 'itemCount'),
+                signatureCount: timingNumber(timing, 'signatureCount'),
+                startedAtMs,
+                completedAtMs,
+                nextStartedAtMs,
+                nextCompletedAtMs,
+                lspRequestStartedAtMs,
+                lspRequestCompletedAtMs,
+                relativeStartedAtMs: startedAtMs === undefined ? undefined : Math.max(0, startedAtMs - captureStartedAt),
+                relativeCompletedAtMs: completedAtMs === undefined ? undefined : Math.max(0, completedAtMs - captureStartedAt),
+                relativeNextStartedAtMs: nextStartedAtMs === undefined ? undefined : Math.max(0, nextStartedAtMs - captureStartedAt),
+                relativeNextCompletedAtMs: nextCompletedAtMs === undefined ? undefined : Math.max(0, nextCompletedAtMs - captureStartedAt),
+                relativeLspRequestStartedAtMs: lspRequestStartedAtMs === undefined ? undefined : Math.max(0, lspRequestStartedAtMs - captureStartedAt),
+                relativeLspRequestCompletedAtMs: lspRequestCompletedAtMs === undefined ? undefined : Math.max(0, lspRequestCompletedAtMs - captureStartedAt),
+                completionCoordinatorAction: timingString(timing, 'completionCoordinatorAction'),
+                completionCoordinatorSource: timingString(timing, 'completionCoordinatorSource'),
+                completionCoordinatorKey: timingString(timing, 'completionCoordinatorKey'),
+                completionCoordinatorPrefixLength: timingNumber(timing, 'completionCoordinatorPrefixLength'),
+                completionDebugRequestId: timingString(timing, 'completionDebugRequestId')
+            };
+        });
+}
+
+function counterValue(snapshot: RequestCounterSnapshot | undefined, field: keyof RequestCounterSnapshot): number {
+    const value = snapshot?.[field];
+    return typeof value === 'number' ? value : 0;
+}
+
+function requestCounterDelta(
+    before: RequestCounterSnapshot | undefined,
+    after: RequestCounterSnapshot | undefined
+): RequestCounterDelta {
+    return {
+        completionRequests: Math.max(
+            0,
+            counterValue(after, 'completionRequestCount') - counterValue(before, 'completionRequestCount')
+        ),
+        signatureHelpRequests: Math.max(
+            0,
+            counterValue(after, 'signatureHelpRequestCount') - counterValue(before, 'signatureHelpRequestCount')
+        )
+    };
+}
+
+function providerRequestCount(
+    snapshot: RequestCounterSnapshot | undefined,
+    kind: 'completion' | 'signatureHelp'
+): number {
+    return kind === 'completion'
+        ? counterValue(snapshot, 'completionRequestCount')
+        : counterValue(snapshot, 'signatureHelpRequestCount');
+}
+
+function providerLastSequence(
+    snapshot: RequestCounterSnapshot | undefined,
+    kind: 'completion' | 'signatureHelp'
+): number {
+    const timing = kind === 'completion'
+        ? snapshot?.completionLastProviderTiming
+        : snapshot?.signatureHelpLastProviderTiming;
+    const sequence = (timing as { sequence?: unknown } | undefined)?.sequence;
+    return typeof sequence === 'number' && Number.isFinite(sequence) ? sequence : 0;
+}
+
+function providerTimingFromSnapshot(
+    snapshot: RequestCounterSnapshot | undefined,
+    kind: 'completion' | 'signatureHelp'
+): unknown {
+    return kind === 'completion'
+        ? snapshot?.completionLastProviderTiming
+        : snapshot?.signatureHelpLastProviderTiming;
+}
+
+async function waitForProviderQueueQuiet(
+    kind: 'completion' | 'signatureHelp',
+    before: RequestCounterSnapshot | undefined,
+    quietMs = 160,
+    timeoutMs = 3000
+): Promise<ProviderQueueQuietReport> {
+    const startedAt = Date.now();
+    let lastSnapshot = await readRequestCounterSnapshot();
+    let lastCount = providerRequestCount(lastSnapshot, kind);
+    let stableSince = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        await delay(50);
+        const current = await readRequestCounterSnapshot();
+        const currentCount = providerRequestCount(current, kind);
+        const currentSequence = providerLastSequence(current, kind);
+        const countChanged = currentCount !== lastCount;
+        if (countChanged) {
+            lastCount = currentCount;
+            stableSince = Date.now();
+        }
+        lastSnapshot = current;
+        if (!countChanged && Date.now() - stableSince >= quietMs && currentSequence >= currentCount) {
+            const completedAt = Date.now();
+            return {
+                durationMs: completedAt - startedAt,
+                quietMs,
+                timeoutMs,
+                timedOut: false,
+                startedAtMs: startedAt,
+                completedAtMs: completedAt,
+                before,
+                after: current,
+                requestDelta: requestCounterDelta(before, current)
+            };
+        }
+    }
+    const completedAt = Date.now();
+    return {
+        durationMs: completedAt - startedAt,
+        quietMs,
+        timeoutMs,
+        timedOut: true,
+        startedAtMs: startedAt,
+        completedAtMs: completedAt,
+        before,
+        after: lastSnapshot,
+        requestDelta: requestCounterDelta(before, lastSnapshot)
+    };
+}
+
+function attachQueueQuietRelativeTimes(queueQuiet: ProviderQueueQuietReport, captureStartedAt: number): void {
+    queueQuiet.relativeStartedAtMs = Math.max(0, queueQuiet.startedAtMs - captureStartedAt);
+    queueQuiet.relativeCompletedAtMs = Math.max(0, queueQuiet.completedAtMs - captureStartedAt);
+}
+
+async function runEditorUiTriggerCommand(
+    command: string,
+    payload: ReplayTypingProbe['payload'] | undefined
+): Promise<UiTriggerReport> {
+    const delayMs = uiTriggerDelayMs(payload);
+    const startedAt = Date.now();
+    let commandDurationMs = 0;
+    let error: string | undefined;
+    try {
+        await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+        const commandStartedAt = Date.now();
+        await vscode.commands.executeCommand(command);
+        commandDurationMs = Date.now() - commandStartedAt;
+        if (delayMs > 0) {
+            await delay(delayMs);
+        }
+    } catch (triggerError) {
+        error = triggerError instanceof Error ? triggerError.message : String(triggerError);
+    }
+    return {
+        command,
+        durationMs: Date.now() - startedAt,
+        commandDurationMs,
+        delayMs,
+        error
+    };
+}
+
+async function closeEditorUiWidgets(): Promise<void> {
+    for (const command of ['hideSuggestWidget', 'closeParameterHints']) {
+        try {
+            await vscode.commands.executeCommand(command);
+        } catch {
+            // Best effort: older VS Code builds may not expose every UI close command.
+        }
+    }
+}
+
+function expectedMissing(expectedPresent: Record<string, boolean> | undefined): string[] {
+    if (!expectedPresent) {
+        return [];
+    }
+    return Object.entries(expectedPresent)
+        .filter(([, present]) => !present)
+        .map(([label]) => label);
+}
+
+function findNthEndOffset(text: string, needle: string, occurrence: number): number {
+    if (needle.length === 0) {
+        return -1;
+    }
+    let searchFrom = 0;
+    let foundAt = -1;
+    for (let index = 0; index < Math.max(1, occurrence); index++) {
+        foundAt = text.indexOf(needle, searchFrom);
+        if (foundAt < 0) {
+            return -1;
+        }
+        searchFrom = foundAt + needle.length;
+    }
+    return foundAt + needle.length;
+}
+
+function diagnosticSeverityName(severity: vscode.DiagnosticSeverity | undefined): string {
+    switch (severity) {
+        case vscode.DiagnosticSeverity.Error:
+            return 'error';
+        case vscode.DiagnosticSeverity.Warning:
+            return 'warning';
+        case vscode.DiagnosticSeverity.Information:
+            return 'information';
+        case vscode.DiagnosticSeverity.Hint:
+            return 'hint';
+        default:
+            return 'unknown';
+    }
+}
+
+async function captureDiagnosticsAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload?: ReplayTypingProbe['payload']
+): Promise<DiagnosticsCaptureReport> {
+    const startedAt = Date.now();
+    const readyWaitMs = clampInt(payload?.waitForReadyMs, 0, 0, 120000);
+    const maxDiagnostics = typeof payload?.maxDiagnostics === 'number' ? payload.maxDiagnostics : undefined;
+    const maxErrors = typeof payload?.maxErrors === 'number' ? payload.maxErrors : undefined;
+    const requireRuntimeReady = payload?.requireRuntimeReady === true;
+    const touchEveryMs = clampInt(payload?.touchEveryMs, 0, 0, 60000);
+    const maxTouches = clampInt(payload?.maxTouches, 0, 0, 100);
+
+    const readDiagnostics = () => {
+        const diagnostics = vscode.languages.getDiagnostics(activeEditor.document.uri);
+        const severityCounts = new Map<string, number>();
+        for (const diagnostic of diagnostics) {
+            const severity = diagnosticSeverityName(diagnostic.severity);
+            severityCounts.set(severity, (severityCounts.get(severity) ?? 0) + 1);
+        }
+        return { diagnostics, severityCounts };
+    };
+    const withinExpected = (diagnostics: readonly vscode.Diagnostic[], severityCounts: Map<string, number>) =>
+        (maxDiagnostics === undefined || diagnostics.length <= maxDiagnostics) &&
+        (maxErrors === undefined || (severityCounts.get('error') ?? 0) <= maxErrors);
+    const runtimeReady = async () => {
+        try {
+            const response = await vscode.commands.executeCommand<any>(
+                'nsf._getDocumentRuntimeDebug',
+                { uris: [activeEditor.document.uri.toString()] }
+            );
+            const entry = response?.documents?.[0];
+            const layer = entry?.lastDiagnosticsPublishLayer ?? '';
+            return (
+                Boolean(entry?.exists) &&
+                (Boolean(entry?.deferredHasFullDiagnostics) ||
+                    layer === 'GlobalContext' ||
+                    layer === 'CurrentDocSemantic' ||
+                    layer === 'LocalStructural')
+            );
+        } catch {
+            return false;
+        }
+    };
+
+    let ready = readyWaitMs <= 0;
+    let current = readDiagnostics();
+    const deadline = Date.now() + readyWaitMs;
+    let touchCount = 0;
+    let firstTouchAtMs: number | undefined;
+    let lastTouchAtMs: number | undefined;
+    let nextTouchAt = touchEveryMs > 0 ? startedAt + touchEveryMs : Number.POSITIVE_INFINITY;
+    let runtimeReadyObserved = false;
+    const hasExpectedBounds = maxDiagnostics !== undefined || maxErrors !== undefined;
+    while (!ready && Date.now() < deadline) {
+        if (withinExpected(current.diagnostics, current.severityCounts) && (!requireRuntimeReady || runtimeReadyObserved)) {
+            ready = true;
+            break;
+        }
+        if (await runtimeReady()) {
+            runtimeReadyObserved = true;
+            current = readDiagnostics();
+            if (!hasExpectedBounds || withinExpected(current.diagnostics, current.severityCounts)) {
+                ready = true;
+                break;
+            }
+        }
+        if (touchEveryMs > 0 && touchCount < maxTouches && Date.now() >= nextTouchAt) {
+            await touchDocument(activeEditor.document);
+            touchCount++;
+            lastTouchAtMs = Date.now() - startedAt;
+            firstTouchAtMs = firstTouchAtMs ?? lastTouchAtMs;
+            nextTouchAt = Date.now() + touchEveryMs;
+        }
+        await delay(120);
+        current = readDiagnostics();
+    }
+    if (!ready) {
+        current = readDiagnostics();
+    }
+
+    return {
+        durationMs: Date.now() - startedAt,
+        diagnosticCount: current.diagnostics.length,
+        errorCount: current.severityCounts.get('error') ?? 0,
+        warningCount: current.severityCounts.get('warning') ?? 0,
+        runtimeReadyObserved,
+        requireRuntimeReady,
+        touchCount: touchEveryMs > 0 ? touchCount : undefined,
+        firstTouchAtMs,
+        lastTouchAtMs,
+        readyWaitTimedOut: readyWaitMs > 0 ? !ready : undefined,
+        expectedMaxDiagnostics: maxDiagnostics,
+        expectedMaxErrors: maxErrors,
+        withinExpectedDiagnostics: maxDiagnostics === undefined ? undefined : current.diagnostics.length <= maxDiagnostics,
+        withinExpectedErrors: maxErrors === undefined ? undefined : (current.severityCounts.get('error') ?? 0) <= maxErrors,
+        topMessages: current.diagnostics.slice(0, 20).map((diagnostic) => diagnostic.message)
+    };
+}
+
+async function captureCompletionAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload?: ReplayTypingProbe['payload'],
+    trigger?: Pick<TypingProbePlan, 'triggerText' | 'triggerCharacter' | 'triggerStartOffset' | 'offset'> & {
+        triggerTyping?: TriggerTypingReport;
+    }
+): Promise<CompletionCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const position = activeEditor.selection.active;
+    const lineText = getLineText(document, position.line);
+    const triggerCharacter = typeof payload?.triggerCharacter === 'string'
+        ? payload.triggerCharacter
+        : trigger?.triggerCharacter;
+    const triggerKind = completionTriggerKind(triggerCharacter);
+    const expectedLabels = Array.isArray(payload?.expectedLabels)
+        ? payload.expectedLabels.filter((entry): entry is string => typeof entry === 'string')
+        : undefined;
+    const maxLabels = Math.max(1, Math.min(200, payload?.maxLabels ?? 50));
+
+    const captureStartedAt = Date.now();
+    const uiCoverageTriggerSource = completionUiCoverageTriggerSource(payload);
+    const requestCounters: RequestCounterTrace = {
+        beforeCapture: await readRequestCounterSnapshot(),
+        nativeTriggerDelta: trigger?.triggerTyping?.requestDelta
+    };
+    let uiTrigger: UiTriggerReport | undefined;
+    let queueQuiet: ProviderQueueQuietReport | undefined;
+    if (uiCoverageTriggerSource === 'explicitSuggest') {
+        requestCounters.beforeUiTrigger = await readRequestCounterSnapshot();
+        uiTrigger = await runEditorUiTriggerCommand('editor.action.triggerSuggest', payload);
+        requestCounters.afterUiTrigger = await readRequestCounterSnapshot();
+        requestCounters.uiTriggerDelta = requestCounterDelta(
+            requestCounters.beforeUiTrigger,
+            requestCounters.afterUiTrigger
+        );
+    }
+    await closeEditorUiWidgets();
+    queueQuiet = await waitForProviderQueueQuiet(
+        'completion',
+        requestCounters.beforeCapture
+    );
+    attachQueueQuietRelativeTimes(queueQuiet, captureStartedAt);
+    requestCounters.afterUiQueueQuiet = queueQuiet.after;
+    requestCounters.uiQueueQuietDelta = queueQuiet.requestDelta;
+    const uiProviderRequestSequence = providerRequestSequence(
+        'completion',
+        requestCounters.beforeCapture,
+        requestCounters.afterUiQueueQuiet,
+        captureStartedAt
+    );
+    const latestCompletionDebug = await readLastCompletionDebug();
+    const completionDebugHistory = completionDebugHistoryFromSnapshot(latestCompletionDebug);
+    const uiCoverage: UiCoverageReport = {
+        measurementMode: 'uiCoverage',
+        triggerSource: uiCoverageTriggerSource,
+        nativeTriggerDelta: requestCounters.nativeTriggerDelta,
+        uiTrigger,
+        providerRequestSequence: uiProviderRequestSequence,
+        latestCompletionDebug,
+        completionDebugHistory,
+        requestBurstCount: uiProviderRequestSequence.length,
+        firstProviderRequestAtMs: uiProviderRequestSequence[0]?.relativeStartedAtMs,
+        lastProviderRequestCompletedAtMs:
+            uiProviderRequestSequence[uiProviderRequestSequence.length - 1]?.relativeCompletedAtMs,
+        requestCounters: {
+            before: requestCounters.beforeCapture,
+            afterUiTrigger: requestCounters.afterUiTrigger,
+            afterQueueQuiet: requestCounters.afterUiQueueQuiet,
+            uiTriggerDelta: requestCounters.uiTriggerDelta,
+            totalTriggerDelta: requestCounters.uiQueueQuietDelta
+        },
+        queueQuiet
+    };
+    let completionResult: vscode.CompletionList | vscode.CompletionItem[] | undefined;
+    let error: string | undefined;
+    requestCounters.beforeProvider = await readRequestCounterSnapshot();
+    const providerStartedAt = Date.now();
+    try {
+        completionResult = await vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[] | undefined>(
+            'vscode.executeCompletionItemProvider',
+            document.uri,
+            position,
+            triggerCharacter
+        );
+    } catch (captureError) {
+        error = captureError instanceof Error ? captureError.message : String(captureError);
+    }
+    const executeProviderDurationMs = Date.now() - providerStartedAt;
+    requestCounters.afterProvider = await readRequestCounterSnapshot();
+    requestCounters.providerDelta = requestCounterDelta(
+        requestCounters.beforeProvider,
+        requestCounters.afterProvider
+    );
+    const providerVerification: ProviderVerificationReport = {
+        measurementMode: 'providerVerification',
+        durationMs: executeProviderDurationMs,
+        requestCounters: {
+            before: requestCounters.beforeProvider,
+            after: requestCounters.afterProvider,
+            delta: requestCounters.providerDelta
+        },
+        clientProviderTiming: providerTimingFromSnapshot(requestCounters.afterProvider, 'completion'),
+        uiQueueQuietTimedOut: queueQuiet.timedOut
+    };
+    const items = getCompletionItems(completionResult);
+    const labels = items
+        .map((item) => completionLabelToString((item as unknown as { label?: unknown }).label))
+        .filter((label) => label.length > 0);
+    const topLabels = labels.slice(0, maxLabels);
+    const expectedPresent = expectedLabels
+        ? Object.fromEntries(expectedLabels.map((label) => [label, labels.includes(label)]))
+        : undefined;
+
+    let lastCompletionDebug: unknown | undefined;
+    lastCompletionDebug = await readLastCompletionDebug();
+
+    let directServerCompletion: CompletionCaptureReport['directServerCompletion'] | undefined;
+    requestCounters.beforeDirectServer = await readRequestCounterSnapshot();
+    const directStartedAt = Date.now();
+    try {
+        const directResult = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
+            method: 'textDocument/completion',
+            params: {
+                textDocument: { uri: document.uri.toString() },
+                position: { line: position.line, character: position.character },
+                context: triggerCharacter
+                    ? { triggerKind: 2, triggerCharacter }
+                    : { triggerKind: 1 }
+            }
+        });
+        const directItems = getCompletionItems(directResult as vscode.CompletionList | vscode.CompletionItem[] | undefined);
+        const directLabels = directItems
+            .map((item) => completionLabelToString((item as unknown as { label?: unknown }).label))
+            .filter((label) => label.length > 0);
+        const directTopLabels = directLabels.slice(0, maxLabels);
+        directServerCompletion = {
+            durationMs: Date.now() - directStartedAt,
+            triggerKind,
+            itemCount: directLabels.length,
+            topLabels: directTopLabels,
+            expectedPresent: expectedLabels
+                ? Object.fromEntries(expectedLabels.map((label) => [label, directLabels.includes(label)]))
+                : undefined
+        };
+    } catch (captureError) {
+        directServerCompletion = {
+            durationMs: Date.now() - directStartedAt,
+            triggerKind,
+            itemCount: 0,
+            topLabels: [],
+            error: captureError instanceof Error ? captureError.message : String(captureError)
+        };
+    }
+    requestCounters.afterDirectServer = await readRequestCounterSnapshot();
+    requestCounters.directServerDelta = requestCounterDelta(
+        requestCounters.beforeDirectServer,
+        requestCounters.afterDirectServer
+    );
+    requestCounters.totalDelta = requestCounterDelta(
+        requestCounters.beforeCapture,
+        requestCounters.afterDirectServer ?? requestCounters.afterProvider
+    );
+
+    return {
+        measurementMode: 'separated-ui-provider',
+        uiCoverageTriggerSource,
+        durationMs: Date.now() - captureStartedAt,
+        executeProviderDurationMs,
+        triggerKind,
+        triggerCharacter,
+        triggerText: trigger?.triggerText,
+        triggerStartOffset: trigger?.triggerStartOffset,
+        triggerEndOffset: trigger?.offset,
+        itemCount: labels.length,
+        topLabels,
+        expectedLabels,
+        expectedPresent,
+        line: position.line,
+        character: position.character,
+        lineText,
+        uiTrigger,
+        uiCoverage,
+        providerVerification,
+        requestCounters,
+        error,
+        lastCompletionDebug,
+        directServerCompletion
+    };
+}
+
+async function captureSignatureHelpAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload?: ReplayTypingProbe['payload'],
+    trigger?: Pick<TypingProbePlan, 'triggerText' | 'triggerCharacter' | 'triggerStartOffset' | 'offset'> & {
+        triggerTyping?: TriggerTypingReport;
+    }
+): Promise<SignatureHelpCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const position = activeEditor.selection.active;
+    const lineText = getLineText(document, position.line);
+
+    const triggerCharacter = typeof payload?.triggerCharacter === 'string'
+        ? payload.triggerCharacter
+        : trigger?.triggerCharacter;
+    const retrigger = typeof payload?.retrigger === 'boolean' ? payload.retrigger : undefined;
+    const expectedSubstrings = Array.isArray(payload?.expectedSubstrings)
+        ? payload.expectedSubstrings.filter((entry): entry is string => typeof entry === 'string')
+        : undefined;
+    const maxSignatures = Math.max(1, Math.min(50, payload?.maxSignatures ?? 10));
+
+    const captureStartedAt = Date.now();
+    const requestCounters: RequestCounterTrace = {
+        beforeCapture: await readRequestCounterSnapshot(),
+        nativeTriggerDelta: trigger?.triggerTyping?.requestDelta
+    };
+    let uiTrigger: UiTriggerReport | undefined;
+    let queueQuiet: ProviderQueueQuietReport | undefined;
+    if (payload?.triggerParameterHintsUi === true) {
+        requestCounters.beforeUiTrigger = await readRequestCounterSnapshot();
+        uiTrigger = await runEditorUiTriggerCommand('editor.action.triggerParameterHints', payload);
+        requestCounters.afterUiTrigger = await readRequestCounterSnapshot();
+        requestCounters.uiTriggerDelta = requestCounterDelta(
+            requestCounters.beforeUiTrigger,
+            requestCounters.afterUiTrigger
+        );
+    }
+    await closeEditorUiWidgets();
+    queueQuiet = await waitForProviderQueueQuiet(
+        'signatureHelp',
+        requestCounters.beforeCapture
+    );
+    attachQueueQuietRelativeTimes(queueQuiet, captureStartedAt);
+    requestCounters.afterUiQueueQuiet = queueQuiet.after;
+    requestCounters.uiQueueQuietDelta = queueQuiet.requestDelta;
+    const uiProviderRequestSequence = providerRequestSequence(
+        'signatureHelp',
+        requestCounters.beforeCapture,
+        requestCounters.afterUiQueueQuiet,
+        captureStartedAt
+    );
+    const uiCoverage: UiCoverageReport = {
+        measurementMode: 'uiCoverage',
+        nativeTriggerDelta: requestCounters.nativeTriggerDelta,
+        uiTrigger,
+        providerRequestSequence: uiProviderRequestSequence,
+        requestBurstCount: uiProviderRequestSequence.length,
+        firstProviderRequestAtMs: uiProviderRequestSequence[0]?.relativeStartedAtMs,
+        lastProviderRequestCompletedAtMs:
+            uiProviderRequestSequence[uiProviderRequestSequence.length - 1]?.relativeCompletedAtMs,
+        requestCounters: {
+            before: requestCounters.beforeCapture,
+            afterUiTrigger: requestCounters.afterUiTrigger,
+            afterQueueQuiet: requestCounters.afterUiQueueQuiet,
+            uiTriggerDelta: requestCounters.uiTriggerDelta,
+            totalTriggerDelta: requestCounters.uiQueueQuietDelta
+        },
+        queueQuiet
+    };
+    let signatureHelp: vscode.SignatureHelp | undefined;
+    let error: string | undefined;
+    requestCounters.beforeProvider = await readRequestCounterSnapshot();
+    const providerStartedAt = Date.now();
+    try {
+        signatureHelp = await vscode.commands.executeCommand<vscode.SignatureHelp | undefined>(
+            'vscode.executeSignatureHelpProvider',
+            document.uri,
+            position,
+            triggerCharacter,
+            retrigger
+        );
+    } catch (captureError) {
+        error = captureError instanceof Error ? captureError.message : String(captureError);
+    }
+    const executeProviderDurationMs = Date.now() - providerStartedAt;
+    requestCounters.afterProvider = await readRequestCounterSnapshot();
+    requestCounters.providerDelta = requestCounterDelta(
+        requestCounters.beforeProvider,
+        requestCounters.afterProvider
+    );
+    const providerVerification: ProviderVerificationReport = {
+        measurementMode: 'providerVerification',
+        durationMs: executeProviderDurationMs,
+        requestCounters: {
+            before: requestCounters.beforeProvider,
+            after: requestCounters.afterProvider,
+            delta: requestCounters.providerDelta
+        },
+        clientProviderTiming: providerTimingFromSnapshot(requestCounters.afterProvider, 'signatureHelp'),
+        uiQueueQuietTimedOut: queueQuiet.timedOut
+    };
+    requestCounters.totalDelta = requestCounterDelta(
+        requestCounters.beforeCapture,
+        requestCounters.afterProvider
+    );
+    const allLabels = (signatureHelp?.signatures ?? [])
+        .map((signature) => String(signature.label ?? ''))
+        .filter((label) => label.length > 0);
+    const signatureLabels = allLabels.slice(0, maxSignatures);
+    const expectedMatched = expectedSubstrings
+        ? Object.fromEntries(
+              expectedSubstrings.map((needle) => [
+                  needle,
+                  signatureLabels.some((label) => label.includes(needle))
+              ])
+          )
+        : undefined;
+
+    return {
+        measurementMode: 'separated-ui-provider',
+        durationMs: Date.now() - captureStartedAt,
+        executeProviderDurationMs,
+        triggerCharacter,
+        triggerText: trigger?.triggerText,
+        triggerStartOffset: trigger?.triggerStartOffset,
+        triggerEndOffset: trigger?.offset,
+        retrigger,
+        signatureCount: allLabels.length,
+        signatureLabels,
+        activeSignature: signatureHelp?.activeSignature,
+        activeParameter: signatureHelp?.activeParameter,
+        expectedSubstrings,
+        expectedMatched,
+        line: position.line,
+        character: position.character,
+        lineText,
+        uiTrigger,
+        uiCoverage,
+        providerVerification,
+        requestCounters,
+        error
+    };
+}
+
+function createProbeStep(probe: ReplayTypingProbe): ReplayStep {
+    return {
+        kind: 'typeText',
+        label: probe.label,
+        payload: { text: '' },
+        samplingWindow: probe.samplingWindow
+    };
+}
+
+async function sampleTypingProbe(
+    activeEditor: vscode.TextEditor,
+    plan: TypingProbePlan,
+    sourceText: string,
+    triggerTyping?: TriggerTypingReport
+): Promise<FullDocumentTypingProbeReport> {
+    const probe = plan.probe;
+    const baselineInternalStatus = probe.samplingWindow
+        ? await vscode.commands.executeCommand<any>('nsf._getInternalStatus')
+        : undefined;
+    let completionPromise: Promise<CompletionCaptureReport> | undefined;
+    let signaturePromise: Promise<SignatureHelpCaptureReport> | undefined;
+    let diagnosticsPromise: Promise<DiagnosticsCaptureReport> | undefined;
+    const triggerContext = {
+        ...plan,
+        triggerTyping
+    };
+    if (probe.kind === 'completion') {
+        completionPromise = captureCompletionAtEditor(activeEditor, probe.payload, triggerContext);
+    } else if (probe.kind === 'signatureHelp') {
+        signaturePromise = captureSignatureHelpAtEditor(activeEditor, probe.payload, triggerContext);
+    } else {
+        diagnosticsPromise = captureDiagnosticsAtEditor(activeEditor, probe.payload);
+    }
+    const samples = await sampleReplayWindow(
+        createProbeStep(probe),
+        activeEditor.document.uri.toString(),
+        baselineInternalStatus
+    );
+    return {
+        label: probe.label,
+        category: probe.category,
+        kind: probe.kind,
+        offset: plan.offset,
+        line: lineAtOffset(sourceText, plan.offset),
+        triggerText: plan.triggerText,
+        triggerCharacter: plan.triggerCharacter,
+        triggerStartOffset: plan.triggerStartOffset,
+        triggerEndOffset: plan.offset,
+        nativeTrigger: plan.nativeTrigger,
+        triggerTyping,
+        samples,
+        completionCapture: completionPromise ? await completionPromise : undefined,
+        signatureHelpCapture: signaturePromise ? await signaturePromise : undefined,
+        diagnosticsCapture: diagnosticsPromise ? await diagnosticsPromise : undefined
+    };
+}
+
+async function replaceDocumentText(
+    document: vscode.TextDocument,
+    text: string
+): Promise<void> {
+    const fullRange = new vscode.Range(
+        document.positionAt(0),
+        document.positionAt(document.getText().length)
+    );
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(document.uri, fullRange, text);
+    await vscode.workspace.applyEdit(edit);
+}
+
+async function restoreTypingCursorToDocumentEnd(document: vscode.TextDocument): Promise<vscode.TextEditor> {
+    const editor = await vscode.window.showTextDocument(document, { preview: false });
+    const position = document.positionAt(document.getText().length);
+    editor.selection = new vscode.Selection(position, position);
+    return editor;
+}
+
+function createTypingProbePlans(
+    sourceText: string,
+    rawProbes: ReplayTypingProbe[],
+    defaults?: Extract<ReplayStep, { kind: 'typeDocumentFromDisk' }>['payload']
+): TypingProbePlan[] {
+    const defaultProbePayload: ReplayTypingProbe['payload'] = {
+        triggerSuggestUi: defaults?.triggerSuggestUi,
+        completionUiMode: defaults?.completionUiMode,
+        triggerParameterHintsUi: defaults?.triggerParameterHintsUi,
+        uiTriggerDelayMs: defaults?.uiTriggerDelayMs
+    };
+    return rawProbes
+        .map((rawProbe) => {
+            const probe: ReplayTypingProbe = {
+                ...rawProbe,
+                payload: {
+                    ...defaultProbePayload,
+                    ...(rawProbe.payload ?? {})
+                }
+            };
+            const offset = findNthEndOffset(sourceText, probe.afterText, probe.occurrence ?? 1);
+            const triggerText = typeof probe.triggerText === 'string' && probe.triggerText.length > 0
+                ? probe.triggerText
+                : undefined;
+            const triggerCharacter = typeof probe.payload?.triggerCharacter === 'string'
+                ? probe.payload.triggerCharacter
+                : lastCharacter(triggerText);
+            const nativeTrigger = typeof rawProbe.payload?.nativeTrigger === 'boolean'
+                ? rawProbe.payload.nativeTrigger
+                : (defaults?.nativeTrigger === true && probe.kind === 'completion');
+            let triggerStartOffset = offset;
+            let triggerError: string | undefined;
+
+            if (offset < 0) {
+                triggerError = `Probe text not found: ${probe.afterText}`;
+            } else if (triggerText) {
+                triggerStartOffset = offset - triggerText.length;
+                if (triggerStartOffset < 0 || sourceText.slice(triggerStartOffset, offset) !== triggerText) {
+                    triggerError = `Probe triggerText must be the suffix of afterText: ${triggerText}`;
+                }
+            } else if (probe.kind === 'completion') {
+                triggerError = 'Completion probe must declare triggerText so the replay can type the trigger before capture.';
+            }
+
+            return {
+                probe,
+                offset,
+                triggerText,
+                triggerCharacter,
+                triggerStartOffset,
+                nativeTrigger,
+                triggerError
+            };
+        })
+        .sort((lhs, rhs) => {
+            const lhsSortOffset = lhs.triggerStartOffset < 0 ? Number.MAX_SAFE_INTEGER : lhs.triggerStartOffset;
+            const rhsSortOffset = rhs.triggerStartOffset < 0 ? Number.MAX_SAFE_INTEGER : rhs.triggerStartOffset;
+            return lhsSortOffset - rhsSortOffset || lhs.offset - rhs.offset;
+        });
+}
+
+function collectFullDocumentTypingAnomalies(report: FullDocumentTypingReport): string[] {
+    const anomalies: string[] = [];
+    if (!report.finalTextMatchesSource) {
+        anomalies.push('typed-document-mismatch');
+    }
+    for (const probe of report.probes) {
+        const label = probe.label.replace(/\s+/g, '-').toLowerCase();
+        if (probe.error) {
+            anomalies.push(`typing-probe-error:${label}`);
+        }
+        if (probe.kind === 'completion') {
+            if (!probe.triggerText) {
+                anomalies.push(`completion-trigger-text-missing:${label}`);
+            }
+            if (probe.completionCapture?.triggerKind !== 'TriggerCharacter') {
+                anomalies.push(`completion-trigger-character-not-used:${label}`);
+            }
+            for (const missing of expectedMissing(probe.completionCapture?.expectedPresent)) {
+                anomalies.push(`completion-expected-missing:${label}:${missing}`);
+            }
+            if (probe.completionCapture?.error) {
+                anomalies.push(`completion-capture-error:${label}`);
+            }
+            if (probe.completionCapture?.uiTrigger?.error) {
+                anomalies.push(`completion-ui-trigger-error:${label}`);
+            }
+        }
+        if (probe.kind === 'signatureHelp') {
+            for (const missing of expectedMissing(probe.signatureHelpCapture?.expectedMatched)) {
+                anomalies.push(`signature-expected-missing:${label}:${missing}`);
+            }
+            if (probe.signatureHelpCapture?.error) {
+                anomalies.push(`signature-capture-error:${label}`);
+            }
+            if (probe.signatureHelpCapture?.uiTrigger?.error) {
+                anomalies.push(`signature-ui-trigger-error:${label}`);
+            }
+        }
+        if (probe.kind === 'diagnostics') {
+            if (probe.diagnosticsCapture?.withinExpectedDiagnostics === false) {
+                anomalies.push(`diagnostics-count-out-of-range:${label}`);
+            }
+            if (probe.diagnosticsCapture?.withinExpectedErrors === false) {
+                anomalies.push(`diagnostics-errors-out-of-range:${label}`);
+            }
+        }
+    }
+    return anomalies;
+}
+
+async function runFullDocumentTypingStep(
+    activeEditor: vscode.TextEditor,
+    step: Extract<ReplayStep, { kind: 'typeDocumentFromDisk' }>
+): Promise<FullDocumentTypingReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const sourceText = document.getText();
+    const sourceLineCount = countLines(sourceText);
+    const sourceCharacterCount = sourceText.length;
+    const charactersPerEdit = clampInt(step.payload?.charactersPerEdit, 24, 1, 512);
+    const checkpointEveryLines = clampInt(step.payload?.checkpointEveryLines, 40, 1, 10000);
+    const checkpointSamplingDelaysMs = step.payload?.checkpointSamplingDelaysMs ?? [0, 80, 240, 640];
+    const rawProbes = Array.isArray(step.payload?.probes) ? step.payload?.probes : [];
+    const probePlans = createTypingProbePlans(sourceText, rawProbes, step.payload);
+
+    await replaceDocumentText(document, '');
+    activeEditor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(0, 0));
+
+    const startedAt = Date.now();
+    const checkpoints: FullDocumentTypingCheckpointReport[] = [];
+    const probes: FullDocumentTypingProbeReport[] = [];
+    let typedOffset = 0;
+    let nextCheckpointLine = checkpointEveryLines;
+    let probeIndex = 0;
+
+    for (const plan of probePlans) {
+        if (plan.triggerError) {
+            probes.push({
+                label: plan.probe.label,
+                category: plan.probe.category,
+                kind: plan.probe.kind,
+                offset: plan.offset,
+                line: lineAtOffset(sourceText, plan.offset),
+                triggerText: plan.triggerText,
+                triggerCharacter: plan.triggerCharacter,
+                triggerStartOffset: plan.triggerStartOffset,
+                triggerEndOffset: plan.offset,
+                nativeTrigger: plan.nativeTrigger,
+                samples: [],
+                error: plan.triggerError
+            });
+        }
+    }
+
+    while (typedOffset < sourceText.length) {
+        while (probeIndex < probePlans.length && probePlans[probeIndex].triggerError) {
+            probeIndex++;
+        }
+        while (
+            probeIndex < probePlans.length &&
+            !probePlans[probeIndex].triggerError &&
+            probePlans[probeIndex].triggerStartOffset < typedOffset &&
+            probePlans[probeIndex].offset !== typedOffset
+        ) {
+            const plan = probePlans[probeIndex];
+            probes.push({
+                label: plan.probe.label,
+                category: plan.probe.category,
+                kind: plan.probe.kind,
+                offset: plan.offset,
+                line: lineAtOffset(sourceText, plan.offset),
+                triggerText: plan.triggerText,
+                triggerCharacter: plan.triggerCharacter,
+                triggerStartOffset: plan.triggerStartOffset,
+                triggerEndOffset: plan.offset,
+                nativeTrigger: plan.nativeTrigger,
+                samples: [],
+                error: `Probe trigger was skipped before capture. typedOffset=${typedOffset}`
+            });
+            probeIndex++;
+        }
+
+        const nextProbeOffset = probeIndex < probePlans.length
+            ? probePlans[probeIndex].triggerStartOffset
+            : sourceText.length;
+        const nextOffset = Math.min(sourceText.length, typedOffset + charactersPerEdit, nextProbeOffset);
+        if (nextOffset > typedOffset) {
+            await typeTextForTests(activeEditor, sourceText.slice(typedOffset, nextOffset));
+            typedOffset = nextOffset;
+            activeEditor = await restoreTypingCursorToDocumentEnd(document);
+        }
+
+        while (probeIndex < probePlans.length) {
+            const plan = probePlans[probeIndex];
+            let triggerTyping: TriggerTypingReport | undefined;
+            if (plan.triggerError) {
+                probeIndex++;
+                continue;
+            }
+            if (plan.triggerStartOffset === typedOffset && plan.triggerText) {
+                const triggerBefore = await readRequestCounterSnapshot();
+                const triggerStartedAt = Date.now();
+                for (const ch of plan.triggerText) {
+                    if (plan.nativeTrigger) {
+                        await typeWithEditorFocusForTests(activeEditor, ch);
+                    } else {
+                        await typeTextForTests(activeEditor, ch);
+                        activeEditor = await restoreTypingCursorToDocumentEnd(document);
+                    }
+                    await delay(0);
+                }
+                const triggerDurationMs = Date.now() - triggerStartedAt;
+                if (plan.nativeTrigger) {
+                    activeEditor = vscode.window.activeTextEditor ?? activeEditor;
+                }
+                const triggerAfter = await readRequestCounterSnapshot();
+                triggerTyping = {
+                    durationMs: triggerDurationMs,
+                    typedText: plan.triggerText,
+                    nativeTrigger: plan.nativeTrigger,
+                    before: triggerBefore,
+                    after: triggerAfter,
+                    requestDelta: requestCounterDelta(triggerBefore, triggerAfter),
+                    providerRequestSequence:
+                        plan.probe.kind === 'completion' || plan.probe.kind === 'signatureHelp'
+                            ? providerRequestSequence(
+                                plan.probe.kind,
+                                triggerBefore,
+                                triggerAfter,
+                                triggerStartedAt
+                            )
+                            : undefined
+                };
+                typedOffset = plan.offset;
+            } else if (plan.offset !== typedOffset) {
+                break;
+            }
+            probes.push(await sampleTypingProbe(activeEditor, plan, sourceText, triggerTyping));
+            await closeEditorUiWidgets();
+            activeEditor = await restoreTypingCursorToDocumentEnd(document);
+            probeIndex++;
+        }
+
+        const currentLine = lineAtOffset(sourceText, typedOffset);
+        if (currentLine + 1 >= nextCheckpointLine || typedOffset >= sourceText.length) {
+            const baselineInternalStatus = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
+            const checkpointStep: ReplayStep = {
+                kind: 'typeText',
+                label: `${step.label} checkpoint line ${currentLine + 1}`,
+                payload: { text: '' },
+                samplingWindow: {
+                    label: `full-file-line-${currentLine + 1}`,
+                    delaysMs: checkpointSamplingDelaysMs,
+                    captureRuntimeDebug: true,
+                    captureInteractiveDebug: true
+                }
+            };
+            const samples = await sampleReplayWindow(
+                checkpointStep,
+                activeEditor.document.uri.toString(),
+                baselineInternalStatus
+            );
+            checkpoints.push({
+                label: checkpointStep.label,
+                offset: typedOffset,
+                line: currentLine,
+                samples,
+                diagnostics: await captureDiagnosticsAtEditor(activeEditor)
+            });
+            activeEditor = await restoreTypingCursorToDocumentEnd(document);
+            while (currentLine + 1 >= nextCheckpointLine) {
+                nextCheckpointLine += checkpointEveryLines;
+            }
+        }
+    }
+
+    const finalText = document.getText();
+    const finalTextMatchesSource = finalText === sourceText;
+    let firstMismatchOffset: number | undefined;
+    let sourceMismatchSnippet: string | undefined;
+    let finalMismatchSnippet: string | undefined;
+    if (!finalTextMatchesSource) {
+        const maxLength = Math.max(sourceText.length, finalText.length);
+        for (let index = 0; index < maxLength; index++) {
+            if (sourceText[index] !== finalText[index]) {
+                firstMismatchOffset = index;
+                break;
+            }
+        }
+        const snippetStart = Math.max(0, (firstMismatchOffset ?? 0) - 40);
+        const snippetEnd = Math.min(maxLength, (firstMismatchOffset ?? 0) + 80);
+        sourceMismatchSnippet = sourceText.slice(snippetStart, snippetEnd);
+        finalMismatchSnippet = finalText.slice(snippetStart, snippetEnd);
+    }
+
+    const report: FullDocumentTypingReport = {
+        durationMs: Date.now() - startedAt,
+        sourceLineCount,
+        sourceCharacterCount,
+        finalCharacterCount: finalText.length,
+        finalTextMatchesSource,
+        firstMismatchOffset,
+        sourceMismatchSnippet,
+        finalMismatchSnippet,
+        charactersPerEdit,
+        checkpointEveryLines,
+        checkpointCount: checkpoints.length,
+        probeCount: probes.length,
+        anomalies: [],
+        checkpoints,
+        probes
+    };
+    report.anomalies = collectFullDocumentTypingAnomalies(report);
+    return report;
+}
 
 export async function runReplayScript(script: ReplayScript): Promise<{ scriptId: string; steps: ReplayStepReport[] }> {
     const originalContents = new Map<string, string>();
@@ -143,15 +1590,16 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
     try {
         for (const step of script.steps) {
             const actionStartedAtMs = Date.now();
-            const delaysMs = step.samplingWindow?.delaysMs?.length ?? 0;
+            const samplingDelays = resolveReplaySamplingDelays(step.samplingWindow);
             let baselineInternalStatus: unknown | undefined;
-            if (delaysMs > 0) {
+            if (samplingDelays.length > 0) {
                 baselineInternalStatus = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
             }
 
             let completionCapture: CompletionCaptureReport | undefined;
             let signatureHelpCapture: SignatureHelpCaptureReport | undefined;
             let workspaceSymbolCapture: WorkspaceSymbolCaptureReport | undefined;
+            let fullDocumentTyping: FullDocumentTypingReport | undefined;
             let completionCapturePromise: Promise<CompletionCaptureReport> | undefined;
             let signatureHelpCapturePromise: Promise<SignatureHelpCaptureReport> | undefined;
 
@@ -170,6 +1618,13 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                     activeEditor = await vscode.window.showTextDocument(document, { preview: false });
                     activeEditor.selection = new vscode.Selection(resolved.position, resolved.position);
                     recordDocumentSnapshot(document);
+                    break;
+                }
+                case 'setActiveUnit': {
+                    const resolved = await resolveReplayAnchor(step.target);
+                    await vscode.commands.executeCommand('nsf._setActiveUnitForTests', resolved.uri.toString());
+                    activeEditor = vscode.window.activeTextEditor ?? activeEditor;
+                    recordDocumentSnapshot(activeEditor?.document);
                     break;
                 }
                 case 'selectRange': {
@@ -196,6 +1651,16 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                     recordDocumentSnapshot(activeEditor.document);
                     break;
                 }
+                case 'typeDocumentFromDisk': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] typeDocumentFromDisk requires an active editor. Step: ${step.label}`);
+                    }
+                    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+                    recordDocumentSnapshot(activeEditor.document);
+                    fullDocumentTyping = await runFullDocumentTypingStep(activeEditor, step);
+                    recordDocumentSnapshot(activeEditor.document);
+                    break;
+                }
                 case 'deleteLeft': {
                     if (!activeEditor) {
                         throw new Error(`[real-replay] deleteLeft requires an active editor. Step: ${step.label}`);
@@ -217,102 +1682,8 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                         throw new Error(`[real-replay] captureCompletion requires an active editor. Step: ${step.label}`);
                     }
 
-                    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
-                    const document = activeEditor.document;
-                    const position = activeEditor.selection.active;
-                    const lineText = getLineText(document, position.line);
-
-                    const triggerCharacter =
-                        typeof step.payload?.triggerCharacter === 'string' ? step.payload.triggerCharacter : undefined;
-                    const expectedLabels = Array.isArray(step.payload?.expectedLabels)
-                        ? step.payload?.expectedLabels.filter((entry): entry is string => typeof entry === 'string')
-                        : undefined;
-                    const maxLabels = Math.max(1, Math.min(200, step.payload?.maxLabels ?? 50));
-
-                    const startedAt = Date.now();
-                    const completionProviderPromise = Promise.resolve(
-                        vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[] | undefined>(
-                            'vscode.executeCompletionItemProvider',
-                            document.uri,
-                            position,
-                            triggerCharacter
-                        )
-                    )
-                        .then((completionResult) => ({ completionResult, endedAt: Date.now() }))
-                        .catch((error) => ({
-                            completionResult: undefined,
-                            endedAt: Date.now(),
-                            error: error instanceof Error ? error.message : String(error)
-                        }));
-
                     // Do not await here: sample windows should run while the provider is in-flight.
-                    completionCapturePromise = (async (): Promise<CompletionCaptureReport> => {
-                        const finished = await completionProviderPromise;
-                        const durationMs = finished.endedAt - startedAt;
-                        const items = getCompletionItems(finished.completionResult);
-                        const labels = items
-                            .map((item) => completionLabelToString((item as unknown as { label?: unknown }).label))
-                            .filter((label) => label.length > 0);
-                        const topLabels = labels.slice(0, maxLabels);
-                        const expectedPresent = expectedLabels
-                            ? Object.fromEntries(expectedLabels.map((label) => [label, topLabels.includes(label)]))
-                            : undefined;
-
-                        let lastCompletionDebug: unknown | undefined;
-                        try {
-                            lastCompletionDebug = await vscode.commands.executeCommand<any>('nsf._getLastCompletionDebug');
-                        } catch {
-                            // ignore
-                        }
-                        let directServerCompletion: CompletionCaptureReport['directServerCompletion'] | undefined;
-                        const directStartedAt = Date.now();
-                        try {
-                            const directResult = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
-                                method: 'textDocument/completion',
-                                params: {
-                                    textDocument: { uri: document.uri.toString() },
-                                    position: { line: position.line, character: position.character }
-                                }
-                            });
-                            const directItems = getCompletionItems(directResult as vscode.CompletionList | vscode.CompletionItem[] | undefined);
-                            const directLabels = directItems
-                                .map((item) => completionLabelToString((item as unknown as { label?: unknown }).label))
-                                .filter((label) => label.length > 0);
-                            const directTopLabels = directLabels.slice(0, maxLabels);
-                            directServerCompletion = {
-                                durationMs: Date.now() - directStartedAt,
-                                itemCount: directLabels.length,
-                                topLabels: directTopLabels,
-                                expectedPresent: expectedLabels
-                                    ? Object.fromEntries(
-                                          expectedLabels.map((label) => [label, directTopLabels.includes(label)])
-                                      )
-                                    : undefined
-                            };
-                        } catch (error) {
-                            directServerCompletion = {
-                                durationMs: Date.now() - directStartedAt,
-                                itemCount: 0,
-                                topLabels: [],
-                                error: error instanceof Error ? error.message : String(error)
-                            };
-                        }
-
-                        return {
-                            durationMs,
-                            triggerCharacter,
-                            itemCount: labels.length,
-                            topLabels,
-                            expectedLabels,
-                            expectedPresent,
-                            line: position.line,
-                            character: position.character,
-                            lineText,
-                            error: 'error' in finished ? finished.error : undefined,
-                            lastCompletionDebug,
-                            directServerCompletion
-                        };
-                    })();
+                    completionCapturePromise = captureCompletionAtEditor(activeEditor, step.payload);
                     break;
                 }
                 case 'captureSignatureHelp': {
@@ -322,69 +1693,8 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                         );
                     }
 
-                    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
-                    const document = activeEditor.document;
-                    const position = activeEditor.selection.active;
-                    const lineText = getLineText(document, position.line);
-
-                    const triggerCharacter =
-                        typeof step.payload?.triggerCharacter === 'string' ? step.payload.triggerCharacter : undefined;
-                    const retrigger = typeof step.payload?.retrigger === 'boolean' ? step.payload.retrigger : undefined;
-                    const expectedSubstrings = Array.isArray(step.payload?.expectedSubstrings)
-                        ? step.payload?.expectedSubstrings.filter((entry): entry is string => typeof entry === 'string')
-                        : undefined;
-                    const maxSignatures = Math.max(1, Math.min(50, step.payload?.maxSignatures ?? 10));
-
-                    const startedAt = Date.now();
-                    const signatureProviderPromise = Promise.resolve(
-                        vscode.commands.executeCommand<vscode.SignatureHelp | undefined>(
-                            'vscode.executeSignatureHelpProvider',
-                            document.uri,
-                            position,
-                            triggerCharacter,
-                            retrigger
-                        )
-                    )
-                        .then((signatureHelp) => ({ signatureHelp, endedAt: Date.now() }))
-                        .catch((error) => ({
-                            signatureHelp: undefined,
-                            endedAt: Date.now(),
-                            error: error instanceof Error ? error.message : String(error)
-                        }));
-
                     // Do not await here: sample windows should run while the provider is in-flight.
-                    signatureHelpCapturePromise = (async (): Promise<SignatureHelpCaptureReport> => {
-                        const finished = await signatureProviderPromise;
-                        const durationMs = finished.endedAt - startedAt;
-                        const allLabels = (finished.signatureHelp?.signatures ?? [])
-                            .map((signature) => String(signature.label ?? ''))
-                            .filter((label) => label.length > 0);
-                        const signatureLabels = allLabels.slice(0, maxSignatures);
-                        const expectedMatched = expectedSubstrings
-                            ? Object.fromEntries(
-                                  expectedSubstrings.map((needle) => [
-                                      needle,
-                                      signatureLabels.some((label) => label.includes(needle))
-                                  ])
-                              )
-                            : undefined;
-
-                        return {
-                            durationMs,
-                            triggerCharacter,
-                            retrigger,
-                            signatureCount: allLabels.length,
-                            signatureLabels,
-                            activeSignature: finished.signatureHelp?.activeSignature,
-                            activeParameter: finished.signatureHelp?.activeParameter,
-                            expectedSubstrings,
-                            expectedMatched,
-                            line: position.line,
-                            character: position.character,
-                            lineText,
-                            error: 'error' in finished ? finished.error : undefined
-                        };
-                    })();
+                    signatureHelpCapturePromise = captureSignatureHelpAtEditor(activeEditor, step.payload);
                     break;
                 }
                 case 'captureWorkspaceSymbols': {
@@ -474,6 +1784,10 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
             if (signatureHelpCapturePromise) {
                 signatureHelpCapture = await signatureHelpCapturePromise;
             }
+            const anomalies = detectReplayAnomalies(step, samples);
+            if (fullDocumentTyping?.anomalies.length) {
+                anomalies.push(...fullDocumentTyping.anomalies);
+            }
             stepReports.push({
                 stepLabel: step.label,
                 stepKind: step.kind,
@@ -481,10 +1795,11 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                 actionEndedAtMs: Date.now(),
                 documentUri,
                 samples,
-                anomalies: detectReplayAnomalies(step, samples),
+                anomalies,
                 completionCapture,
                 signatureHelpCapture,
-                workspaceSymbolCapture
+                workspaceSymbolCapture,
+                fullDocumentTyping
             });
         }
     } finally {

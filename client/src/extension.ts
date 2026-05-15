@@ -5,12 +5,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { AsyncLocalStorage } from 'async_hooks';
 import {
 	workspace,
 	ExtensionContext,
 	window,
 	commands,
-	ConfigurationTarget,
 	StatusBarAlignment,
 	Uri,
 	TextDocument,
@@ -46,7 +46,9 @@ import { createStatusCommandHandlers } from './client_status_commands';
 import {
 	buildRuntimeSettings,
 	normalizeIncludePaths,
-	promptIntellisionPathIfMissing
+	promptIntellisionPathIfMissing,
+	seedPreprocessorMacrosSettingIfMissing,
+	type PreprocessorMacroPresetResponse
 } from './client_config_sync';
 import {
 	formatIndexingProgress,
@@ -60,6 +62,11 @@ import { buildMainStatusBarPresentation } from './client_status_ui';
 import { registerUserCommands } from './client_user_commands';
 import { registerWatchedFileForwarding } from './client_watched_files';
 import { createRealWorkspaceReplayRecorder } from './client_real_workspace_replay_recording';
+import {
+	CompletionRequestCoordinator,
+	type CompletionCoordinatorAction,
+	type CompletionCoordinatorDecision
+} from './client_completion_request_coordinator';
 import { LSP_METHOD_KEYS } from './lsp_method_keys';
 
 import {
@@ -170,12 +177,123 @@ export function activate(context: ExtensionContext) {
 	let gitStormPollingTimer: NodeJS.Timeout | undefined;
 	let activeRpcCount = 0;
 	let lastRpcMethod = '';
-	const clientMetric = () => ({ samples: 0, totalMs: 0, maxMs: 0 });
-	const completionClientMetrics = {
+	type ClientMetric = { samples: number; totalMs: number; maxMs: number };
+	type ProviderTimingKind = 'completion' | 'signatureHelp';
+	type ProviderTimingDraft = {
+		kind: ProviderTimingKind;
+		sequence: number;
+		startedAt: number;
+		activeSameKindProviderCountAtStart: number;
+		documentUri: string;
+		document: TextDocument;
+		documentVersion: number;
+		documentIsDirty: boolean;
+		documentVersionAtNextStart?: number;
+		documentIsDirtyAtNextStart?: boolean;
+		documentVersionAtLspStart?: number;
+		documentIsDirtyAtLspStart?: boolean;
+		documentVersionAtProviderReturn?: number;
+		documentIsDirtyAtProviderReturn?: boolean;
+		line?: number;
+		character?: number;
+		triggerKind?: number;
+		triggerCharacter?: string;
+		isRetrigger?: boolean;
+		prefixLength?: number;
+		completionCoordinatorAction?: CompletionCoordinatorAction;
+		completionCoordinatorSource?: CompletionCoordinatorDecision['source'];
+		completionCoordinatorKey?: string;
+		completionCoordinatorPrefixLength?: number;
+		completionDebugRequestId?: string;
+		nextStartedAt?: number;
+		nextCompletedAt?: number;
+		activeSameKindNextCountAtStart?: number;
+		lspRequestStartedAt?: number;
+		lspRequestCompletedAt?: number;
+		lspRequestCount: number;
+		code2ProtocolMs: number;
+		lspRequestMs: number;
+		protocol2CodeMs: number;
+		error?: string;
+	};
+	type ProviderTimingSnapshot = {
+		kind: ProviderTimingKind;
+		sequence: number;
+		totalMs: number;
+		awaitSyncMs: number;
+		code2ProtocolMs: number;
+		lspRequestMs: number;
+		protocol2CodeMs: number;
+		providerReturnMs: number;
+		documentUri: string;
+		documentVersion: number;
+		documentIsDirty: boolean;
+		documentVersionAtNextStart?: number;
+		documentIsDirtyAtNextStart?: boolean;
+		documentVersionAtLspStart?: number;
+		documentIsDirtyAtLspStart?: boolean;
+		documentVersionAtProviderReturn?: number;
+		documentIsDirtyAtProviderReturn?: boolean;
+		startedAtMs: number;
+		completedAtMs: number;
+		activeSameKindProviderCountAtStart: number;
+		activeSameKindNextCountAtStart?: number;
+		nextStartedAtMs?: number;
+		nextCompletedAtMs?: number;
+		nextWaitMs?: number;
+		nextExecutionMs?: number;
+		lspRequestStartedAtMs?: number;
+		lspRequestCompletedAtMs?: number;
+		lspRequestCount: number;
+		lspStartDelayMs?: number;
+		lspCompletionToProviderReturnMs?: number;
+		line?: number;
+		character?: number;
+		triggerKind?: number;
+		triggerCharacter?: string;
+		isRetrigger?: boolean;
+		prefixLength?: number;
+		completionCoordinatorAction?: CompletionCoordinatorAction;
+		completionCoordinatorSource?: CompletionCoordinatorDecision['source'];
+		completionCoordinatorKey?: string;
+		completionCoordinatorPrefixLength?: number;
+		completionDebugRequestId?: string;
+		itemCount?: number;
+		signatureCount?: number;
+		error?: string;
+	};
+	type ProviderClientMetrics = {
+		requests: number;
+		awaitSync: ClientMetric;
+		next: ClientMetric;
+		code2Protocol: ClientMetric;
+		lspRequest: ClientMetric;
+		protocol2Code: ClientMetric;
+		providerReturn: ClientMetric;
+		sequence: number;
+		lastTiming?: ProviderTimingSnapshot;
+		recentTimings: ProviderTimingSnapshot[];
+	};
+	const clientMetric = (): ClientMetric => ({ samples: 0, totalMs: 0, maxMs: 0 });
+	const createProviderClientMetrics = (): ProviderClientMetrics => ({
 		requests: 0,
 		awaitSync: clientMetric(),
-		next: clientMetric()
+		next: clientMetric(),
+		code2Protocol: clientMetric(),
+		lspRequest: clientMetric(),
+		protocol2Code: clientMetric(),
+		providerReturn: clientMetric(),
+		sequence: 0,
+		lastTiming: undefined,
+		recentTimings: []
+	});
+	const completionClientMetrics = {
+		...createProviderClientMetrics()
 	};
+	const completionRequestCoordinator = new CompletionRequestCoordinator();
+	context.subscriptions.push({
+		dispose: () => completionRequestCoordinator.dispose()
+	});
 	const hoverClientMetrics = {
 		requests: clientMetric(),
 		rpc: clientMetric(),
@@ -184,17 +302,296 @@ export function activate(context: ExtensionContext) {
 		protocol2Code: clientMetric()
 	};
 	const signatureHelpClientMetrics = {
-		requests: 0,
-		awaitSync: clientMetric(),
-		next: clientMetric()
+		...createProviderClientMetrics()
 	};
-	const recordClientMetric = (metric: { samples: number; totalMs: number; maxMs: number }, durationMs: number): void => {
+	const providerTimingStack: ProviderTimingDraft[] = [];
+	const activeProviderTimingStack: ProviderTimingDraft[] = [];
+	const activeProviderTimingStorage = new AsyncLocalStorage<ProviderTimingDraft>();
+	const runInProviderTimingContext = activeProviderTimingStorage.run.bind(activeProviderTimingStorage) as
+		<T>(store: ProviderTimingDraft, callback: () => T) => T;
+	const providerTimingHookClients = new WeakSet<object>();
+	const recordClientMetric = (metric: ClientMetric, durationMs: number): void => {
 		metric.samples++;
 		metric.totalMs += durationMs;
 		metric.maxMs = Math.max(metric.maxMs, durationMs);
 	};
 	const avgClientMetric = (metric: { samples: number; totalMs: number }): number =>
 		metric.samples > 0 ? metric.totalMs / metric.samples : 0;
+	const currentProviderTiming = (kind: ProviderTimingKind): ProviderTimingDraft | undefined => {
+		const draft = activeProviderTimingStorage.getStore();
+		return draft?.kind === kind ? draft : undefined;
+	};
+	const runWithActiveProviderTiming = async <T>(
+		draft: ProviderTimingDraft,
+		run: () => Thenable<T> | Promise<T> | T
+	): Promise<T> => {
+		const nextStartedAt = Date.now();
+		draft.nextStartedAt = draft.nextStartedAt ?? nextStartedAt;
+		draft.activeSameKindNextCountAtStart = activeProviderTimingStack.filter((entry) => entry.kind === draft.kind).length;
+		draft.documentVersionAtNextStart = draft.document.version;
+		draft.documentIsDirtyAtNextStart = draft.document.isDirty;
+		activeProviderTimingStack.push(draft);
+		try {
+			return await runInProviderTimingContext(draft, async () => await run());
+		} finally {
+			draft.nextCompletedAt = Date.now();
+			const stackIndex = activeProviderTimingStack.lastIndexOf(draft);
+			if (stackIndex >= 0) {
+				activeProviderTimingStack.splice(stackIndex, 1);
+			}
+		}
+	};
+	const providerMetricsForKind = (kind: ProviderTimingKind): ProviderClientMetrics =>
+		kind === 'completion' ? completionClientMetrics : signatureHelpClientMetrics;
+	const completionPrefixLength = (document: TextDocument, position?: Position): number | undefined => {
+		if (!position) {
+			return undefined;
+		}
+		const lineText = document.lineAt(position.line).text.slice(0, position.character);
+		const match = lineText.match(/[A-Za-z0-9_]*$/);
+		return match ? match[0].length : 0;
+	};
+	const beginProviderTiming = (
+		kind: ProviderTimingKind,
+		document: TextDocument,
+		position?: Position,
+		providerContext?: unknown
+	): ProviderTimingDraft => {
+		const metrics = providerMetricsForKind(kind);
+		metrics.requests++;
+		metrics.sequence++;
+		recordClientMetric(metrics.awaitSync, 0);
+		const context = providerContext as {
+			triggerKind?: unknown;
+			triggerCharacter?: unknown;
+			isRetrigger?: unknown;
+		} | undefined;
+		const draft: ProviderTimingDraft = {
+			kind,
+			sequence: metrics.sequence,
+			startedAt: Date.now(),
+			activeSameKindProviderCountAtStart: providerTimingStack.filter((entry) => entry.kind === kind).length,
+			documentUri: document.uri.toString(),
+			document,
+			documentVersion: document.version,
+			documentIsDirty: document.isDirty,
+			line: position?.line,
+			character: position?.character,
+			triggerKind: typeof context?.triggerKind === 'number' ? context.triggerKind : undefined,
+			triggerCharacter: typeof context?.triggerCharacter === 'string' ? context.triggerCharacter : undefined,
+			isRetrigger: typeof context?.isRetrigger === 'boolean' ? context.isRetrigger : undefined,
+			prefixLength: kind === 'completion' ? completionPrefixLength(document, position) : undefined,
+			completionDebugRequestId:
+				kind === 'completion' ? `completion:${metrics.sequence}:${Date.now()}` : undefined,
+			lspRequestCount: 0,
+			code2ProtocolMs: 0,
+			lspRequestMs: 0,
+			protocol2CodeMs: 0
+		};
+		providerTimingStack.push(draft);
+		return draft;
+	};
+	const finishProviderTiming = (
+		draft: ProviderTimingDraft,
+		result: unknown,
+		error?: unknown
+	): void => {
+		const metrics = providerMetricsForKind(draft.kind);
+		const completedAt = Date.now();
+		const totalMs = completedAt - draft.startedAt;
+		draft.documentVersionAtProviderReturn = draft.document.version;
+		draft.documentIsDirtyAtProviderReturn = draft.document.isDirty;
+		const nextWaitMs = draft.nextStartedAt === undefined ? undefined : draft.nextStartedAt - draft.startedAt;
+		const nextExecutionMs =
+			draft.nextStartedAt === undefined || draft.nextCompletedAt === undefined
+				? undefined
+				: draft.nextCompletedAt - draft.nextStartedAt;
+		const lspStartDelayMs =
+			draft.lspRequestStartedAt === undefined ? undefined : draft.lspRequestStartedAt - draft.startedAt;
+		const lspCompletionToProviderReturnMs =
+			draft.lspRequestCompletedAt === undefined ? undefined : completedAt - draft.lspRequestCompletedAt;
+		const itemCount =
+			draft.kind === 'completion'
+				? Array.isArray(result)
+					? result.length
+					: Array.isArray((result as { items?: unknown[] } | undefined)?.items)
+						? ((result as { items: unknown[] }).items.length)
+						: undefined
+				: undefined;
+		const signatureCount =
+			draft.kind === 'signatureHelp'
+				? Array.isArray((result as { signatures?: unknown[] } | undefined)?.signatures)
+					? ((result as { signatures: unknown[] }).signatures.length)
+					: undefined
+				: undefined;
+		const errorText =
+			error === undefined ? draft.error : (error instanceof Error ? error.message : String(error));
+		recordClientMetric(metrics.next, totalMs);
+		recordClientMetric(metrics.providerReturn, totalMs);
+		if (draft.code2ProtocolMs > 0) {
+			recordClientMetric(metrics.code2Protocol, draft.code2ProtocolMs);
+		}
+		if (draft.lspRequestMs > 0) {
+			recordClientMetric(metrics.lspRequest, draft.lspRequestMs);
+		}
+		if (draft.protocol2CodeMs > 0) {
+			recordClientMetric(metrics.protocol2Code, draft.protocol2CodeMs);
+		}
+		metrics.lastTiming = {
+			kind: draft.kind,
+			sequence: draft.sequence,
+			totalMs,
+			awaitSyncMs: 0,
+			code2ProtocolMs: draft.code2ProtocolMs,
+			lspRequestMs: draft.lspRequestMs,
+			protocol2CodeMs: draft.protocol2CodeMs,
+			providerReturnMs: totalMs,
+			documentUri: draft.documentUri,
+			documentVersion: draft.documentVersion,
+			documentIsDirty: draft.documentIsDirty,
+			documentVersionAtNextStart: draft.documentVersionAtNextStart,
+			documentIsDirtyAtNextStart: draft.documentIsDirtyAtNextStart,
+			documentVersionAtLspStart: draft.documentVersionAtLspStart,
+			documentIsDirtyAtLspStart: draft.documentIsDirtyAtLspStart,
+			documentVersionAtProviderReturn: draft.documentVersionAtProviderReturn,
+			documentIsDirtyAtProviderReturn: draft.documentIsDirtyAtProviderReturn,
+			startedAtMs: draft.startedAt,
+			completedAtMs: completedAt,
+			activeSameKindProviderCountAtStart: draft.activeSameKindProviderCountAtStart,
+			activeSameKindNextCountAtStart: draft.activeSameKindNextCountAtStart,
+			nextStartedAtMs: draft.nextStartedAt,
+			nextCompletedAtMs: draft.nextCompletedAt,
+			nextWaitMs,
+			nextExecutionMs,
+			lspRequestStartedAtMs: draft.lspRequestStartedAt,
+			lspRequestCompletedAtMs: draft.lspRequestCompletedAt,
+			lspRequestCount: draft.lspRequestCount,
+			lspStartDelayMs,
+			lspCompletionToProviderReturnMs,
+			line: draft.line,
+			character: draft.character,
+			triggerKind: draft.triggerKind,
+			triggerCharacter: draft.triggerCharacter,
+			isRetrigger: draft.isRetrigger,
+			prefixLength: draft.prefixLength,
+			completionCoordinatorAction: draft.completionCoordinatorAction,
+			completionCoordinatorSource: draft.completionCoordinatorSource,
+			completionCoordinatorKey: draft.completionCoordinatorKey,
+			completionCoordinatorPrefixLength: draft.completionCoordinatorPrefixLength,
+			completionDebugRequestId: draft.completionDebugRequestId,
+			itemCount,
+			signatureCount,
+			error: errorText
+		};
+		metrics.recentTimings.push(metrics.lastTiming);
+		if (metrics.recentTimings.length > 200) {
+			metrics.recentTimings.splice(0, metrics.recentTimings.length - 200);
+		}
+		const stackIndex = providerTimingStack.lastIndexOf(draft);
+		if (stackIndex >= 0) {
+			providerTimingStack.splice(stackIndex, 1);
+		}
+	};
+	const requestMethodName = (requestType: unknown): string => {
+		if (typeof requestType === 'string') {
+			return requestType;
+		}
+		const method = (requestType as { method?: unknown } | undefined)?.method;
+		return typeof method === 'string' ? method : '';
+	};
+	const timingKindForMethod = (method: string): ProviderTimingKind | undefined => {
+		if (method === LSP_METHOD_KEYS.completion) {
+			return 'completion';
+		}
+		if (method === LSP_METHOD_KEYS.signatureHelp) {
+			return 'signatureHelp';
+		}
+		return undefined;
+	};
+	const installProviderTimingHooks = (readyClient: LanguageClient): void => {
+		const anyClient = readyClient as any;
+		if (providerTimingHookClients.has(anyClient)) {
+			return;
+		}
+		providerTimingHookClients.add(anyClient);
+		const wrapConverter = (
+			target: any,
+			methodName: string,
+			kind: ProviderTimingKind,
+			field: 'code2ProtocolMs' | 'protocol2CodeMs'
+		): void => {
+			if (!target || typeof target[methodName] !== 'function') {
+				return;
+			}
+			const original = target[methodName].bind(target);
+			target[methodName] = (...args: unknown[]) => {
+				const draft = currentProviderTiming(kind);
+				if (!draft) {
+					return original(...args);
+				}
+				const startedAt = Date.now();
+				try {
+					return original(...args);
+				} finally {
+					draft[field] += Date.now() - startedAt;
+				}
+			};
+		};
+		wrapConverter(anyClient.code2ProtocolConverter, 'asCompletionParams', 'completion', 'code2ProtocolMs');
+		wrapConverter(anyClient.protocol2CodeConverter, 'asCompletionResult', 'completion', 'protocol2CodeMs');
+		wrapConverter(anyClient.code2ProtocolConverter, 'asSignatureHelpParams', 'signatureHelp', 'code2ProtocolMs');
+		wrapConverter(anyClient.protocol2CodeConverter, 'asSignatureHelp', 'signatureHelp', 'protocol2CodeMs');
+
+		const originalSendRequest = anyClient.sendRequest.bind(readyClient);
+		anyClient.sendRequest = (...args: unknown[]) => {
+			const kind = timingKindForMethod(requestMethodName(args[0]));
+			const draft = kind ? currentProviderTiming(kind) : undefined;
+			if (!draft) {
+				return originalSendRequest(...args);
+			}
+			const startedAt = Date.now();
+			if (kind === 'completion' && draft.completionDebugRequestId) {
+				const params = args[1];
+				if (params && typeof params === 'object' && !Array.isArray(params)) {
+					args[1] = {
+						...(params as Record<string, unknown>),
+						nsfDebugRequestId: draft.completionDebugRequestId,
+						nsfDebugClientSendStartedAtMs: startedAt
+					};
+				}
+			}
+			draft.lspRequestCount++;
+			draft.lspRequestStartedAt = draft.lspRequestStartedAt ?? startedAt;
+			draft.documentVersionAtLspStart = draft.document.version;
+			draft.documentIsDirtyAtLspStart = draft.document.isDirty;
+			const completeLspRequest = (): void => {
+				draft.lspRequestMs += Date.now() - startedAt;
+				draft.lspRequestCompletedAt = Date.now();
+			};
+			try {
+				const result = originalSendRequest(...args);
+				if (result && typeof result.then === 'function') {
+					return result.then(
+						(value: unknown) => {
+							completeLspRequest();
+							return value;
+						},
+						(error: unknown) => {
+							completeLspRequest();
+							draft.error = error instanceof Error ? error.message : String(error);
+							throw error;
+						}
+					);
+				}
+				completeLspRequest();
+				return result;
+			} catch (error) {
+				completeLspRequest();
+				draft.error = error instanceof Error ? error.message : String(error);
+				throw error;
+			}
+		};
+	};
 	let pendingInitialInlayRefreshAfterIndex = false;
 	let pendingInlayRefreshAfterIndexActivity = false;
 	let sawIndexingEventSinceReady = false;
@@ -213,6 +610,13 @@ export function activate(context: ExtensionContext) {
 		refreshStatusBar();
 	};
 
+	const sendSetActiveUnitNotification = async (payload: { uri?: string }): Promise<void> => {
+		if (!client) {
+			return;
+		}
+		await client.sendNotification(LSP_METHOD_KEYS.setActiveUnit, payload);
+	};
+
 	const activeUnitController = createActiveUnitController({
 		context,
 		unitStatusBarItem,
@@ -222,12 +626,7 @@ export function activate(context: ExtensionContext) {
 		appendClientTrace,
 		logClient,
 		pushRecentClientError,
-		sendSetActiveUnitNotification: async (payload) => {
-			if (!client) {
-				return;
-			}
-			await client.sendNotification(LSP_METHOD_KEYS.setActiveUnit, payload);
-		},
+		sendSetActiveUnitNotification,
 		setActiveUnitMethod: LSP_METHOD_KEYS.setActiveUnit
 	});
 	const updateEffectiveUnitFromDocument = activeUnitController.updateEffectiveUnitFromDocument;
@@ -288,16 +687,29 @@ export function activate(context: ExtensionContext) {
 		documentSelector: nsfDocumentSelector,
 		initializationOptions: buildRuntimeSettings(isTestMode, isPerfTestMode),
 		synchronize: {
-			fileEvents: workspace.createFileSystemWatcher('**/*.{nsf,hlsl,fx,usf,ush}')
+			fileEvents: workspace.createFileSystemWatcher('**/*.{nsf,hlsl}')
 		},
 		middleware: {
 			provideCompletionItem: async (document, position, context, token, next) => {
-				completionClientMetrics.requests++;
-				recordClientMetric(completionClientMetrics.awaitSync, 0);
-				const startedAt = Date.now();
-				const result = await next(document, position, context, token);
-				recordClientMetric(completionClientMetrics.next, Date.now() - startedAt);
-				return result;
+				const timing = beginProviderTiming('completion', document, position, context);
+				const markCoordinatorDecision = (decision: CompletionCoordinatorDecision): void => {
+					timing.completionCoordinatorAction = decision.action;
+					timing.completionCoordinatorSource = decision.source;
+					timing.completionCoordinatorKey = decision.key;
+					timing.completionCoordinatorPrefixLength = decision.prefixLength;
+				};
+				try {
+					const result = await completionRequestCoordinator.coordinate(
+						{ document, position, context, token },
+						(executionToken) => runWithActiveProviderTiming(timing, () => next(document, position, context, executionToken)),
+						markCoordinatorDecision
+					);
+					finishProviderTiming(timing, result);
+					return result;
+				} catch (error) {
+					finishProviderTiming(timing, undefined, error);
+					throw error;
+				}
 			},
 			provideHover: async (document, position, token, next) => {
 				const startedAt = Date.now();
@@ -311,12 +723,17 @@ export function activate(context: ExtensionContext) {
 				return result;
 			},
 			provideSignatureHelp: async (document, position, context, token, next) => {
-				signatureHelpClientMetrics.requests++;
-				recordClientMetric(signatureHelpClientMetrics.awaitSync, 0);
-				const startedAt = Date.now();
-				const result = await next(document, position, context, token);
-				recordClientMetric(signatureHelpClientMetrics.next, Date.now() - startedAt);
-				return result;
+				const timing = beginProviderTiming('signatureHelp', document, position, context);
+				try {
+					const result = await runWithActiveProviderTiming(timing, () =>
+						next(document, position, context, token)
+					);
+					finishProviderTiming(timing, result);
+					return result;
+				} catch (error) {
+					finishProviderTiming(timing, undefined, error);
+					throw error;
+				}
 			},
 			provideDefinition: async (document, position, token, next) => {
 				logDefinitionTrace(
@@ -420,12 +837,29 @@ export function activate(context: ExtensionContext) {
 		onReady: async (readyClient) => {
 			appendClientTrace('language client ready');
 			logClient('language client ready');
+			installProviderTimingHooks(readyClient);
 			clientStateLabel = 'ready';
 			refreshStatusBar();
 			readyClient.onNotification('nsf/indexing', handleIndexingNotification);
 			readyClient.onNotification('nsf/indexingStateChanged', handleIndexingStateChangedNotification);
 			readyClient.onNotification('nsf/inlayHintsChanged', handleInlayHintsChangedNotification);
 			readyClient.onNotification('nsf/metrics', handleMetricsNotification);
+			try {
+				await seedPreprocessorMacrosSettingIfMissing({
+					context,
+					isTestMode,
+					fetchPreset: () =>
+						readyClient.sendRequest<PreprocessorMacroPresetResponse>(
+							LSP_METHOD_KEYS.getPreprocessorMacroPreset,
+							{}
+						),
+					logClient
+				});
+			} catch (error) {
+				appendClientTrace(`seed preprocessor macros failed ${(error as Error).message ?? String(error)}`);
+				logClient(`seed preprocessor macros failed ${(error as Error).message ?? String(error)}`);
+				pushRecentClientError('seedPreprocessorMacros', error);
+			}
 			editorFeedback?.handleClientReady();
 			void notifyServerActiveUnit();
 			const active = window.activeTextEditor?.document;
@@ -538,6 +972,20 @@ registerInternalCommands(context, {
 			completionRequestCount: completionClientMetrics.requests,
 			completionAwaitSyncSamples: completionClientMetrics.awaitSync.samples,
 			completionNextSamples: completionClientMetrics.next.samples,
+			completionProviderReturnSamples: completionClientMetrics.providerReturn.samples,
+			completionProviderReturnAvgMs: avgClientMetric(completionClientMetrics.providerReturn),
+			completionProviderReturnMaxMs: completionClientMetrics.providerReturn.maxMs,
+			completionCode2ProtocolSamples: completionClientMetrics.code2Protocol.samples,
+			completionCode2ProtocolAvgMs: avgClientMetric(completionClientMetrics.code2Protocol),
+			completionCode2ProtocolMaxMs: completionClientMetrics.code2Protocol.maxMs,
+			completionLspRequestSamples: completionClientMetrics.lspRequest.samples,
+			completionLspRequestAvgMs: avgClientMetric(completionClientMetrics.lspRequest),
+			completionLspRequestMaxMs: completionClientMetrics.lspRequest.maxMs,
+			completionProtocol2CodeSamples: completionClientMetrics.protocol2Code.samples,
+			completionProtocol2CodeAvgMs: avgClientMetric(completionClientMetrics.protocol2Code),
+			completionProtocol2CodeMaxMs: completionClientMetrics.protocol2Code.maxMs,
+			completionLastProviderTiming: completionClientMetrics.lastTiming,
+			...completionRequestCoordinator.getSnapshot(),
 			completionTriggerCharacters: ['.', '_', ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')],
 			hoverRequestCount: hoverClientMetrics.requests.samples,
 			hoverRequestAvgMs: avgClientMetric(hoverClientMetrics.requests),
@@ -565,7 +1013,24 @@ registerInternalCommands(context, {
 			signatureHelpRequestCount: signatureHelpClientMetrics.requests,
 			signatureHelpAwaitSyncSamples: signatureHelpClientMetrics.awaitSync.samples,
 			signatureHelpNextSamples: signatureHelpClientMetrics.next.samples,
+			signatureHelpProviderReturnSamples: signatureHelpClientMetrics.providerReturn.samples,
+			signatureHelpProviderReturnAvgMs: avgClientMetric(signatureHelpClientMetrics.providerReturn),
+			signatureHelpProviderReturnMaxMs: signatureHelpClientMetrics.providerReturn.maxMs,
+			signatureHelpCode2ProtocolSamples: signatureHelpClientMetrics.code2Protocol.samples,
+			signatureHelpCode2ProtocolAvgMs: avgClientMetric(signatureHelpClientMetrics.code2Protocol),
+			signatureHelpCode2ProtocolMaxMs: signatureHelpClientMetrics.code2Protocol.maxMs,
+			signatureHelpLspRequestSamples: signatureHelpClientMetrics.lspRequest.samples,
+			signatureHelpLspRequestAvgMs: avgClientMetric(signatureHelpClientMetrics.lspRequest),
+			signatureHelpLspRequestMaxMs: signatureHelpClientMetrics.lspRequest.maxMs,
+			signatureHelpProtocol2CodeSamples: signatureHelpClientMetrics.protocol2Code.samples,
+			signatureHelpProtocol2CodeAvgMs: avgClientMetric(signatureHelpClientMetrics.protocol2Code),
+			signatureHelpProtocol2CodeMaxMs: signatureHelpClientMetrics.protocol2Code.maxMs,
+			signatureHelpLastProviderTiming: signatureHelpClientMetrics.lastTiming,
 			...editorFeedback?.getSnapshot()
+		}),
+		getProviderTimingStatus: () => ({
+			completionRecentProviderTimings: completionClientMetrics.recentTimings,
+			signatureHelpRecentProviderTimings: signatureHelpClientMetrics.recentTimings
 		}),
 		resetInternalStatus: () => {
 			lastIndexingEvent = undefined;
@@ -574,17 +1039,14 @@ registerInternalCommands(context, {
 			indexingMessage = '';
 			initialInlayRefreshTriggerCount = 0;
 			indexSettledInlayRefreshTriggerCount = 0;
-			completionClientMetrics.requests = 0;
-			completionClientMetrics.awaitSync = clientMetric();
-			completionClientMetrics.next = clientMetric();
+			Object.assign(completionClientMetrics, createProviderClientMetrics());
+			completionRequestCoordinator.reset();
 			hoverClientMetrics.requests = clientMetric();
 			hoverClientMetrics.rpc = clientMetric();
 			hoverClientMetrics.code2Protocol = clientMetric();
 			hoverClientMetrics.protocolRequest = clientMetric();
 			hoverClientMetrics.protocol2Code = clientMetric();
-			signatureHelpClientMetrics.requests = 0;
-			signatureHelpClientMetrics.awaitSync = clientMetric();
-			signatureHelpClientMetrics.next = clientMetric();
+			Object.assign(signatureHelpClientMetrics, createProviderClientMetrics());
 			refreshStatusBar();
 		},
 		clearActiveUnitForTests: createClearActiveUnitHandler({
@@ -598,7 +1060,8 @@ registerInternalCommands(context, {
 		}),
 		setActiveUnitForTests: createSetActiveUnitHandler({
 			ensureClientStarted,
-			setPinnedUnit
+			setPinnedUnit,
+			sendSetActiveUnitNotification
 		}),
 		spamInlayRequests: spamHandlers.spamInlayRequests,
 		spamDocumentSymbolRequests: spamHandlers.spamDocumentSymbolRequests,

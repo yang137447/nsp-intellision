@@ -41,6 +41,7 @@
 #include "indeterminate_reasons.hpp"
 #include "interactive_semantic_runtime.hpp"
 #include "json.hpp"
+#include "language_registry.hpp"
 #include "local_structural_runtime.hpp"
 #include "lsp_helpers.hpp"
 #include "lsp_io.hpp"
@@ -79,13 +80,20 @@ int main(int argc, char **argv) {
   getHlslBuiltinNames();
   ServerRequestContext core;
   std::mutex coreMutex;
-  core.shaderExtensions = {".nsf", ".hlsl", ".hlsli", ".fx", ".usf", ".ush"};
+  auto unixNowMs = []() {
+    return std::chrono::duration<double, std::milli>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+  };
+  core.shaderExtensions = {".nsf", ".hlsl"};
   core.semanticLegend = createDefaultSemanticTokenLegend();
   std::unordered_map<std::string, int> preprocessorDefines;
+  ConfiguredPreprocessorMacros preprocessorMacros;
   auto applySettings = [&](const Json &settings) {
     std::lock_guard<std::mutex> lock(coreMutex);
     applySettingsFromJson(
         settings, core.includePaths, core.shaderExtensions, preprocessorDefines,
+        preprocessorMacros,
         core.inlayHintsEnabled, core.inlayHintsParameterNamesEnabled,
         core.semanticTokensEnabled, core.diagnosticsExpensiveRulesEnabled,
         core.diagnosticsTimeBudgetMs, core.diagnosticsMaxItems,
@@ -100,6 +108,7 @@ int main(int argc, char **argv) {
         core.diagnosticsIndeterminateMaxItems,
         core.diagnosticsIndeterminateSuppressWhenErrors,
         core.indexingWorkerCount, core.indexingQueueCapacity);
+    setConfiguredPreprocessorMacros(preprocessorMacros);
     core.preprocessorDefines = preprocessorDefines;
     const int maxPrefetchWorkers =
         std::min(std::max(1, core.indexingWorkerCount), 8);
@@ -438,6 +447,9 @@ int main(int argc, char **argv) {
       recordDiagnosticsStaleDropBeforePublish();
       return;
     }
+    if (job.kind == DiagnosticsJobKind::Fast && !job.publishDiagnostics) {
+      return;
+    }
     documentOwnerUpdateLastDiagnosticsPublishLayer(
         job.uri, job.documentEpoch, job.documentVersion,
         diagnosticsRuntimePublishLayerName(publishDecision.layer));
@@ -479,9 +491,10 @@ int main(int argc, char **argv) {
             if (itActive != core.documents.end())
               activeUnitText = itActive->second.text;
           }
-          if (scheduleFast && core.diagnosticsFastEnabled) {
+          if (scheduleFast) {
             fastJob.kind = DiagnosticsJobKind::Fast;
             fastJob.hasPairedFull = scheduleFull && core.diagnosticsFullEnabled;
+            fastJob.publishDiagnostics = core.diagnosticsFastEnabled;
             fastJob.analysisFingerprint = analysisFingerprint;
             fastJob.analysisStableFingerprint = analysisStableFingerprint;
             fastJob.uri = document.uri;
@@ -1253,8 +1266,27 @@ int main(int argc, char **argv) {
     uint64_t latestOnlyEpoch = 0;
     std::string inlayUri;
     uint64_t inlayEpoch = 0;
+    double receivedAtUnixMs = 0.0;
+    uint64_t serverDidChangeCompletedBeforeRequestCount = 0;
+    uint64_t serverDidChangeOverlapClientSendCount = 0;
+    double serverDidChangeOverlapClientSendMs = 0.0;
+    double serverLastDidChangeDurationMs = 0.0;
+    double serverLastDidChangeEndToRequestReceivedMs = 0.0;
     std::chrono::steady_clock::time_point enqueuedAt =
         std::chrono::steady_clock::now();
+  };
+  struct DidChangeDebugEvent {
+    uint64_t sequence = 0;
+    double startedAtUnixMs = 0.0;
+    double completedAtUnixMs = 0.0;
+    double durationMs = 0.0;
+  };
+  struct DidChangeDebugSummary {
+    uint64_t completedBeforeRequestCount = 0;
+    uint64_t overlapClientSendCount = 0;
+    double overlapClientSendMs = 0.0;
+    double lastDurationMs = 0.0;
+    double lastEndToRequestReceivedMs = 0.0;
   };
 
   std::mutex queueMutex;
@@ -1266,6 +1298,48 @@ int main(int argc, char **argv) {
   std::unordered_map<std::string, uint64_t> inlayLatestEpochByUri;
   std::unordered_map<std::string, uint64_t> latestOnlyEpochByKey;
   std::unordered_map<std::string, int> latestDocumentVersionByUri;
+  std::mutex didChangeDebugMutex;
+  uint64_t didChangeDebugSequence = 0;
+  std::deque<DidChangeDebugEvent> recentDidChangeDebugEvents;
+  auto recordDidChangeDebugEvent = [&](DidChangeDebugEvent event) {
+    std::lock_guard<std::mutex> lock(didChangeDebugMutex);
+    event.sequence = ++didChangeDebugSequence;
+    recentDidChangeDebugEvents.push_back(event);
+    while (recentDidChangeDebugEvents.size() > 256)
+      recentDidChangeDebugEvents.pop_front();
+  };
+  auto summarizeDidChangeDebugBeforeRequest =
+      [&](double clientSendStartedAtUnixMs,
+          double requestReceivedAtUnixMs) -> DidChangeDebugSummary {
+    std::lock_guard<std::mutex> lock(didChangeDebugMutex);
+    DidChangeDebugSummary summary;
+    summary.completedBeforeRequestCount = didChangeDebugSequence;
+    if (!recentDidChangeDebugEvents.empty()) {
+      const DidChangeDebugEvent &last = recentDidChangeDebugEvents.back();
+      summary.lastDurationMs = last.durationMs;
+      if (requestReceivedAtUnixMs > 0.0 && last.completedAtUnixMs > 0.0) {
+        summary.lastEndToRequestReceivedMs =
+            std::max(0.0, requestReceivedAtUnixMs - last.completedAtUnixMs);
+      }
+    }
+    if (clientSendStartedAtUnixMs <= 0.0 || requestReceivedAtUnixMs <= 0.0)
+      return summary;
+    for (const DidChangeDebugEvent &event : recentDidChangeDebugEvents) {
+      if (event.completedAtUnixMs <= clientSendStartedAtUnixMs ||
+          event.startedAtUnixMs >= requestReceivedAtUnixMs) {
+        continue;
+      }
+      const double overlapStart =
+          std::max(event.startedAtUnixMs, clientSendStartedAtUnixMs);
+      const double overlapEnd =
+          std::min(event.completedAtUnixMs, requestReceivedAtUnixMs);
+      if (overlapEnd <= overlapStart)
+        continue;
+      summary.overlapClientSendCount++;
+      summary.overlapClientSendMs += overlapEnd - overlapStart;
+    }
+    return summary;
+  };
 
   auto markRequestCanceled = [&](const Json &requestId) {
     std::lock_guard<std::mutex> lock(queueMutex);
@@ -1439,11 +1513,13 @@ int main(int argc, char **argv) {
       }
 
       const auto requestStart = std::chrono::steady_clock::now();
+      const double requestWorkerStartedAtUnixMs = unixNowMs();
+      const double requestQueueWaitMs =
+          std::chrono::duration<double, std::milli>(requestStart -
+                                                    request.enqueuedAt)
+              .count();
       if (interactiveLane) {
-        recordInteractiveRequestQueueWait(
-            std::chrono::duration<double, std::milli>(requestStart -
-                                                      request.enqueuedAt)
-                .count());
+        recordInteractiveRequestQueueWait(requestQueueWaitMs);
       }
       if (isRequestCanceled(request)) {
         if (request.hasId)
@@ -1460,16 +1536,38 @@ int main(int argc, char **argv) {
       }
 
       ServerRequestContext requestCtx;
+      double requestContextBuildMs = 0.0;
       if (interactiveLane) {
         const auto contextBuildStartedAt = std::chrono::steady_clock::now();
         requestCtx = makeRuntimeRequestContext();
-        recordInteractiveRequestContextBuild(
+        requestContextBuildMs =
             std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - contextBuildStartedAt)
-                .count());
+                .count();
+        recordInteractiveRequestContextBuild(requestContextBuildMs);
       } else {
+        const auto contextBuildStartedAt = std::chrono::steady_clock::now();
         requestCtx = makeRuntimeRequestContext();
+        requestContextBuildMs =
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - contextBuildStartedAt)
+                .count();
       }
+      requestCtx.requestQueueWaitMs = requestQueueWaitMs;
+      requestCtx.requestContextBuildMs = requestContextBuildMs;
+      requestCtx.requestReceivedAtUnixMs = request.receivedAtUnixMs;
+      requestCtx.requestWorkerStartedAtUnixMs = requestWorkerStartedAtUnixMs;
+      requestCtx.serverDidChangeCompletedBeforeRequestCount =
+          request.serverDidChangeCompletedBeforeRequestCount;
+      requestCtx.serverDidChangeOverlapClientSendCount =
+          request.serverDidChangeOverlapClientSendCount;
+      requestCtx.serverDidChangeOverlapClientSendMs =
+          request.serverDidChangeOverlapClientSendMs;
+      requestCtx.serverLastDidChangeDurationMs =
+          request.serverLastDidChangeDurationMs;
+      requestCtx.serverLastDidChangeEndToRequestReceivedMs =
+          request.serverLastDidChangeEndToRequestReceivedMs;
+      requestCtx.requestDocumentVersion = request.documentVersion;
       requestCtx.isCancellationRequested = [&, request]() {
         return isRequestCanceled(request);
       };
@@ -1690,6 +1788,30 @@ int main(int argc, char **argv) {
         scheduleDiagnosticsForText(entry, true, true, std::min(delay, 120),
                                    delay);
       }
+      continue;
+    }
+
+    if (method == "nsf/getPreprocessorMacroPreset") {
+      std::vector<std::pair<std::string, std::string>> entries;
+      for (const auto &entry : getHlslPreprocessorMacros()) {
+        entries.emplace_back(entry.first, entry.second.replacement);
+      }
+      std::sort(entries.begin(), entries.end(),
+                [](const auto &lhs, const auto &rhs) {
+                  return lhs.first < rhs.first;
+                });
+
+      Json result = makeObject();
+      Json items = makeArray();
+      for (const auto &entry : entries) {
+        Json item = makeObject();
+        item.o["name"] = makeString(entry.first);
+        item.o["replacement"] = makeString(entry.second);
+        items.a.push_back(std::move(item));
+      }
+      result.o["entries"] = std::move(items);
+      if (id.type != Json::Type::Null)
+        writeResponse(id, result);
       continue;
     }
 
@@ -2257,23 +2379,79 @@ int main(int argc, char **argv) {
 
     if (method == "nsf/_getLastCompletionDebug") {
       CompletionDebugSnapshot snapshot = getLastCompletionDebugSnapshot();
-      Json result = makeObject();
-      result.o["memberAccessDetected"] =
-          makeBool(snapshot.memberAccessDetected);
-      result.o["line"] = makeNumber(static_cast<double>(snapshot.line));
-      result.o["character"] =
-          makeNumber(static_cast<double>(snapshot.character));
-      result.o["lineText"] = makeString(snapshot.lineText);
-      result.o["base"] = makeString(snapshot.base);
-      result.o["member"] = makeString(snapshot.member);
-      result.o["memberTypeResolved"] = makeBool(snapshot.memberTypeResolved);
-      result.o["resolvedType"] = makeString(snapshot.resolvedType);
-      result.o["memberItemsReturned"] = makeBool(snapshot.memberItemsReturned);
-      result.o["fieldCount"] =
-          makeNumber(static_cast<double>(snapshot.fieldCount));
-      result.o["methodCount"] =
-          makeNumber(static_cast<double>(snapshot.methodCount));
-      result.o["path"] = makeString(snapshot.path);
+      auto completionDebugToJson =
+          [](const CompletionDebugSnapshot &snapshot) {
+            Json result = makeObject();
+            result.o["nsfDebugRequestId"] =
+                makeString(snapshot.nsfDebugRequestId);
+            result.o["clientSendStartedAtUnixMs"] =
+                makeNumber(snapshot.clientSendStartedAtUnixMs);
+            result.o["serverReceivedAtUnixMs"] =
+                makeNumber(snapshot.serverReceivedAtUnixMs);
+            result.o["serverWorkerStartedAtUnixMs"] =
+                makeNumber(snapshot.serverWorkerStartedAtUnixMs);
+            result.o["serverResponseWriteCompletedAtUnixMs"] =
+                makeNumber(snapshot.serverResponseWriteCompletedAtUnixMs);
+            result.o["serverDidChangeCompletedBeforeRequestCount"] =
+                makeNumber(static_cast<double>(
+                    snapshot.serverDidChangeCompletedBeforeRequestCount));
+            result.o["serverDidChangeOverlapClientSendCount"] =
+                makeNumber(static_cast<double>(
+                    snapshot.serverDidChangeOverlapClientSendCount));
+            result.o["serverDidChangeOverlapClientSendMs"] =
+                makeNumber(snapshot.serverDidChangeOverlapClientSendMs);
+            result.o["serverLastDidChangeDurationMs"] =
+                makeNumber(snapshot.serverLastDidChangeDurationMs);
+            result.o["serverLastDidChangeEndToRequestReceivedMs"] =
+                makeNumber(snapshot.serverLastDidChangeEndToRequestReceivedMs);
+            result.o["memberAccessDetected"] =
+                makeBool(snapshot.memberAccessDetected);
+            result.o["documentFound"] = makeBool(snapshot.documentFound);
+            result.o["line"] = makeNumber(static_cast<double>(snapshot.line));
+            result.o["character"] =
+                makeNumber(static_cast<double>(snapshot.character));
+            result.o["documentVersion"] =
+                makeNumber(static_cast<double>(snapshot.documentVersion));
+            result.o["requestDocumentVersion"] =
+                makeNumber(static_cast<double>(snapshot.requestDocumentVersion));
+            result.o["lineText"] = makeString(snapshot.lineText);
+            result.o["completionPrefix"] =
+                makeString(snapshot.completionPrefix);
+            result.o["base"] = makeString(snapshot.base);
+            result.o["member"] = makeString(snapshot.member);
+            result.o["memberTypeResolved"] =
+                makeBool(snapshot.memberTypeResolved);
+            result.o["resolvedType"] = makeString(snapshot.resolvedType);
+            result.o["memberItemsReturned"] =
+                makeBool(snapshot.memberItemsReturned);
+            result.o["itemCount"] =
+                makeNumber(static_cast<double>(snapshot.itemCount));
+            result.o["fieldCount"] =
+                makeNumber(static_cast<double>(snapshot.fieldCount));
+            result.o["methodCount"] =
+                makeNumber(static_cast<double>(snapshot.methodCount));
+            result.o["path"] = makeString(snapshot.path);
+            result.o["requestQueueWaitMs"] =
+                makeNumber(snapshot.requestQueueWaitMs);
+            result.o["requestContextBuildMs"] =
+                makeNumber(snapshot.requestContextBuildMs);
+            result.o["handlerTotalMs"] = makeNumber(snapshot.handlerTotalMs);
+            result.o["interactiveCollectMs"] =
+                makeNumber(snapshot.interactiveCollectMs);
+            result.o["memberBaseResolveMs"] =
+                makeNumber(snapshot.memberBaseResolveMs);
+            result.o["memberQueryMs"] = makeNumber(snapshot.memberQueryMs);
+            result.o["itemAssemblyMs"] = makeNumber(snapshot.itemAssemblyMs);
+            result.o["responseWriteMs"] = makeNumber(snapshot.responseWriteMs);
+            return result;
+          };
+      Json result = completionDebugToJson(snapshot);
+      Json recent = makeArray();
+      for (const CompletionDebugSnapshot &entry :
+           getRecentCompletionDebugSnapshots()) {
+        recent.a.push_back(completionDebugToJson(entry));
+      }
+      result.o["recent"] = std::move(recent);
       if (id.type != Json::Type::Null)
         writeResponse(id, result);
       continue;
@@ -2384,6 +2562,10 @@ int main(int argc, char **argv) {
     }
 
     if (method == "textDocument/didChange" && params) {
+      const auto didChangeStartedAt = std::chrono::steady_clock::now();
+      DidChangeDebugEvent didChangeDebug;
+      didChangeDebug.startedAtUnixMs = unixNowMs();
+      bool didChangeDebugHandled = false;
       const Json *textDocument = getObjectValue(*params, "textDocument");
       const Json *changes = getObjectValue(*params, "contentChanges");
       if (textDocument && changes && changes->type == Json::Type::Array &&
@@ -2504,18 +2686,6 @@ int main(int argc, char **argv) {
           documentOwnerDidChange(updatedDocument, changedRanges,
                                  makeDocumentRuntimeOptions(),
                                  makeRuntimeRequestContext());
-          documentOwnerUpdateImmediateSyntaxSnapshot(
-              updatedDocument.uri, [&]() {
-                auto snapshot = buildLocalStructuralSnapshot(
-                    updatedDocument.uri, updatedDocument.text, changedRanges,
-                    updatedDocument.epoch, updatedDocument.version,
-                    makeLocalStructuralOptions());
-                DocumentRuntime runtime;
-                if (documentOwnerGetRuntime(updatedDocument.uri, runtime))
-                  snapshot.contextFingerprint =
-                      runtime.analysisSnapshotKey.stableContextFingerprint;
-                return snapshot;
-              }());
           scheduleDiagnosticsForText(updatedDocument, true, false, 0, -1,
                                      &changedRanges);
           bool skipExpensivePostChangeWork = false;
@@ -2544,7 +2714,16 @@ int main(int argc, char **argv) {
             invalidateIncludeGraphCacheByUri(updatedDocument.uri);
             scheduleDiagnosticsForText(updatedDocument, false, true, -1, 520);
           }
+          didChangeDebugHandled = true;
         }
+      }
+      if (didChangeDebugHandled) {
+        didChangeDebug.completedAtUnixMs = unixNowMs();
+        didChangeDebug.durationMs =
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - didChangeStartedAt)
+                .count();
+        recordDidChangeDebugEvent(didChangeDebug);
       }
       continue;
     }
@@ -2586,7 +2765,16 @@ int main(int argc, char **argv) {
       request.hasId = true;
       request.priority = priorityForMethod(method);
       request.params = params ? *params : makeNull();
+      request.receivedAtUnixMs = unixNowMs();
+      double clientSendStartedAtUnixMs = 0.0;
       if (params) {
+        const Json *debugClientSendStartedAtValue =
+            getObjectValue(*params, "nsfDebugClientSendStartedAtMs");
+        if (debugClientSendStartedAtValue &&
+            debugClientSendStartedAtValue->type == Json::Type::Number) {
+          clientSendStartedAtUnixMs =
+              getNumberValue(*debugClientSendStartedAtValue);
+        }
         const Json *textDocument = getObjectValue(*params, "textDocument");
         if (textDocument) {
           const Json *uriValue = getObjectValue(*textDocument, "uri");
@@ -2599,6 +2787,18 @@ int main(int argc, char **argv) {
           }
         }
       }
+      const DidChangeDebugSummary didChangeSummary =
+          summarizeDidChangeDebugBeforeRequest(clientSendStartedAtUnixMs,
+                                               request.receivedAtUnixMs);
+      request.serverDidChangeCompletedBeforeRequestCount =
+          didChangeSummary.completedBeforeRequestCount;
+      request.serverDidChangeOverlapClientSendCount =
+          didChangeSummary.overlapClientSendCount;
+      request.serverDidChangeOverlapClientSendMs =
+          didChangeSummary.overlapClientSendMs;
+      request.serverLastDidChangeDurationMs = didChangeSummary.lastDurationMs;
+      request.serverLastDidChangeEndToRequestReceivedMs =
+          didChangeSummary.lastEndToRequestReceivedMs;
       if (!request.documentUri.empty()) {
         if (method == "textDocument/inlayHint") {
           request.inlayUri = request.documentUri;

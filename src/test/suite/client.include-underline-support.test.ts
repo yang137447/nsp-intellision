@@ -33,7 +33,7 @@ repoDescribe('NSF client integration: Include Underline Support', () => {
 
 		const existingPaths = new Set(
 			[
-				'D:/project/shaders/shared/common.ush',
+				'D:/project/shaders/shared/common.hlsl',
 				'D:/project/local/include_target.hlsl'
 			].map((value) => value.replace(/\\/g, '/').toLowerCase())
 		);
@@ -42,7 +42,7 @@ repoDescribe('NSF client integration: Include Underline Support', () => {
 			text,
 			workspaceFolders: ['D:/project'],
 			includePaths: ['shaders'],
-			shaderExtensions: ['.nsf', '.hlsl', '.ush'],
+			shaderExtensions: ['.nsf', '.hlsl'],
 			pathExists: async (candidate: string) =>
 				existingPaths.has(candidate.replace(/\\/g, '/').toLowerCase())
 		});
@@ -66,7 +66,7 @@ repoDescribe('NSF client integration: Include Underline Support', () => {
 			text,
 			workspaceFolders: ['D:/project'],
 			includePaths: ['shaders'],
-			shaderExtensions: ['.nsf', '.hlsl', '.ush'],
+			shaderExtensions: ['.nsf', '.hlsl'],
 			pathExists: async (candidate: string) =>
 				candidate.replace(/\\/g, '/').toLowerCase() ===
 				'd:/project/source/include_target.hlsl'

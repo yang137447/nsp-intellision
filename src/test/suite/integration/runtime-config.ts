@@ -27,11 +27,9 @@ import {
 
 export function registerRuntimeConfigLanguageOwnershipTests(): void {
 	repoDescribe('NSF client integration: Runtime Config / Language Ownership', () => {
-		it('registers configured shader extensions on the client', async () => {
+		it('registers default shader extensions on the client', async () => {
 			const cases = [
-				{ file: 'client_feature.usf', symbol: 'HelperColor', occurrence: 2 },
-				{ file: 'module_shared.ush', symbol: 'SuiteMakeSharedColor', occurrence: 2 },
-				{ file: 'client_feature.fx', symbol: 'HelperColor', occurrence: 2 },
+				{ file: 'module_suite.nsf', symbol: 'SuiteLocalTint', occurrence: 1 },
 				{ file: 'include_target.hlsl', symbol: 'IncludedColor', occurrence: 1 }
 			];
 
@@ -576,7 +574,7 @@ export function registerRuntimeIncludePathConfigTests(): void {
 					(value) => Array.isArray(value) && value.length > 0,
 					'definition results after include path update'
 				);
-				assert.strictEqual(path.basename(toFsPath(restoredDefinitions[0])), 'runtime_only_shared.ush');
+				assert.strictEqual(path.basename(toFsPath(restoredDefinitions[0])), 'runtime_only_shared.hlsl');
 			} finally {
 				await configuration.update(
 					'intellisionPath',

@@ -51,6 +51,7 @@ makeDefinesFingerprint(const std::unordered_map<std::string, int> &defines) {
   for (const auto &entry : ordered) {
     oss << entry.first << "=" << entry.second << ";";
   }
+  oss << "preset=" << getConfiguredPreprocessorMacrosFingerprint() << ";";
   return oss.str();
 }
 
@@ -246,6 +247,7 @@ buildDiagnosticsWithOptions(const std::string &uri, const std::string &text,
     }
     result.diagnostics.a = std::move(filtered);
   }
+  dedupeDiagnosticsForUri(uri, result.diagnostics);
   fillIndeterminateMetricsFromDiagnostics(result.diagnostics, result);
   result.elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                          std::chrono::steady_clock::now() - startTime)

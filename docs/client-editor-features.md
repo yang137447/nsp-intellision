@@ -27,7 +27,7 @@
   - 注释、配对、`wordPattern`、回车规则、folding markers
 - `snippets/nsf.code-snippets`
   - 代码片段内容
-- `client/src/extension.ts`
+- `client/src/client_config_sync.ts`、`client/src/client_editor_feedback.ts`
   - client 运行时对 `nsf.shaderFileExtensions` 的默认值兜底
 - `server_cpp/src/app/main.cpp`
   - server 启动时的默认 shader 扩展名兜底
@@ -40,7 +40,7 @@
 
 ## 当前能力
 
-- 语言模式注册：`.nsf/.hlsl/.hlsli/.fx/.usf/.ush`
+- 语言模式注册：`.nsf/.hlsl`
 - grammar 挂接
 - 行注释 `//`
 - 块注释 `/* */`
@@ -63,13 +63,14 @@
 需要保持一致的文件：
 
 - `package.json`
-- `client/src/extension.ts`
+- `client/src/client_config_sync.ts`
+- `client/src/client_editor_feedback.ts`
 - `server_cpp/src/app/main.cpp`
 - `README.md`
 
 当前事实：
 
-- `.nsf/.hlsl/.hlsli/.fx/.usf/.ush` 都归到 `nsf` 语言。
+- `.nsf/.hlsl` 都归到 `nsf` 语言。
 - `nsf.shaderFileExtensions` 默认值包含这些扩展名。
 - client 运行时兜底默认值和 server 启动默认值应保持一致。
 
@@ -99,7 +100,6 @@
 
 - `.nsf`
 - `.hlsl`
-- `.hlsli`
 
 重点检查：
 

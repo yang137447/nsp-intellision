@@ -26,7 +26,7 @@
   - 构建 TypeScript client 和测试入口
   - 适用于 `client/`、`src/test/` 或根级 TypeScript 配置变更
 - `cmake --build .\server_cpp\build`
-  - 构建 C++ server，并把 `server_cpp/resources/` 拷贝到构建输出目录
+  - 构建 C++ server，并通过 `nsf_lsp_resources` 目标把 `server_cpp/resources/` 拷贝到构建输出目录
   - 适用于 `server_cpp/src/` 变更，或需要本地构建产物拿到最新资源时
 - `npm run test:client:repo`
   - 运行仓库模式集成测试，使用 `test_files/` 固定夹具
@@ -43,6 +43,28 @@
 - `npm run test:client:real:replay`
   - 在真实 workspace 输入路径上回放短交互脚本，并写报告到 `out/test/perf-reports/real-replay/`
   - 适用于分析真实交互延迟和 anomaly 趋势
+  - 测试模式会在本次 user-data 中补齐默认 `nsf.preprocessorMacros` preset，使 replay 环境接近普通用户首次填充后的配置
+  - 默认跳过 `long-running` 脚本；完整文件输入类 replay 需要显式设置 `NSF_REAL_REPLAY_INCLUDE_LONG=1`，可再配合 `NSF_TEST_REAL_REPLAY_SCRIPT_FILTER` 定向脚本
+  - replay sampling window 支持直接声明 `sampleCount` / `sampleIntervalMs`，完整文件输入类用例默认以每类 probe 约 100 个采样点记录性能趋势
+  - 完整文件输入类 replay 的 completion probe 应声明 `triggerText`；runner 会先输入到触发文本之前，再逐字符输入触发文本，并以 `TriggerCharacter` 上下文采集补全，避免只在最终位置核对候选表；重型真实输入脚本会启用 `nativeTrigger` 和 suggest / parameter hints UI command，让 VS Code 智能提示路径真实触发
+  - completion UI 覆盖可用 `NSF_REAL_REPLAY_COMPLETION_UI_MODE` 覆盖触发源：`nativeOnly` 只保留原生 typing / quick suggestion，不调用 `editor.action.triggerSuggest`；`explicitSuggest` 会额外执行显式 suggest UI command。该变量只影响 replay 测量，不改变产品 completion 行为。报告会写入 `completionCapture.uiCoverage.triggerSource` / `uiCoverageTriggerSource`，并在 `latencySummary.completion.uiCoverageByTriggerSource` 按触发源汇总；`explicitInvokeOverlapRequests` 只统计 `explicitSuggest` 测量源下的显式 Invoke 重叠，避免把 native quick-suggest 的 Invoke 形态误归为 replay 显式命令重叠
+  - completion / signature replay 报告会保留旧的 capture 聚合耗时，同时按 `uiCoverage` 和 `providerVerification` 拆分真实 UI/native 触发覆盖与 `vscode.execute*Provider` 候选验证；provider 验证前会关闭 UI widget 并等待触发请求队列安静。`uiCoverage` 会记录 provider request sequence、first / last request 相对时间和 burst count；client provider timing 使用 async-local context 将 converter / LSP request 耗时绑定到实际执行 `next(...)` 的 provider draft，completion provider timing 会携带 `completionDebugRequestId` 并由 server debug history 回传 `nsfDebugRequestId`，避免 coalescing 延迟、并发 provider 或晚完成 stale 请求把旧 server debug 归到新 request sequence；provider request sequence 还会记录 `nextWaitMs`、`lspStartDelayMs`、`activeSameKindProviderCountAtStart`、`activeSameKindNextCountAtStart` 和关键阶段 document version / dirty 状态，用于区分 coordinator 等待、sendRequest promise 内部等待、请求重叠和文本同步推进；completion debug snapshot 还会记录 client send-start、server received、server worker start、server response-write-completed wall-clock timestamp，以及 completion 被 server 收到前 didChange 主输入线程处理的重叠摘要，用于把 `sendRequest` 拆成 client-to-server-send、server didChange input-thread blocking、server handling 和 server-response-to-client-resolve；报告顶层 `latencySummary` 会汇总 P50/P95/max、最慢 probe、UI queue quiet 超时、UI request burst、latest visible provider return、latest visible next wait / LSP start delay / LSP request / client-to-server received / server didChange overlap / server handler / server response to client resolve / client residual、post-latest cleanup 和 duplicated request path，分析延迟时应先看这些拆分字段，避免把用户可见最新补全返回、旧请求清理、provider 验证、重复 auto-trigger 或 server 直连耗时混在一个数字里归因
+  - completion replay 的 `latencySummary.completion.coalescingSimulation` 是报告层模拟，不改变运行时 completion 行为；它基于 `uiCoverage.providerRequestSequence` 估算 identifier-prefix auto-trigger burst 在 25ms / 40ms / 60ms 短窗口下会保留和丢弃哪些 request sequence，并显式保留 explicit invoke、`.` member completion 和无法安全归类的请求
+  - completion replay 的 `latencySummary.completion.coordinatorActual` 汇总 client completion request coordinator 的真实运行结果，包括 received、executed LSP、coalesced-before-LSP、stale-resolved-while-in-flight、stale-dropped-after-LSP、cancelled-before-LSP、cancelled-while-in-flight、各类 bypass 以及 retained / dropped request sequence；Phase B 之后分析产品路径应优先看 `coordinatorActual`，`coalescingSimulation` 只作为规则对照
+  - completion replay 的 `latencySummary.completion.uiExecutedAttribution` 用于拆解 UI/native trigger 路径里实际执行到 LSP 的 coordinator request，报告 executed LSP request 耗时、latest executed request 完成前等待和完成后的 quiet/cleanup 等待；runner 会在 provider verification 前抓取 server `lastCompletionDebug` 及其 recent history，并优先按 `completionDebugRequestId` / `nsfDebugRequestId` 关联 `latestExecutedServerAttribution`；如果 client request id 存在但 server history 未命中，报告会记入 `serverDebugRequestIdUnmatchedCount` 且不回退套用 last debug。`latestExecutedClientAttribution`、`latestExecutedServerAttribution` 和汇总 stats 会拆出 client next wait / LSP start delay / in-flight overlap / document version 变化、server queue wait、request context build、completion handler 和剩余 client/transport LSP 时间；当 `coordinatorActual` 已经减少可见旧请求但 `uiQueueQuiet` 仍高时，应结合 detached cleanup、server debug id matched/unmatched、server queue 和 client residual 字段判断剩余瓶颈
+  - diagnostics probe 可显式配置 `requireRuntimeReady`、`touchEveryMs` / `maxTouches`；runner 会记录 runtime ready 和 touch 次数，用于区分自然稳定时间和需要重新排队后才发布的 full diagnostics
+- real workspace diagnostics audit
+  - 定向统计真实 workspace 的 `.nsf/.hlsl` 诊断，报告写入 `out/test/diagnostics-audit/`
+  - 测试模式不会污染真实 workspace；如果 workspace 未显式配置 `nsf.preprocessorMacros`，audit 会把 server registry 的默认 preset 写入本次测试专用 user-data 配置，用来模拟普通用户首次填充后的分析环境
+  - 扫描范围优先使用 `nsf.intellisionPath` 配置的 shader 根；未配置时才退回 workspace folders，避免把编译临时产物和工具目录误当源码统计
+  - 默认不随 real suite 执行；需要显式设置：
+
+```powershell
+$env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
+node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
+```
+
+  - 可选限制样本数量：`$env:NSF_REAL_DIAGNOSTICS_MAX_FILES = "100"`
 - `npm run gate:d3`
   - 发版前完整门禁：资源校验、TypeScript 编译、Clang 20+ clean configure、C++ 构建、hover smoke、client 全量测试
 - `npm run package:vsix`
@@ -56,13 +78,15 @@
 - 改 TypeScript client：至少跑 `npm run compile`
 - 改 C++ server：至少跑 `cmake --build .\server_cpp\build`
 - 改 completion、hover、signature help、diagnostics、semantic tokens 或 client/server 协议交互：补跑 `npm run test:client:repo`
+- 改 completion auto-trigger coordinator：至少补跑 completion request coordinator 单元测试、completion auto-trigger、completion client metrics、member completion、interactive visibility、real-workspace-replay repo 定向测试和 `pbr-flow-water-full-input` real replay
+- 改预处理宏资源或 active-unit include 预处理上下文：补跑 `npm run json:validate`、`cmake --build .\server_cpp\build` 和 diagnostics repo 集成用例
 - 改 deferred/current-doc cache、full diagnostics 预热/发布链路、inlay hints full-cache 或慢路径失效：`npm run test:client:repo` 是最小必跑项
 - 改调度优先级、latest-only、cancellation、metrics 或性能命中路径：补跑 `npm run test:client:perf`
 - 发版或大范围重构：跑 `npm run gate:d3` 和 `npm run package:vsix`
 
 编辑器壳层配置变更还要手工 smoke：
 
-- `.nsf`、`.hlsl`、`.hlsli` 的语言模式归属
+- `.nsf`、`.hlsl` 的语言模式归属
 - `Ctrl+/` 行注释、`Shift+Alt+A` 块注释
 - 自动配对、包裹、基础缩进和 `wordPattern`
 - `///`、`/** */` 注释续写
@@ -86,6 +110,16 @@ $env:NSF_TEST_FILE_FILTER = "<substring>"
 
 `npm run test:client:perf` 也通过同一机制只加载 perf suite。
 
+real replay 可按脚本 ID 过滤；长链路完整文件输入用例默认不进入短回归：
+
+```powershell
+$env:NSF_REAL_REPLAY_INCLUDE_LONG = "1"
+$env:NSF_TEST_REAL_REPLAY_SCRIPT_FILTER = "pbr-flow-water-full-input"
+npm run test:client:real:replay
+```
+
+`pbr-flow-water-full-input` 会从空 buffer 输入完整节点文件，按成员补全、texture method、函数族补全、内置函数、局部变量、uniform、预处理宏、signature help 和最终 diagnostics 分组采样；脚本属于重型验证，单次运行可能需要数分钟。
+
 ## 测试写法约束
 
 ### Workspace 与 include
@@ -107,6 +141,7 @@ $env:NSF_TEST_FILE_FILTER = "<substring>"
 
 - `interactive-visibility` 类用例应结合 `getInteractiveRuntimeDebug(...)` 断言 `lastResolvedLayer`。
 - reverse-include / workspace-summary 回流断言应优先用 `getDocumentRuntimeDebug(...)` 比较 runtime 摘要，而不是只靠 diagnostics 间接猜测。
+- `didChange` 后的 local structural snapshot 由异步 fast diagnostics worker 补齐；runtime 断言应通过 `waitFor(...)` 轮询 `getDocumentRuntimeDebug(...)`，不要假设 `applyEdit(...)` 返回后同步 ready。
 - 跨文件或 deferred semantic diagnostics 用例应使用 `waitForDiagnostics(...)`；必要时用 `touchDocument(...)` 或 `waitForDiagnosticsWithTouches(...)` 重新排队。
 - definition / references 存在同名候选时，优先断言结果集合包含目标路径；只有当前架构明确承诺选主顺序时才断言首项。
 
@@ -116,6 +151,7 @@ $env:NSF_TEST_FILE_FILTER = "<substring>"
 - visible-range inlay / perf 用例不要把冷请求固定绑定为 range-build；range-build 或基于 full-cache 的 range-filter 都可能是合法路径。
 - real workspace 测试不要依赖外部工程里某一整行固定文本永远不变；优先用稳定前缀定位并缓存原始文本。
 - real replay 脚本解析锚点前会把已打开的 dirty 文档恢复到磁盘文本基线，避免前置 real workspace 用例的未保存 buffer 污染后续锚点解析。
+- real diagnostics audit 只做统计和初筛分类，不作为通过/失败门禁；`likely-plugin-limitation`、`likely-real-source` 和 `check-config-or-source` 都是 triage hint，最终归因仍需要结合样例行、include context 和真实编译结果复核。
 
 ## 失败处理
 

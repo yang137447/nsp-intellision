@@ -195,8 +195,6 @@ void collectReturnAndTypeDiagnostics(
       addUnique(scanRoots, folder);
   }
   std::vector<std::string> scanExtensions = shaderExtensions;
-  addUnique(scanExtensions, ".hlsli");
-  addUnique(scanExtensions, ".h");
   StructTypeCache structCache;
   SymbolTypeCache symbolCache;
   enum class FunctionCandidateConfidence {

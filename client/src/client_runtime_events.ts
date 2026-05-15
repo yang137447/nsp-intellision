@@ -22,7 +22,7 @@ export function registerClientRuntimeEvents(
 	options: RuntimeEventsOptions
 ): void {
 	if (!options.isTestMode) {
-		const gitStormWatcher = workspace.createFileSystemWatcher('**/*.{nsf,hlsl,fx,usf,ush}');
+		const gitStormWatcher = workspace.createFileSystemWatcher('**/*.{nsf,hlsl}');
 		const gitStormWindowMs = 350;
 		const gitStormThreshold = 20;
 		const gitStormUniqueThreshold = 12;
@@ -79,6 +79,7 @@ export function registerClientRuntimeEvents(
 			event.affectsConfiguration('nsf.include.validUnderline') ||
 			event.affectsConfiguration('nsf.shaderFileExtensions') ||
 			event.affectsConfiguration('nsf.defines') ||
+			event.affectsConfiguration('nsf.preprocessorMacros') ||
 			event.affectsConfiguration('nsf.inlayHints.enabled') ||
 			event.affectsConfiguration('nsf.inlayHints.parameterNames') ||
 			event.affectsConfiguration('nsf.semanticTokens.enabled') ||

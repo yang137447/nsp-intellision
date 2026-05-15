@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": ["version", "entries"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "replacement": { "type": "string" },
+          "disabled": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

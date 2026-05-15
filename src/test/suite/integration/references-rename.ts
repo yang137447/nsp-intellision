@@ -179,7 +179,7 @@ export function registerReferencesRenameTests(): void {
 
 	it('routes include definition requests through the client', async () => {
 		const document = await openFixture('module_suite.nsf');
-		const definitionPosition = positionOf(document, 'module_shared.ush', 1, 2);
+		const definitionPosition = positionOf(document, 'module_shared.hlsl', 1, 2);
 		const locations = await waitFor(
 			() =>
 				vscode.commands.executeCommand<ProviderLocation[]>(
@@ -193,7 +193,7 @@ export function registerReferencesRenameTests(): void {
 
 		assert.strictEqual(
 			path.basename(toFsPath(locations[0])),
-			'module_shared.ush',
+			'module_shared.hlsl',
 			'Expected include definition to resolve to the target shader file.'
 		);
 	});

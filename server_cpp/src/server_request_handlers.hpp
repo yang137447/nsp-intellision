@@ -58,6 +58,25 @@ struct ServerRequestContext {
   int indexingQueueCapacity = 4096;
   std::unordered_map<std::string, int> preprocessorDefines;
   std::function<bool()> isCancellationRequested;
+  // Per-request scheduler telemetry. This is attribution-only data populated by
+  // the app request worker before dispatch; handlers may surface it in debug
+  // snapshots but must not branch behavior on it.
+  double requestQueueWaitMs = 0.0;
+  double requestContextBuildMs = 0.0;
+  // Wall-clock timestamps used only to correlate client/server debug telemetry
+  // for replay latency attribution. Do not use them for behavior decisions.
+  double requestReceivedAtUnixMs = 0.0;
+  double requestWorkerStartedAtUnixMs = 0.0;
+  // Attribution-only summary of didChange processing that happened on the
+  // server input thread before this request was read. This helps distinguish
+  // LanguageClient / transport queueing from the server being busy applying
+  // preceding document changes.
+  uint64_t serverDidChangeCompletedBeforeRequestCount = 0;
+  uint64_t serverDidChangeOverlapClientSendCount = 0;
+  double serverDidChangeOverlapClientSendMs = 0.0;
+  double serverLastDidChangeDurationMs = 0.0;
+  double serverLastDidChangeEndToRequestReceivedMs = 0.0;
+  int requestDocumentVersion = 0;
 
   const std::unordered_map<std::string, Document> &documentSnapshot() const {
     return documents;
@@ -139,23 +158,55 @@ void recordCompletionMemberBaseResolve(double durationMs);
 void recordCompletionMemberQuery(double durationMs);
 CompletionMetricsSnapshot takeCompletionMetricsSnapshot();
 
+// Attribution-only completion debug snapshot. Request handlers populate this
+// from request-scoped context and hot-path timing; consumers must not use it to
+// decide public completion behavior.
 struct CompletionDebugSnapshot {
+  std::string nsfDebugRequestId;
+  // Debug-only wall-clock timestamps paired with client provider timing to
+  // split LanguageClient send delay from server handling and response delivery.
+  double clientSendStartedAtUnixMs = 0.0;
+  double serverReceivedAtUnixMs = 0.0;
+  double serverWorkerStartedAtUnixMs = 0.0;
+  double serverResponseWriteCompletedAtUnixMs = 0.0;
+  // Debug-only didChange attribution copied from ServerRequestContext. These
+  // fields do not affect completion candidates, sorting, filtering or trigger
+  // behavior.
+  uint64_t serverDidChangeCompletedBeforeRequestCount = 0;
+  uint64_t serverDidChangeOverlapClientSendCount = 0;
+  double serverDidChangeOverlapClientSendMs = 0.0;
+  double serverLastDidChangeDurationMs = 0.0;
+  double serverLastDidChangeEndToRequestReceivedMs = 0.0;
   bool memberAccessDetected = false;
+  bool documentFound = false;
   int line = -1;
   int character = -1;
+  int documentVersion = 0;
+  int requestDocumentVersion = 0;
   std::string lineText;
+  std::string completionPrefix;
   std::string base;
   std::string member;
   bool memberTypeResolved = false;
   std::string resolvedType;
   bool memberItemsReturned = false;
+  uint64_t itemCount = 0;
   uint64_t fieldCount = 0;
   uint64_t methodCount = 0;
   std::string path;
+  double requestQueueWaitMs = 0.0;
+  double requestContextBuildMs = 0.0;
+  double handlerTotalMs = 0.0;
+  double interactiveCollectMs = 0.0;
+  double memberBaseResolveMs = 0.0;
+  double memberQueryMs = 0.0;
+  double itemAssemblyMs = 0.0;
+  double responseWriteMs = 0.0;
 };
 
 void updateLastCompletionDebugSnapshot(const CompletionDebugSnapshot &snapshot);
 CompletionDebugSnapshot getLastCompletionDebugSnapshot();
+std::vector<CompletionDebugSnapshot> getRecentCompletionDebugSnapshots();
 
 struct DefinitionMetricsSnapshot {
   uint64_t currentDocInteractiveSamples = 0;

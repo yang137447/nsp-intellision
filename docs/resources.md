@@ -23,6 +23,7 @@ server_cpp/resources/
   language/keywords/
   language/directives/
   language/semantics/
+  language/preprocessor_macros/
   methods/object_methods/
   types/object_types/
   types/object_families/
@@ -35,6 +36,7 @@ server_cpp/resources/
 - `language/keywords`: 关键字名和说明
 - `language/directives`: 预处理指令名、说明和语法
 - `language/semantics`: 系统语义名、说明和典型类型
+- `language/preprocessor_macros`: shadercompiler 风格默认预处理宏 preset，用于首次填充用户可见的 `nsf.preprocessorMacros` 工作区设置
 - `methods/object_methods`: 对象方法签名、适用对象族和文档
 - `types/object_types`: 对象类型定义
 - `types/object_families`: 对象族与兼容关系
@@ -68,16 +70,29 @@ server_cpp/resources/
 5. 如果影响 completion、hover、diagnostics 或 semantic tokens，运行 `npm run test:client:repo`。
 6. 如果路径、命名、加载规则或字段契约变化，同步更新相关事实文档。
 
+## 用户配置填充
+
+`language/preprocessor_macros` 是随扩展发布的默认 preset。client 首次发现当前工作区没有显式 `nsf.preprocessorMacros` 设置时，会通过 server 共享 registry 读取该 preset，并写入工作区设置。之后这份设置就是普通用户配置；用户删掉某个 key，就表示该宏不再属于有效 preset。
+
+server 构建预处理环境时按以下顺序合并：
+
+1. `nsf.preprocessorMacros` 完整有效 preset 表。
+2. `nsf.defines` 数字宏。
+3. active unit / include / 当前文件里的 `#define` 和 `#undef`。
+
+因此资源 bundle 只负责提供初始填充值，分析时不再隐藏叠加 bundle 默认值；用户配置应被视为预处理宏 preset 层，而不是新的资源 bundle 或 diagnostics 特判。
+
 ## 生成与拷贝
 
 资源相关脚本：
 
 - `scripts/builtins/update_hlsl_intrinsics_manifest.js`: 生成 `server_cpp/resources/builtins/intrinsics/base.json`
+- `scripts/builtins/update_preprocessor_macros.py`: 从 shadercompiler `builtin_macros.py` 生成 `server_cpp/resources/language/preprocessor_macros/base.json`；可传入 `--const-macros` 补齐 builtin 表达式依赖的枚举 / 常量宏
 - `scripts/json/validate_resources.js`: 校验所有资源 bundle
 
 构建规则：
 
-- `server_cpp/CMakeLists.txt` 在构建 `nsf_lsp` 后会把整个 `server_cpp/resources/` 拷贝到可执行文件旁边的 `resources/` 目录。
+- `server_cpp/CMakeLists.txt` 的 `nsf_lsp_resources` 目标会在每次 build 时把整个 `server_cpp/resources/` 拷贝到可执行文件旁边的 `resources/` 目录，即使 C++ 可执行文件本身没有重新链接。
 - 生成脚本输出必须直接对准当前 bundle 路径。
 
 ## 禁止项

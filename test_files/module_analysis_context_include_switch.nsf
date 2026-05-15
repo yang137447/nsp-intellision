@@ -1,7 +1,7 @@
 #if USE_ANALYSIS_CONTEXT_ALT_INCLUDE
-#include "module_analysis_context_include_b.ush"
+#include "module_analysis_context_include_b.hlsl"
 #else
-#include "module_analysis_context_include_a.ush"
+#include "module_analysis_context_include_a.hlsl"
 #endif
 
 float4 AnalysisContextIncludeEntry(float2 uv : TEXCOORD0) : SV_Target0

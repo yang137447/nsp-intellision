@@ -19,6 +19,36 @@ import {
 	withTemporaryIntellisionPath
 } from '../test_helpers';
 
+function diagnosticPublishKey(diagnostic: vscode.Diagnostic): string {
+	return [
+		diagnostic.range.start.line,
+		diagnostic.range.start.character,
+		diagnostic.range.end.line,
+		diagnostic.range.end.character,
+		diagnostic.message,
+		diagnosticCodeText(diagnostic),
+		diagnostic.source ?? ''
+	].join('|');
+}
+
+async function fetchPreprocessorMacroPresetForTests(): Promise<Record<string, string>> {
+	await waitForClientQuiescent('client ready before preprocessor macro preset request');
+	const response = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
+		method: 'nsf/getPreprocessorMacroPreset',
+		params: {}
+	});
+	const macros: Record<string, string> = {};
+	const entries = Array.isArray(response?.entries) ? response.entries : [];
+	for (const entry of entries) {
+		const name = typeof entry?.name === 'string' ? entry.name : '';
+		const replacement = typeof entry?.replacement === 'string' ? entry.replacement : '';
+		if (name.length > 0) {
+			macros[name] = replacement;
+		}
+	}
+	return macros;
+}
+
 export function registerDiagnosticsTests(): void {
 	repoDescribe('NSF client integration: Diagnostics', () => {
 	it('publishes diagnostics for missing includes and unterminated comments', async () => {
@@ -126,6 +156,121 @@ export function registerDiagnosticsTests(): void {
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(!messages.includes('Undefined macro in preprocessor expression'));
 		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'));
+	});
+
+	it('uses active-unit prefix macros when a target include has a dot segment', async () => {
+		const root = await openFixture('module_diagnostics_active_unit_dot_include_root.nsf');
+		try {
+			await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+			await waitForClientQuiescent('active unit dot-include root settled');
+
+			const document = await openFixture('module_diagnostics_active_unit_dot_include_target.hlsl');
+			await waitForDiagnosticsWithTouches(
+				document,
+				(value) => {
+					const messages = value.map((diag) => diag.message).join('\n');
+					return (
+						!messages.includes('Undefined macro in preprocessor expression: DOT_INCLUDE_MACRO.') &&
+						!messages.includes('Assignment type mismatch: float2 = float4.')
+					);
+				},
+				'active-unit dot-include preprocessor diagnostics'
+			);
+			await waitForClientQuiescent('active unit dot-include diagnostics settled');
+
+			const settledMessages = vscode.languages
+				.getDiagnostics(document.uri)
+				.map((diag) => diag.message)
+				.join('\n');
+			assert.ok(!settledMessages.includes('Undefined macro in preprocessor expression: DOT_INCLUDE_MACRO.'));
+			assert.ok(!settledMessages.includes('Assignment type mismatch: float2 = float4.'));
+		} finally {
+			await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+			await waitForClientQuiescent('active unit dot-include cleanup settled');
+		}
+	});
+
+	it('uses workspace preprocessor macro presets for #if diagnostics evaluation', async () => {
+		const preset = await fetchPreprocessorMacroPresetForTests();
+		assert.ok(Object.keys(preset).length >= 100, 'Expected a complete builtin preprocessor macro preset.');
+		assert.strictEqual(preset.QUALITY_SUPPORT_MIDDLE, '(SHADER_QUALITY!=QUALITY_LOW)');
+		assert.strictEqual(preset.PLAYERS_SELF, '0');
+		assert.strictEqual(preset.NORMAL_MAP_SUPPORT, '(NORMAL_MAP_ENABLE&&QUALITY_SUPPORT_HIGH)');
+		assert.strictEqual(preset.CLUSTERED_NONE, '0');
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
+		const originalMacros = inspectedMacros?.workspaceValue;
+		try {
+			await configuration.update('preprocessorMacros', preset, vscode.ConfigurationTarget.Workspace);
+			await waitForClientQuiescent('workspace preprocessor macros setting settled');
+
+			const document = await openFixture('module_diagnostics_preprocessor_builtin_macros.nsf');
+			await waitForDiagnosticsWithTouches(
+				document,
+				(value) => {
+					const messages = value.map((diag) => diag.message).join('\n');
+					return (
+						!messages.includes('Undefined macro in preprocessor expression: QUALITY_SUPPORT_MIDDLE.') &&
+						!messages.includes('Undefined macro in preprocessor expression: PLAYERS_SELF.') &&
+						!messages.includes('Assignment type mismatch: float2 = float4.')
+					);
+				},
+				'workspace preprocessor macro diagnostics'
+			);
+			await waitForClientQuiescent('workspace preprocessor macro diagnostics settled');
+
+			const settledMessages = vscode.languages
+				.getDiagnostics(document.uri)
+				.map((diag) => diag.message)
+				.join('\n');
+			assert.ok(!settledMessages.includes('Undefined macro in preprocessor expression: QUALITY_SUPPORT_MIDDLE.'));
+			assert.ok(!settledMessages.includes('Undefined macro in preprocessor expression: PLAYERS_SELF.'));
+			assert.ok(!settledMessages.includes('Assignment type mismatch: float2 = float4.'));
+		} finally {
+			await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);
+			await waitForClientQuiescent('workspace preprocessor macros cleanup settled');
+		}
+	});
+
+	it('treats configured preprocessor macros as the complete effective preset table', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
+		const originalMacros = inspectedMacros?.workspaceValue;
+		try {
+			await configuration.update(
+				'preprocessorMacros',
+				{
+					PRESET_BASE: '2',
+					PRESET_EXPR: '(PRESET_BASE==2)'
+				},
+				vscode.ConfigurationTarget.Workspace
+			);
+			await waitForClientQuiescent('complete preprocessor macro table setting settled');
+
+			const document = await openFixture('module_diagnostics_preprocessor_configured_macros.nsf');
+			await waitForDiagnosticsWithTouches(
+				document,
+				(value) => {
+					const messages = value.map((diag) => diag.message).join('\n');
+					return (
+						!messages.includes('Undefined macro in preprocessor expression: PRESET_EXPR.') &&
+						!messages.includes('Assignment type mismatch: float2 = float4.')
+					);
+				},
+				'complete preprocessor macro table diagnostics'
+			);
+			await waitForClientQuiescent('complete preprocessor macro table diagnostics settled');
+
+			const settledMessages = vscode.languages
+				.getDiagnostics(document.uri)
+				.map((diag) => diag.message)
+				.join('\n');
+			assert.ok(!settledMessages.includes('Undefined macro in preprocessor expression: PRESET_EXPR.'));
+			assert.ok(!settledMessages.includes('Assignment type mismatch: float2 = float4.'));
+		} finally {
+			await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);
+			await waitForClientQuiescent('complete preprocessor macro table cleanup settled');
+		}
 	});
 
 	it('does not report include diagnostics inside comments', async () => {
@@ -586,6 +731,7 @@ export function registerDiagnosticsTests(): void {
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(!messages.includes('Undefined identifier: PixelMaterialInputs.'));
 		assert.ok(!messages.includes('Undefined identifier: u_frame_time_radian.'));
+		assert.ok(!messages.includes('Undefined identifier: u_include_metadata_scale.'));
 		assert.ok(!messages.includes('Undefined identifier: t_distort1.'));
 		assert.ok(!messages.includes('Undefined identifier: s_distort1.'));
 	});
@@ -691,6 +837,8 @@ export function registerDiagnosticsTests(): void {
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(messages.includes('Assignment type mismatch: half = float.'));
 		assert.ok(messages.includes('Assignment type mismatch: half3 = float3.'));
+		const publishKeys = new Set(diagnostics.map(diagnosticPublishKey));
+		assert.strictEqual(publishKeys.size, diagnostics.length, 'Expected diagnostics publish payload to be deduped.');
 		for (const diag of diagnostics) {
 			if (
 				diag.message.includes('Assignment type mismatch: half = float.') ||
@@ -900,6 +1048,23 @@ export function registerDiagnosticsTests(): void {
 		);
 	});
 
+	it('does not misreport missing semicolons on NSF metadata and state block headers', async () => {
+		const document = await openFixture('module_diagnostics_nsf_effect_headers_ok.nsf');
+
+		await waitForDiagnostics(
+			document,
+			(value) => !value.some((diag) => diag.message.includes('Missing semicolon.')),
+			'NSF metadata/state header diagnostics'
+		);
+
+		await waitForClientQuiescent('NSF metadata/state diagnostics settled');
+		const settledDiagnostics = vscode.languages.getDiagnostics(document.uri);
+		assert.ok(
+			!settledDiagnostics.some((diag) => diag.message.includes('Missing semicolon.')),
+			settledDiagnostics.map((diag) => `${diag.range.start.line}:${diag.message}`).join('\n')
+		);
+	});
+
 	it('does not misreport missing semicolons inside multiline constructor expressions', async () => {
 		const document = await openFixture('module_diagnostics_multiline_semicolon_context.nsf');
 
@@ -973,6 +1138,29 @@ export function registerDiagnosticsTests(): void {
 					.join('\n')}`
 			);
 			assert.strictEqual(missingSemicolons[0].range.start.line, 12);
+		} finally {
+			await configuration.update('diagnostics.mode', originalMode, vscode.ConfigurationTarget.Workspace);
+		}
+	});
+
+	it('keeps basic-mode diagnostics quiet for NSF metadata and state block headers', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedMode = configuration.inspect<string>('diagnostics.mode');
+		const originalMode = inspectedMode?.workspaceValue ?? 'balanced';
+		try {
+			await configuration.update('diagnostics.mode', 'basic', vscode.ConfigurationTarget.Workspace);
+			const document = await openFixture('module_diagnostics_nsf_effect_headers_ok.nsf');
+			await waitForDiagnostics(
+				document,
+				(value) => !value.some((diag) => diag.message.includes('Missing semicolon.')),
+				'basic mode NSF metadata/state header diagnostics'
+			);
+			await waitForClientQuiescent('basic mode NSF metadata/state diagnostics settled');
+			const settledDiagnostics = vscode.languages.getDiagnostics(document.uri);
+			assert.ok(
+				!settledDiagnostics.some((diag) => diag.message.includes('Missing semicolon.')),
+				settledDiagnostics.map((diag) => `${diag.range.start.line}:${diag.message}`).join('\n')
+			);
 		} finally {
 			await configuration.update('diagnostics.mode', originalMode, vscode.ConfigurationTarget.Workspace);
 		}

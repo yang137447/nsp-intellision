@@ -161,6 +161,24 @@ export function registerWorkspaceSummaryDefinitionFallbackTests(): void {
 				);
 				assert.ok(samplerDefinitions.length > 0);
 				assert.ok(toFsPath(samplerDefinitions[0]).endsWith('module_definition_multiline_fx_decl_b.nsf'));
+
+				const scalarPosition = positionOf(document, 'u_multiline_fx_scale', 1, 1);
+				const scalarDefinitions = await waitFor(
+					() =>
+						vscode.commands.executeCommand<ProviderLocation[]>(
+							'vscode.executeDefinitionProvider',
+							document.uri,
+							scalarPosition
+						),
+					(value) =>
+						Array.isArray(value) &&
+						value.some((location) =>
+							toFsPath(location).endsWith('module_definition_multiline_fx_decl_b.nsf')
+						),
+					'definition provider'
+				);
+				assert.ok(scalarDefinitions.length > 0);
+				assert.ok(toFsPath(scalarDefinitions[0]).endsWith('module_definition_multiline_fx_decl_b.nsf'));
 			});
 		});
 	});

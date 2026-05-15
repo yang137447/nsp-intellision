@@ -14,6 +14,14 @@ texture t_distort1: DistortMap
     string TextureFile="common\\textures\\white.tga";
 >;
 
+float u_include_metadata_scale
+<
+    string SasUiLabel = "Include metadata scale";
+    string SasUiControl = "FloatSlider";
+    float SasUiMin = 0.0;
+    float SasUiMax = 4.0;
+> = 1.0f;
+
 SamplerState s_distort1
 {
     MipLODBias = -1;

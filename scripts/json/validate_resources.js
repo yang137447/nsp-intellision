@@ -8,6 +8,7 @@ const methodsRoot = path.join(resourcesRoot, 'methods', 'object_methods');
 const keywordsRoot = path.join(resourcesRoot, 'language', 'keywords');
 const directivesRoot = path.join(resourcesRoot, 'language', 'directives');
 const semanticsRoot = path.join(resourcesRoot, 'language', 'semantics');
+const preprocessorMacrosRoot = path.join(resourcesRoot, 'language', 'preprocessor_macros');
 const objectTypesRoot = path.join(resourcesRoot, 'types', 'object_types');
 const objectFamiliesRoot = path.join(resourcesRoot, 'types', 'object_families');
 const typeOverridesRoot = path.join(resourcesRoot, 'types', 'type_overrides');
@@ -165,6 +166,16 @@ const schemaChecks = [
 		label: 'semantic override',
 		dataPath: path.join(semanticsRoot, 'override.json'),
 		schemaPath: path.join(semanticsRoot, 'schema.json')
+	},
+	{
+		label: 'preprocessor macro base',
+		dataPath: path.join(preprocessorMacrosRoot, 'base.json'),
+		schemaPath: path.join(preprocessorMacrosRoot, 'schema.json')
+	},
+	{
+		label: 'preprocessor macro override',
+		dataPath: path.join(preprocessorMacrosRoot, 'override.json'),
+		schemaPath: path.join(preprocessorMacrosRoot, 'schema.json')
 	}
 ];
 
@@ -325,6 +336,14 @@ function validateSemanticCoverage(semantics) {
 	}
 }
 
+function validatePreprocessorMacroCoverage(macros) {
+	assertOrThrow(Array.isArray(macros.entries), 'preprocessor macro base entries must be array');
+	const macroNames = new Set(macros.entries.map((item) => item.name));
+	for (const requiredMacro of ['SHADER_QUALITY', 'QUALITY_SUPPORT_MIDDLE', 'QUALITY_SUPPORT_HIGH', 'PLAYERS_SELF']) {
+		assertOrThrow(macroNames.has(requiredMacro), `language preprocessor macros base must include ${requiredMacro}`);
+	}
+}
+
 function main() {
 	const loaded = {};
 	for (const check of schemaChecks) {
@@ -346,6 +365,7 @@ function main() {
 	validateKeywordCoverage(loaded['keyword base']);
 	validateDirectiveCoverage(loaded['directive base']);
 	validateSemanticCoverage(loaded['semantic base']);
+	validatePreprocessorMacroCoverage(loaded['preprocessor macro base']);
 	process.stdout.write('json:validate passed\n');
 }
 

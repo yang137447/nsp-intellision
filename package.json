@@ -73,11 +73,7 @@
  				],
  				"extensions": [
  					".nsf",
- 					".hlsl",
-					".hlsli",
- 					".fx",
- 					".usf",
- 					".ush"
+					".hlsl"
 				],
 				"configuration": "./syntaxes/nsf.language-configuration.json"
  			}
@@ -116,11 +112,7 @@
 						"type": "array",
 						"default": [
 							".nsf",
-							".hlsl",
-							".hlsli",
-							".fx",
-							".usf",
-							".ush"
+							".hlsl"
 						],
 						"items": {
 							"type": "string"
@@ -134,6 +126,24 @@
 							"type": "string"
 						},
 						"description": "预处理宏定义列表（支持 -DNAME 或 -DNAME=VALUE 或 NAME=VALUE）"
+					},
+					"nsf.preprocessorMacros": {
+						"type": "object",
+						"default": {},
+						"additionalProperties": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "number"
+								},
+								{
+									"type": "boolean"
+								}
+							]
+						},
+						"description": "预处理宏 replacement 配置。扩展首次会把内置宏 preset 写入工作区设置；之后用户可直接编辑、删除或补充条目。nsf.defines 和源码 #define/#undef 会继续覆盖这些值。"
 					},
 					"nsf.inlayHints.enabled": {
 						"type": "boolean",

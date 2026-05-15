@@ -253,7 +253,7 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 	const getConfiguredShaderExtensions = (): string[] => {
 		const configured = workspace.getConfiguration('nsf').get<string[]>(
 			'shaderFileExtensions',
-			['.nsf', '.hlsl', '.hlsli', '.fx', '.usf', '.ush']
+			['.nsf', '.hlsl']
 		);
 		const normalized: string[] = [];
 		const seen = new Set<string>();

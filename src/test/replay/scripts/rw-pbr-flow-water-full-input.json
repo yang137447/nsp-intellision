@@ -1,0 +1,618 @@
+{
+  "id": "rw-pbr-flow-water-full-input",
+  "title": "Real workspace pbr_flow_water full-file input",
+  "workspaceHint": "shader-source",
+  "targetDocument": {
+    "workspaceFolderSuffix": "shader-source",
+    "relativePath": "sfx/pbr_flow_water.nsf",
+    "anchorText": "struct VS_INPUT",
+    "occurrence": 1,
+    "characterOffset": 0
+  },
+  "intent": "Replay a full pbr_flow_water include file input flow, sampling diagnostics, runtime state, completion, signature help, and metrics across the whole document.",
+  "tags": ["interactive", "completion", "signature-help", "diagnostics", "full-input", "long-running", "pbr-flow-water", "real-workspace"],
+  "steps": [
+    {
+      "kind": "openDocument",
+      "label": "open pbr_flow_water unit document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/pbr_flow_water.nsf",
+        "anchorText": "struct VS_INPUT",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 800
+    },
+    {
+      "kind": "setActiveUnit",
+      "label": "pin pbr_flow_water active unit",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/pbr_flow_water.nsf",
+        "anchorText": "struct VS_INPUT",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 400
+    },
+    {
+      "kind": "waitForInternalStatus",
+      "label": "wait for active-unit workspace to settle",
+      "payload": {
+        "mode": "idle",
+        "timeoutMs": 240000
+      }
+    },
+    {
+      "kind": "openDocument",
+      "label": "open pbr_flow_water nodes document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "void AssignParamCar",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 300
+    },
+    {
+      "kind": "typeDocumentFromDisk",
+      "label": "type pbr_flow_water_nodes from empty buffer",
+      "payload": {
+        "charactersPerEdit": 16,
+        "checkpointEveryLines": 5,
+        "checkpointSamplingDelaysMs": [0],
+        "nativeTrigger": true,
+        "triggerSuggestUi": true,
+        "triggerParameterHintsUi": true,
+        "uiTriggerDelayMs": 120,
+        "probes": [
+          {
+            "label": "member completion after MaterialInputs dot",
+            "category": "completion.member.material-inputs",
+            "kind": "completion",
+            "afterText": "    MaterialInputs.",
+            "triggerText": ".",
+            "payload": {
+              "triggerCharacter": ".",
+              "expectedLabels": ["opacity"],
+              "maxLabels": 80
+            },
+            "samplingWindow": {
+              "label": "full-input-member-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "member completion after MaterialParameters dot",
+            "category": "completion.member.material-parameters",
+            "kind": "completion",
+            "afterText": "    MaterialParameters.",
+            "triggerText": ".",
+            "payload": {
+              "triggerCharacter": ".",
+              "expectedLabels": ["uv1", "uv0", "world_normal", "camera_vector"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-material-parameters-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "member completion after PS input dot",
+            "category": "completion.member.ps-input",
+            "kind": "completion",
+            "afterText": "    MaterialParameters.uv1 = input.",
+            "triggerText": ".",
+            "payload": {
+              "triggerCharacter": ".",
+              "expectedLabels": ["texcoord1", "texcoord0"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-ps-input-member-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "member completion after VS input dot",
+            "category": "completion.member.vs-input",
+            "kind": "completion",
+            "afterText": "    output.texcoord1.zw = input.",
+            "triggerText": ".",
+            "payload": {
+              "triggerCharacter": ".",
+              "expectedLabels": ["texcoord0"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-vs-output-member-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "swizzle completion after color mask dot",
+            "category": "completion.member.vector-swizzle",
+            "kind": "completion",
+            "afterText": "    MaterialInputs.color_mask.",
+            "triggerText": ".",
+            "payload": {
+              "triggerCharacter": ".",
+              "expectedLabels": ["x", "y", "z", "w"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-vector-swizzle-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "texture method completion after NormalMap dot",
+            "category": "completion.member.texture-samplebias",
+            "kind": "completion",
+            "afterText": "        half4 normal_texture = NormalMap.",
+            "triggerText": ".",
+            "payload": {
+              "triggerCharacter": ".",
+              "expectedLabels": ["SampleBias", "Sample", "Load"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-texture-samplebias-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "texture method completion after distort texture dot",
+            "category": "completion.member.texture-sample",
+            "kind": "completion",
+            "afterText": "        distort01_offset = t_distort_tex1.",
+            "triggerText": ".",
+            "payload": {
+              "triggerCharacter": ".",
+              "expectedLabels": ["Sample", "SampleBias", "Load"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-texture-sample-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "workspace function completion after GetLight prefix",
+            "category": "completion.function.workspace-include",
+            "kind": "completion",
+            "afterText": "    half3 dir_transmission = foam_subsurface_color * transmission_shape * GetLight",
+            "triggerText": "GetLight",
+            "payload": {
+              "triggerCharacter": "t",
+              "expectedLabels": ["GetLightMultiplier"],
+              "maxLabels": 80
+            },
+            "samplingWindow": {
+              "label": "full-input-getlight-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after GetLightMultiplier open paren",
+            "category": "signature.function.workspace-include",
+            "kind": "signatureHelp",
+            "afterText": "    half3 dir_transmission = foam_subsurface_color * transmission_shape * GetLightMultiplier(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["GetLightMultiplier", "LightColor", "LightMask", "Shadow"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-getlight-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "local function completion after WaterFx prefix",
+            "category": "completion.function.local-family",
+            "kind": "completion",
+            "afterText": "    diffuse_uv = WaterFx",
+            "triggerText": "WaterFx",
+            "payload": {
+              "triggerCharacter": "x",
+              "expectedLabels": ["WaterFxUv", "WaterFxClampUv", "WaterFxNanPow"],
+              "maxLabels": 80
+            },
+            "samplingWindow": {
+              "label": "full-input-waterfx-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after WaterFxUv open paren",
+            "category": "signature.function.local",
+            "kind": "signatureHelp",
+            "afterText": "    diffuse_uv = WaterFxUv(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["WaterFxUv", "float2 uv", "float2 tiling", "float2 offset", "float2 speed"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-waterfx-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after WaterFxRemap open paren",
+            "category": "signature.function.local",
+            "kind": "signatureHelp",
+            "afterText": "    half foam_gray_levels = saturate(WaterFxRemap(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["WaterFxRemap", "float v", "float l0", "float h0", "float ln", "float hn"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-waterfx-remap-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after WaterFxNanPow open paren",
+            "category": "signature.function.local-overload",
+            "kind": "signatureHelp",
+            "afterText": "    MaterialInputs.opacity = saturate(WaterFxNanPow(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["WaterFxNanPow", "input_value", "power_value"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-waterfx-nanpow-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "include function completion after Bump prefix",
+            "category": "completion.function.include",
+            "kind": "completion",
+            "afterText": "    diffuse_sample_uv = Bump",
+            "triggerText": "Bump",
+            "payload": {
+              "triggerCharacter": "p",
+              "expectedLabels": ["BumpOffsetUV"],
+              "maxLabels": 80
+            },
+            "samplingWindow": {
+              "label": "full-input-bumpoffset-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after BumpOffsetUV open paren",
+            "category": "signature.function.include",
+            "kind": "signatureHelp",
+            "afterText": "    diffuse_sample_uv = BumpOffsetUV(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["BumpOffsetUV", "MaterialParameters", "coordinate_uv", "height"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-bumpoffset-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "include function completion after Rotation prefix",
+            "category": "completion.function.include",
+            "kind": "completion",
+            "afterText": "        diffuse_uv = Rotation",
+            "triggerText": "Rotation",
+            "payload": {
+              "triggerCharacter": "n",
+              "expectedLabels": ["RotationUV"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-rotationuv-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after RotationUV open paren",
+            "category": "signature.function.include",
+            "kind": "signatureHelp",
+            "afterText": "        diffuse_uv = RotationUV(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["RotationUV"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-rotationuv-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after SampleColorTextureSW open paren",
+            "category": "signature.function.include",
+            "kind": "signatureHelp",
+            "afterText": "    half4 base_color_texture = SampleColorTextureSW(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["SampleColorTextureSW"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-sample-color-texture-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after texture SampleBias open paren",
+            "category": "signature.member.texture",
+            "kind": "signatureHelp",
+            "afterText": "        half4 normal_texture = NormalMap.SampleBias(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["SampleBias"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-texture-samplebias-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "builtin completion after smooth prefix",
+            "category": "completion.function.hlsl-builtin",
+            "kind": "completion",
+            "afterText": "    half water_edge_v0 = smooth",
+            "triggerText": "smooth",
+            "payload": {
+              "triggerCharacter": "h",
+              "expectedLabels": ["smoothstep"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-smoothstep-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after lerp open paren",
+            "category": "signature.function.hlsl-builtin",
+            "kind": "signatureHelp",
+            "afterText": "    uv.x = lerp(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["lerp"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-lerp-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after smoothstep open paren",
+            "category": "signature.function.hlsl-builtin",
+            "kind": "signatureHelp",
+            "afterText": "    half water_edge_v0 = smoothstep(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["smoothstep"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-smoothstep-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "signature help after dot open paren",
+            "category": "signature.function.hlsl-builtin",
+            "kind": "signatureHelp",
+            "afterText": "    half fresnel_nov = saturate(abs(dot(",
+            "triggerText": "(",
+            "payload": {
+              "triggerCharacter": "(",
+              "retrigger": false,
+              "expectedSubstrings": ["dot"],
+              "maxSignatures": 10
+            },
+            "samplingWindow": {
+              "label": "full-input-dot-signature",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "uniform completion after u_foam prefix",
+            "category": "completion.symbol.uniform",
+            "kind": "completion",
+            "afterText": "    half foam_amount = saturate((half)u_foam_",
+            "triggerText": "u_foam_",
+            "payload": {
+              "triggerCharacter": "_",
+              "expectedLabels": ["u_foam_amount", "u_foam_blend", "u_foam_opacity"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-u-foam-uniform-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "local variable completion after foam_structure prefix",
+            "category": "completion.symbol.local-variable",
+            "kind": "completion",
+            "afterText": "    foam_structure",
+            "triggerText": "foam_structure",
+            "payload": {
+              "triggerCharacter": "e",
+              "expectedLabels": ["foam_structure_white", "foam_structure_black", "foam_structure_neutral"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-local-foam-structure-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "type completion after PixelMaterial prefix",
+            "category": "completion.symbol.type",
+            "kind": "completion",
+            "afterText": "void AssignParamCar(inout PixelMaterial",
+            "triggerText": "PixelMaterial",
+            "payload": {
+              "triggerCharacter": "l",
+              "expectedLabels": ["PixelMaterialInputs", "PixelMaterialParameters"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-pixel-material-type-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "preprocessor macro completion after USE_MAIN prefix",
+            "category": "completion.preprocessor.macro",
+            "kind": "completion",
+            "afterText": "    #if USE_MAIN_",
+            "triggerText": "USE_MAIN_",
+            "payload": {
+              "triggerCharacter": "_",
+              "expectedLabels": ["USE_MAIN_ROTATION_UV", "USE_MAIN_PIXELATE_UV", "USE_MAIN_POLAR_UV"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-use-main-macro-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "preprocessor macro completion after HAS prefix",
+            "category": "completion.preprocessor.macro",
+            "kind": "completion",
+            "afterText": "#if HAS_",
+            "triggerText": "HAS_",
+            "payload": {
+              "triggerCharacter": "_",
+              "expectedLabels": ["HAS_2U", "HAS_ALPHA_MAP", "HAS_AMBIENT_OCCLUSION"],
+              "maxLabels": 120
+            },
+            "samplingWindow": {
+              "label": "full-input-has-macro-completion",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureInteractiveDebug": true
+            }
+          },
+          {
+            "label": "diagnostics after full file input",
+            "category": "diagnostics.final-full-document",
+            "kind": "diagnostics",
+            "afterText": "    CalcAlphaTestClipOpacity(MaterialInputs);\r\n}\r\n",
+            "payload": {
+              "maxDiagnostics": 12,
+              "maxErrors": 4,
+              "waitForReadyMs": 60000,
+              "requireRuntimeReady": true,
+              "touchEveryMs": 5000,
+              "maxTouches": 8
+            },
+            "samplingWindow": {
+              "label": "full-input-final-diagnostics",
+              "sampleCount": 100,
+              "sampleIntervalMs": 10,
+              "captureRuntimeDebug": true
+            }
+          }
+        ]
+      },
+      "samplingWindow": {
+        "label": "full-input-final-window",
+        "sampleCount": 100,
+        "sampleIntervalMs": 10,
+        "captureRuntimeDebug": true,
+        "captureInteractiveDebug": true
+      }
+    }
+  ],
+  "cleanup": { "restoreTouchedDocuments": true }
+}

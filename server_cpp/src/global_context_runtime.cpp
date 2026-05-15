@@ -98,7 +98,9 @@ buildRuntimeContextFingerprints(const GlobalContextRuntimeOptions &options) {
   RuntimeContextFingerprints fingerprints;
   fingerprints.workspaceFoldersFingerprint =
       fingerprintStringList(options.workspaceFolders);
-  fingerprints.definesFingerprint = fingerprintDefines(options.defines);
+  fingerprints.definesFingerprint =
+      fingerprintDefines(options.defines) + "|" +
+      getConfiguredPreprocessorMacrosFingerprint();
   fingerprints.includePathsFingerprint =
       fingerprintStringList(options.includePaths);
   fingerprints.shaderExtensionsFingerprint =

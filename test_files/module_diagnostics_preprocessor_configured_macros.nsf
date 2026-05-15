@@ -1,0 +1,16 @@
+float4 PreprocessorConfiguredMacroEval(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if PRESET_EXPR && !defined(PRESET_DISABLED)
+    float2 configuredPath = uv;
+#else
+    float2 configuredPath = float4(0.0, 0.0, 0.0, 0.0);
+#endif
+
+#ifdef PLAYERS_SELF
+    float2 disabledBuiltinPath = float4(0.0, 0.0, 0.0, 0.0);
+#else
+    float2 disabledBuiltinPath = uv;
+#endif
+
+    return float4(configuredPath + disabledBuiltinPath, 0.0, 1.0);
+}

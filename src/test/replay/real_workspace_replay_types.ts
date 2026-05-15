@@ -10,9 +10,40 @@ export type ReplayAnchor = {
 
 export type ReplaySamplingWindow = {
 	label: string;
-	delaysMs: number[];
+	delaysMs?: number[];
+	sampleCount?: number;
+	sampleIntervalMs?: number;
 	captureRuntimeDebug?: boolean;
 	captureInteractiveDebug?: boolean;
+};
+
+export type ReplayTypingProbe = {
+	label: string;
+	category?: string;
+	kind: 'completion' | 'signatureHelp' | 'diagnostics';
+	afterText: string;
+	triggerText?: string;
+	occurrence?: number;
+	payload?: {
+		triggerCharacter?: string;
+		retrigger?: boolean;
+		nativeTrigger?: boolean;
+		triggerSuggestUi?: boolean;
+		completionUiMode?: 'nativeOnly' | 'explicitSuggest';
+		triggerParameterHintsUi?: boolean;
+		uiTriggerDelayMs?: number;
+		expectedLabels?: string[];
+		expectedSubstrings?: string[];
+		maxLabels?: number;
+		maxSignatures?: number;
+		maxDiagnostics?: number;
+		maxErrors?: number;
+		waitForReadyMs?: number;
+		requireRuntimeReady?: boolean;
+		touchEveryMs?: number;
+		maxTouches?: number;
+	};
+	samplingWindow?: ReplaySamplingWindow;
 };
 
 export type ReplayStep =
@@ -31,6 +62,13 @@ export type ReplayStep =
 			samplingWindow?: ReplaySamplingWindow;
 	  }
 	| {
+			kind: 'setActiveUnit';
+			label: string;
+			target: ReplayAnchor;
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
 			kind: 'selectRange';
 			label: string;
 			target: ReplayAnchor;
@@ -42,6 +80,23 @@ export type ReplayStep =
 			kind: 'typeText';
 			label: string;
 			payload: { text: string };
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'typeDocumentFromDisk';
+			label: string;
+			payload?: {
+				charactersPerEdit?: number;
+				checkpointEveryLines?: number;
+				checkpointSamplingDelaysMs?: number[];
+				nativeTrigger?: boolean;
+				triggerSuggestUi?: boolean;
+				completionUiMode?: 'nativeOnly' | 'explicitSuggest';
+				triggerParameterHintsUi?: boolean;
+				uiTriggerDelayMs?: number;
+				probes?: ReplayTypingProbe[];
+			};
 			afterActionPauseMs?: number;
 			samplingWindow?: ReplaySamplingWindow;
 	  }

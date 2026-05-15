@@ -3,5 +3,5 @@
 float4 UseFxDecls(float2 uv : TEXCOORD0) : SV_Target0
 {
     float4 v = Tex0.Sample(s_diffuse, uv);
-    return v;
+    return v * u_multiline_fx_scale;
 }

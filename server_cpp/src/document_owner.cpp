@@ -59,21 +59,12 @@ void documentOwnerDidChange(const Document &document,
                             const std::vector<ChangedRange> &changedRanges,
                             const DocumentRuntimeUpdateOptions &options,
                             const ServerRequestContext &ctx) {
+  (void)ctx;
   const auto startedAt = std::chrono::steady_clock::now();
   auto owner = getOrCreateOwnerState(document.uri);
   std::lock_guard<std::mutex> ownerLock(owner->mutex);
   documentRuntimeUpsert(document, changedRanges, options);
-  bool shouldPrewarm = true;
   DocumentRuntime runtime;
-  if (documentRuntimeGet(document.uri, runtime)) {
-    const bool commentOnlyEdit =
-        isCommentOnlyEditForDidChange(document.text, changedRanges);
-    shouldPrewarm =
-        !((runtime.syntaxOnlyEditHint || commentOnlyEdit) &&
-          runtime.lastGoodCurrentDocSemanticSnapshot != nullptr);
-  }
-  if (shouldPrewarm)
-    interactiveSemanticRuntimePrewarm(document.uri, document, ctx);
   if (documentRuntimeGet(document.uri, runtime))
     interactiveVisibilityRuntimePrewarm(runtime);
   recordInteractiveOwnerDidChange(

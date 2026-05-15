@@ -107,9 +107,11 @@ TrimmedCodeLineScanSharedResult buildTrimmedCodeLineScanShared(
     const std::string &text, const std::vector<char> *lineActive = nullptr);
 
 // Shared heuristic used by fast/full diagnostics to decide whether one visible
-// code line likely needs a terminating semicolon. `insideOpenGroupingAfterLine`
-// should be true when the shared line scan still sees the current line inside a
-// multi-line `(`/`[` grouping after the line finishes.
+// code line likely needs a terminating semicolon. It owns syntax-boundary
+// exceptions for NSF metadata/state blocks so diagnostics layers do not repeat
+// effect-style header rules. `insideOpenGroupingAfterLine` should be true when
+// the shared line scan still sees the current line inside a multi-line `(`/`[`
+// grouping after the line finishes.
 bool shouldReportMissingSemicolonShared(const std::string &trimmed,
                                         const std::string &nextTrimmed,
                                         bool insideOpenGroupingAfterLine);

@@ -1,0 +1,29 @@
+texture Tex0: DiffuseMap
+<
+    string UIName = "Diffuse";
+>;
+
+SamplerState s_diffuse
+{
+    Texture = Tex0;
+    Filter = MIN_MAG_MIP_LINEAR;
+};
+
+float u_wind_y_stress
+<
+    string UIName = "Wind Y Stress";
+> = 1.0;
+
+static const float2 kOffsets[2] =
+{
+    float2(0, 0),
+    float2(1, 1)
+};
+
+[numthreads(8, 8, 1)]
+void EffectHeaderComputeMain(
+    uint3 groupId : SV_GroupID,
+    uint GI : SV_GroupIndex)
+{
+    float2 uv = kOffsets[GI % 2] + groupId.xy;
+}

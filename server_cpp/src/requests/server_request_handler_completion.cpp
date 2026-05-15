@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstddef>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -53,6 +54,14 @@ std::mutex gCompletionMetricsMutex;
 CompletionMetricState gCompletionMetrics;
 std::mutex gCompletionDebugMutex;
 CompletionDebugSnapshot gLastCompletionDebug;
+std::vector<CompletionDebugSnapshot> gRecentCompletionDebug;
+constexpr size_t kMaxRecentCompletionDebugSnapshots = 512;
+
+double unixNowMs() {
+  return std::chrono::duration<double, std::milli>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
 
 void recordCompletionDuration(uint64_t &samples, double &totalMs,
                               double &maxMs, double durationMs) {
@@ -131,11 +140,34 @@ void recordCompletionMemberQuery(double durationMs) {
 void updateLastCompletionDebugSnapshot(const CompletionDebugSnapshot &snapshot) {
   std::lock_guard<std::mutex> lock(gCompletionDebugMutex);
   gLastCompletionDebug = snapshot;
+  if (!snapshot.nsfDebugRequestId.empty()) {
+    for (auto it = gRecentCompletionDebug.begin();
+         it != gRecentCompletionDebug.end();) {
+      if (it->nsfDebugRequestId == snapshot.nsfDebugRequestId) {
+        it = gRecentCompletionDebug.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  gRecentCompletionDebug.push_back(snapshot);
+  if (gRecentCompletionDebug.size() > kMaxRecentCompletionDebugSnapshots) {
+    gRecentCompletionDebug.erase(
+        gRecentCompletionDebug.begin(),
+        gRecentCompletionDebug.begin() +
+            static_cast<std::ptrdiff_t>(gRecentCompletionDebug.size() -
+                                        kMaxRecentCompletionDebugSnapshots));
+  }
 }
 
 CompletionDebugSnapshot getLastCompletionDebugSnapshot() {
   std::lock_guard<std::mutex> lock(gCompletionDebugMutex);
   return gLastCompletionDebug;
+}
+
+std::vector<CompletionDebugSnapshot> getRecentCompletionDebugSnapshots() {
+  std::lock_guard<std::mutex> lock(gCompletionDebugMutex);
+  return gRecentCompletionDebug;
 }
 
 CompletionMetricsSnapshot takeCompletionMetricsSnapshot() {
@@ -245,6 +277,7 @@ bool request_completion_handlers::handleCompletionRequest(
   if (method != "textDocument/completion" || !params)
     return false;
 
+  const auto handlerStartedAt = std::chrono::steady_clock::now();
   const Json *textDocument = getObjectValue(*params, "textDocument");
   const Json *position = getObjectValue(*params, "position");
   std::string uri;
@@ -269,15 +302,57 @@ bool request_completion_handlers::handleCompletionRequest(
   std::vector<InteractiveCompletionItem> interactiveItems;
   std::string completionPrefix;
   CompletionDebugSnapshot completionDebug;
+  const Json *debugRequestIdValue =
+      getObjectValue(*params, "nsfDebugRequestId");
+  if (debugRequestIdValue && debugRequestIdValue->type == Json::Type::String) {
+    completionDebug.nsfDebugRequestId = debugRequestIdValue->s;
+  }
+  const Json *debugClientSendStartedAtValue =
+      getObjectValue(*params, "nsfDebugClientSendStartedAtMs");
+  if (debugClientSendStartedAtValue &&
+      debugClientSendStartedAtValue->type == Json::Type::Number) {
+    completionDebug.clientSendStartedAtUnixMs =
+        getNumberValue(*debugClientSendStartedAtValue);
+  }
+  completionDebug.serverReceivedAtUnixMs = ctx.requestReceivedAtUnixMs;
+  completionDebug.serverWorkerStartedAtUnixMs =
+      ctx.requestWorkerStartedAtUnixMs;
+  completionDebug.serverDidChangeCompletedBeforeRequestCount =
+      ctx.serverDidChangeCompletedBeforeRequestCount;
+  completionDebug.serverDidChangeOverlapClientSendCount =
+      ctx.serverDidChangeOverlapClientSendCount;
+  completionDebug.serverDidChangeOverlapClientSendMs =
+      ctx.serverDidChangeOverlapClientSendMs;
+  completionDebug.serverLastDidChangeDurationMs =
+      ctx.serverLastDidChangeDurationMs;
+  completionDebug.serverLastDidChangeEndToRequestReceivedMs =
+      ctx.serverLastDidChangeEndToRequestReceivedMs;
   completionDebug.line = line;
   completionDebug.character = character;
+  completionDebug.requestQueueWaitMs = ctx.requestQueueWaitMs;
+  completionDebug.requestContextBuildMs = ctx.requestContextBuildMs;
+  completionDebug.requestDocumentVersion = ctx.requestDocumentVersion;
+  auto updateCompletionDebugTiming = [&]() {
+    completionDebug.handlerTotalMs =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - handlerStartedAt)
+            .count();
+    updateLastCompletionDebugSnapshot(completionDebug);
+  };
   auto writeCompletionResponse = [&](const Json &response) {
+    if (response.type == Json::Type::Array) {
+      completionDebug.itemCount = response.a.size();
+    }
+    updateCompletionDebugTiming();
     const auto responseWriteStartedAt = std::chrono::steady_clock::now();
     writeResponse(id, response);
-    recordCompletionResponseWrite(
+    completionDebug.serverResponseWriteCompletedAtUnixMs = unixNowMs();
+    completionDebug.responseWriteMs =
         std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - responseWriteStartedAt)
-            .count());
+            .count();
+    recordCompletionResponseWrite(completionDebug.responseWriteMs);
+    updateCompletionDebugTiming();
   };
 
   auto isAttributeCompletionContext = [&](const std::string &lineText,
@@ -315,8 +390,11 @@ bool request_completion_handlers::handleCompletionRequest(
 
   if (doc && line >= 0 && character >= 0) {
     std::string lineText = getLineAt(doc->text, line);
+    completionDebug.documentFound = true;
+    completionDebug.documentVersion = doc->version;
     completionDebug.lineText = lineText;
     completionPrefix = extractCompletionPrefix(lineText, character);
+    completionDebug.completionPrefix = completionPrefix;
     if (isAttributeCompletionContext(lineText, character)) {
       Json items = makeArray();
       for (const auto &label : attributeKeywords) {
@@ -326,6 +404,7 @@ bool request_completion_handlers::handleCompletionRequest(
         }
         appendCompletionItem(items, label, 14);
       }
+      completionDebug.path = "attribute_completion";
       writeCompletionResponse(items);
       return true;
     }
@@ -357,10 +436,11 @@ bool request_completion_handlers::handleCompletionRequest(
       MemberAccessBaseTypeResult baseResolution =
           resolveMemberAccessBaseType(uri, *doc, base, cursorOffset, ctx,
                                       baseOptions);
-      recordCompletionMemberBaseResolve(
+      completionDebug.memberBaseResolveMs =
           std::chrono::duration<double, std::milli>(
               std::chrono::steady_clock::now() - memberBaseResolveStartedAt)
-              .count());
+              .count();
+      recordCompletionMemberBaseResolve(completionDebug.memberBaseResolveMs);
       if (!baseResolution.resolved) {
         DeclCandidate decl;
         if (findBestCurrentDocDeclarationUpTo(doc->text, base, cursorOffset,
@@ -379,12 +459,15 @@ bool request_completion_handlers::handleCompletionRequest(
         completionDebug.resolvedType = baseResolution.typeName;
         MemberCompletionQuery query;
         const auto memberQueryStartedAt = std::chrono::steady_clock::now();
+        double memberQueryMs = 0.0;
         if (collectMemberCompletionQuery(uri, baseResolution.typeName, ctx,
                                          query)) {
-          recordCompletionMemberQuery(
+          memberQueryMs =
               std::chrono::duration<double, std::milli>(
                   std::chrono::steady_clock::now() - memberQueryStartedAt)
-                  .count());
+                  .count();
+          completionDebug.memberQueryMs = memberQueryMs;
+          recordCompletionMemberQuery(memberQueryMs);
           completionDebug.fieldCount = query.fields.size();
           completionDebug.methodCount = query.methods.size();
           Json items = buildMemberCompletionItems(query);
@@ -398,10 +481,12 @@ bool request_completion_handlers::handleCompletionRequest(
           }
           completionDebug.path = "member_query_empty_items";
         } else {
-          recordCompletionMemberQuery(
+          memberQueryMs =
               std::chrono::duration<double, std::milli>(
                   std::chrono::steady_clock::now() - memberQueryStartedAt)
-                  .count());
+                  .count();
+          completionDebug.memberQueryMs = memberQueryMs;
+          recordCompletionMemberQuery(memberQueryMs);
         }
       } else {
         completionDebug.path = "member_type_unresolved";
@@ -413,10 +498,11 @@ bool request_completion_handlers::handleCompletionRequest(
     const auto interactiveCollectStartedAt = std::chrono::steady_clock::now();
     interactiveCollectCompletionItems(uri, *doc, cursorOffset,
                                       completionPrefix, ctx, interactiveItems);
-    recordCompletionInteractiveCollect(
+    completionDebug.interactiveCollectMs =
         std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - interactiveCollectStartedAt)
-            .count());
+            .count();
+    recordCompletionInteractiveCollect(completionDebug.interactiveCollectMs);
   }
 
   const auto &directiveItems = getHlslDirectiveCompletionItems();
@@ -474,10 +560,11 @@ bool request_completion_handlers::handleCompletionRequest(
   appendUniqueItems(builtinNames, 3);
   if (appendAttributeKeywords)
     appendUniqueItems(attributeKeywords, 14);
-  recordCompletionItemAssembly(
+  completionDebug.itemAssemblyMs =
       std::chrono::duration<double, std::milli>(
           std::chrono::steady_clock::now() - itemAssemblyStartedAt)
-          .count());
+          .count();
+  recordCompletionItemAssembly(completionDebug.itemAssemblyMs);
   if (!completionDebug.memberItemsReturned) {
     if (completionDebug.path.empty()) {
       completionDebug.path = "generic_completion_only";

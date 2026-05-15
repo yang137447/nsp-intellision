@@ -567,6 +567,20 @@ void extractDefinitions(const std::string &uri, const std::string &text,
         }
       }
 
+      std::string uiType;
+      std::string uiName;
+      size_t uiStart = 0;
+      size_t uiEnd = 0;
+      if (findMetadataDeclarationHeaderPosShared(lineText, uiType, uiName,
+                                                 uiStart, uiEnd)) {
+        pendingUiVar = true;
+        pendingUiLine = lineIndex;
+        pendingUiStartByte = static_cast<int>(uiStart);
+        pendingUiEndByte = static_cast<int>(uiEnd);
+        pendingUiName = uiName;
+        pendingUiType = uiType;
+      }
+
       if (tokens.size() >= 3 && tokens[0].text != "#") {
         size_t typeIndex = std::string::npos;
         for (size_t i = 0; i < tokens.size(); i++) {
@@ -594,23 +608,9 @@ void extractDefinitions(const std::string &uri, const std::string &text,
           if (nameIndex != std::string::npos) {
             const std::string name = tokens[nameIndex].text;
             const std::string type = tokens[typeIndex].text;
-            std::string uiType;
-            std::string uiName;
-            size_t uiStart = 0;
-            size_t uiEnd = 0;
-            if (findMetadataDeclarationHeaderPosShared(lineText, uiType,
-                                                       uiName, uiStart,
-                                                       uiEnd) &&
-                uiName == name) {
-              pendingUiVar = true;
-              pendingUiLine = lineIndex;
-              pendingUiStartByte = static_cast<int>(uiStart);
-              pendingUiEndByte = static_cast<int>(uiEnd);
-              pendingUiName = uiName;
-              pendingUiType = uiType;
-            } else if (nameIndex + 1 < tokens.size() &&
-                       tokens[nameIndex + 1].kind == LexToken::Kind::Punct &&
-                       tokens[nameIndex + 1].text == "(") {
+            if (nameIndex + 1 < tokens.size() &&
+                tokens[nameIndex + 1].kind == LexToken::Kind::Punct &&
+                tokens[nameIndex + 1].text == "(") {
               int parenDepth = 0;
               size_t closeIndex = std::string::npos;
               for (size_t i = nameIndex + 1; i < tokens.size(); i++) {

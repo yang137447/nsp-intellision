@@ -1,5 +1,5 @@
 #define LAYERED_RUNTIME_ENABLE_SHARED 1
-#include "layered_runtime_macro_shared.ush"
+#include "layered_runtime_macro_shared.hlsl"
 
 float4 layeredRuntimeEntry() : SV_Target
 {

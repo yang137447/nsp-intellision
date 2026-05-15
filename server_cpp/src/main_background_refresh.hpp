@@ -32,6 +32,10 @@ enum class DiagnosticsQueuePriority : int { Fast = 0, Full = 1 };
 struct PendingDiagnosticsJob {
   DiagnosticsJobKind kind = DiagnosticsJobKind::Fast;
   bool hasPairedFull = false;
+  // Fast jobs always build/store the local-structural runtime snapshot. This
+  // flag only controls whether that snapshot also owns a visible diagnostics
+  // publish.
+  bool publishDiagnostics = true;
   int documentVersion = 0;
   uint64_t documentEpoch = 0;
   uint64_t latestOnlySerial = 0;

@@ -61,14 +61,6 @@ static bool fileExists(const std::string &path) {
 #endif
 }
 
-static void appendUnique(std::vector<std::string> &out,
-                         const std::string &value) {
-  for (const auto &item : out) {
-    if (item == value)
-      return;
-  }
-  out.push_back(value);
-}
 } // namespace
 
 bool collectMacroGeneratedFunctions(
@@ -80,8 +72,6 @@ bool collectMacroGeneratedFunctions(
     std::vector<MacroGeneratedFunctionInfo> &outCandidates, size_t limit) {
   outCandidates.clear();
   std::vector<std::string> scanExtensions = shaderExtensions;
-  appendUnique(scanExtensions, ".hlsli");
-  appendUnique(scanExtensions, ".h");
 
   std::vector<std::pair<std::string, std::string>> sourceQueue;
   std::unordered_set<std::string> knownUris;

@@ -1,0 +1,3 @@
+#ifndef DOT_INCLUDE_MACRO
+#define DOT_INCLUDE_MACRO 1
+#endif

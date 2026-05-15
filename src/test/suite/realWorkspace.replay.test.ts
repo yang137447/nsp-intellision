@@ -12,6 +12,13 @@ const realDescribe = testMode === 'real' ? describe : describe.skip;
 
 const WAIT_STEP_MS = 500;
 
+type PreprocessorMacroPresetResponse = {
+	entries?: Array<{
+		name?: unknown;
+		replacement?: unknown;
+	}>;
+};
+
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -49,6 +56,20 @@ async function waitForCommandAvailable(command: string, timeoutMs = 120000): Pro
 	throw new Error(`Timed out waiting for command ${command}`);
 }
 
+async function waitForClientReady(label: string, timeoutMs = 120000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	let lastState = '';
+	while (Date.now() < deadline) {
+		const value = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
+		lastState = JSON.stringify(value ?? null);
+		if (value?.clientState === 'ready') {
+			return;
+		}
+		await delay(WAIT_STEP_MS);
+	}
+	throw new Error(`Timed out waiting for ${label}. Last client state: ${lastState}`);
+}
+
 async function waitForInternalStatusIdle(timeoutMs = 120000): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
@@ -71,16 +92,70 @@ async function waitForInternalStatusIdle(timeoutMs = 120000): Promise<void> {
 	throw new Error('Timed out waiting for real workspace internal status to settle');
 }
 
+function hasExplicitPreprocessorMacroSetting(): boolean {
+	const inspected = vscode.workspace.getConfiguration('nsf').inspect<Record<string, unknown>>('preprocessorMacros');
+	return (
+		inspected?.globalValue !== undefined ||
+		inspected?.workspaceValue !== undefined ||
+		inspected?.workspaceFolderValue !== undefined
+	);
+}
+
+function normalizePreprocessorMacroPreset(
+	response: PreprocessorMacroPresetResponse
+): Record<string, string | number | boolean> {
+	const macros: Record<string, string | number | boolean> = {};
+	const entries = Array.isArray(response.entries) ? response.entries : [];
+	for (const entry of entries) {
+		const name = typeof entry?.name === 'string' ? entry.name.trim() : '';
+		const replacement = entry?.replacement;
+		if (
+			name.length === 0 ||
+			!(
+				typeof replacement === 'string' ||
+				typeof replacement === 'number' ||
+				typeof replacement === 'boolean'
+			)
+		) {
+			continue;
+		}
+		macros[name] = replacement;
+	}
+	return macros;
+}
+
+async function seedReplayPreprocessorMacrosIfMissing(): Promise<void> {
+	if (hasExplicitPreprocessorMacroSetting()) {
+		return;
+	}
+	const response = await vscode.commands.executeCommand<PreprocessorMacroPresetResponse>(
+		'nsf._sendServerRequest',
+		{ method: 'nsf/getPreprocessorMacroPreset', params: {} }
+	);
+	const preset = normalizePreprocessorMacroPreset(response ?? {});
+	assert.ok(Object.keys(preset).length > 0, 'Expected preprocessor macro preset entries from server registry.');
+	await vscode.workspace
+		.getConfiguration('nsf')
+		.update('preprocessorMacros', preset, vscode.ConfigurationTarget.Global);
+	await vscode.commands.executeCommand('nsf.restartServer');
+	await waitForClientReady('client ready after real replay preprocessor macro seed');
+}
+
 async function waitForRealReplayReady(): Promise<void> {
 	await waitForCommandAvailable('nsf._getInternalStatus');
+	await waitForClientReady('real replay client ready');
+	await seedReplayPreprocessorMacrosIfMissing();
 	await waitForInternalStatusIdle();
 }
 
 realDescribe('NSF real workspace replay', () => {
 	const scriptFilter = (process.env.NSF_TEST_REAL_REPLAY_SCRIPT_FILTER ?? '').toLowerCase();
-	const scripts = loadReplayScripts().filter((script) =>
-		scriptFilter.length === 0 ? true : script.id.toLowerCase().includes(scriptFilter)
-	);
+	const includeLongScripts = process.env.NSF_REAL_REPLAY_INCLUDE_LONG === '1';
+	const scripts = loadReplayScripts()
+		.filter((script) => includeLongScripts || !script.tags.includes('long-running'))
+		.filter((script) =>
+			scriptFilter.length === 0 ? true : script.id.toLowerCase().includes(scriptFilter)
+		);
 
 	before(async function () {
 		this.timeout(180000);
@@ -97,7 +172,7 @@ realDescribe('NSF real workspace replay', () => {
 
 	for (const script of scripts) {
 		it(`replays ${script.id}`, async function () {
-			this.timeout(300000);
+			this.timeout(script.tags.includes('long-running') ? 900000 : 300000);
 			const report = await runReplayScript(script);
 			const reportPath = writeReplayReport(script.id, report);
 			assert.strictEqual(report.scriptId, script.id);

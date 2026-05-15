@@ -9,11 +9,16 @@
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <mutex>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
 namespace {
+
+std::mutex gConfiguredPreprocessorMacrosMutex;
+ConfiguredPreprocessorMacros gConfiguredPreprocessorMacros;
 
 struct PreprocMacro {
   bool functionLike = false;
@@ -41,6 +46,60 @@ static PreprocMacro makeNumericPreprocMacro(int value) {
   macro.replacement.push_back(
       LexToken{LexToken::Kind::Identifier, text, 0, text.size()});
   return macro;
+}
+
+static PreprocMacro makeReplacementPreprocMacro(const std::string &replacement) {
+  PreprocMacro macro;
+  macro.replacement = lexLineTokens(replacement);
+  return macro;
+}
+
+static uint64_t fnv1aStep(uint64_t hash, const std::string &value) {
+  for (unsigned char ch : value) {
+    hash ^= static_cast<uint64_t>(ch);
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
+static std::string toHex(uint64_t value) {
+  std::ostringstream oss;
+  oss << std::hex << value;
+  return oss.str();
+}
+
+static ConfiguredPreprocessorMacros getConfiguredPreprocessorMacrosSnapshot() {
+  std::lock_guard<std::mutex> lock(gConfiguredPreprocessorMacrosMutex);
+  return gConfiguredPreprocessorMacros;
+}
+
+static std::string fingerprintConfiguredPreprocessorMacros(
+    const ConfiguredPreprocessorMacros &macros) {
+  std::vector<std::pair<std::string, std::string>> ordered(macros.begin(),
+                                                           macros.end());
+  std::sort(ordered.begin(), ordered.end(),
+            [](const auto &lhs, const auto &rhs) {
+              return lhs.first < rhs.first;
+            });
+  uint64_t hash = 1469598103934665603ull;
+  for (const auto &entry : ordered) {
+    hash = fnv1aStep(hash, entry.first);
+    hash = fnv1aStep(hash, "=");
+    hash = fnv1aStep(hash, entry.second);
+    hash = fnv1aStep(hash, ";");
+  }
+  return toHex(hash);
+}
+
+static void seedInitialPreprocessorMacros(
+    std::unordered_map<std::string, PreprocMacro> &macros,
+    const std::unordered_map<std::string, int> &defines) {
+  for (const auto &entry : getConfiguredPreprocessorMacrosSnapshot()) {
+    macros[entry.first] = makeReplacementPreprocMacro(entry.second);
+  }
+  for (const auto &entry : defines) {
+    macros[entry.first] = makeNumericPreprocMacro(entry.second);
+  }
 }
 
 class PreprocessorExprParser {
@@ -417,24 +476,6 @@ static bool loadIncludeDocumentText(PreprocessorInterpreterState &state,
   return readTextFromDiskPath(path, text);
 }
 
-static std::string normalizeUriComparisonKey(const std::string &uriOrPath) {
-  std::string path = uriToPath(uriOrPath);
-  if (path.empty())
-    path = uriOrPath;
-  std::replace(path.begin(), path.end(), '/', '\\');
-  std::transform(path.begin(), path.end(), path.begin(),
-                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-  return path;
-}
-
-static bool uriEquivalent(const std::string &lhs, const std::string &rhs) {
-  if (lhs == rhs)
-    return true;
-  if (lhs.empty() || rhs.empty())
-    return false;
-  return normalizeUriComparisonKey(lhs) == normalizeUriComparisonKey(rhs);
-}
-
 static bool loadIncludeConditionalAst(PreprocessorInterpreterState &state,
                                       const std::string &uri,
                                       const ConditionalAst *&astOut) {
@@ -763,14 +804,23 @@ static void interpretNode(PreprocessorInterpreterState &state,
 
 } // namespace
 
+void setConfiguredPreprocessorMacros(
+    const ConfiguredPreprocessorMacros &macros) {
+  std::lock_guard<std::mutex> lock(gConfiguredPreprocessorMacrosMutex);
+  gConfiguredPreprocessorMacros = macros;
+}
+
+std::string getConfiguredPreprocessorMacrosFingerprint() {
+  return fingerprintConfiguredPreprocessorMacros(
+      getConfiguredPreprocessorMacrosSnapshot());
+}
+
 PreprocessorView
 buildPreprocessorView(const ConditionalAst &ast,
                       const std::unordered_map<std::string, int> &defines) {
   PreprocessorInterpreterState state{ast};
   initializeLineStateStorage(state);
-  for (const auto &entry : defines) {
-    state.macros[entry.first] = makeNumericPreprocMacro(entry.second);
-  }
+  seedInitialPreprocessorMacros(state.macros, defines);
 
   interpretNodeList(state, ast.rootNodeIndices);
   return state.result;
@@ -789,9 +839,7 @@ buildPreprocessorView(const std::string &text,
   const ConditionalAst ast = buildConditionalAst(text);
   PreprocessorInterpreterState state{ast};
   initializeLineStateStorage(state);
-  for (const auto &entry : defines) {
-    state.macros[entry.first] = makeNumericPreprocMacro(entry.second);
-  }
+  seedInitialPreprocessorMacros(state.macros, defines);
 
   std::unordered_map<std::string, ConditionalAst> includeAstCache;
   std::unordered_set<std::string> includeExpansionStack;
@@ -822,9 +870,7 @@ bool buildIncludedDocumentPreprocessorView(
   const ConditionalAst ast = buildConditionalAst(rootText);
   PreprocessorInterpreterState state{ast};
   initializeLineStateStorage(state);
-  for (const auto &entry : defines) {
-    state.macros[entry.first] = makeNumericPreprocMacro(entry.second);
-  }
+  seedInitialPreprocessorMacros(state.macros, defines);
 
   std::unordered_map<std::string, ConditionalAst> includeAstCache;
   std::unordered_set<std::string> includeExpansionStack;

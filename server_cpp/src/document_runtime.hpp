@@ -135,8 +135,8 @@ struct DocumentRuntimeUpdateOptions {
 // `semanticNeutralEditHint` marks whitespace/comment-like edits that can safely
 // reuse last-good semantic state.
 // `syntaxOnlyEditHint` marks small punctuation-only edits where local
-// structural feedback should win over synchronous interactive prewarm on
-// didChange.
+// structural feedback and request-time lazy semantic build should win over
+// synchronous interactive prewarm on didChange.
 struct DocumentRuntime {
   std::string uri;
   std::string text;

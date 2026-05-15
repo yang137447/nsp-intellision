@@ -1,4 +1,4 @@
-#include "module_references_rename_include_preprocessor_shared.ush"
+#include "module_references_rename_include_preprocessor_shared.hlsl"
 
 float4 IncludeBranchRootEntry(float2 uv : TEXCOORD0) : SV_Target0
 {

@@ -1,5 +1,6 @@
 #include "diagnostics_runtime.hpp"
 
+#include "diagnostics_emit.hpp"
 #include "global_context_runtime.hpp"
 #include "lsp_helpers.hpp"
 
@@ -93,12 +94,18 @@ DiagnosticsPublishDecision diagnosticsRuntimeBuildLocalStructuralPublish(
   DiagnosticsPublishDecision decision;
   decision.layer = DiagnosticsPublishLayer::LocalStructural;
   decision.diagnostics = localStructuralSnapshot.diagnostics;
-  if (!localStructuralSnapshot.changedWindowOnly)
+  const std::string uri =
+      runtimeBeforeBuild ? runtimeBeforeBuild->analysisSnapshotKey.documentUri
+                         : "";
+  if (!localStructuralSnapshot.changedWindowOnly) {
+    dedupeDiagnosticsForUri(uri, decision.diagnostics);
     return decision;
+  }
   appendLastGoodDiagnosticsOutsideChangedWindow(
       decision.diagnostics, getLastGoodFullDiagnostics(runtimeBeforeBuild),
       localStructuralSnapshot.changedWindowStartLine,
       localStructuralSnapshot.changedWindowEndLine);
+  dedupeDiagnosticsForUri(uri, decision.diagnostics);
   return decision;
 }
 
@@ -107,9 +114,11 @@ DiagnosticsPublishDecision diagnosticsRuntimeBuildSemanticPublish(
     const DocumentRuntime *runtimeBeforeBuild,
     const Json &builtDiagnostics) {
   DiagnosticsPublishDecision decision;
+  const std::string uri = runtimeAfterBuild.analysisSnapshotKey.documentUri;
   if (diagnosticsRuntimeGlobalContextReady(runtimeAfterBuild)) {
     decision.layer = DiagnosticsPublishLayer::GlobalContext;
     decision.diagnostics = builtDiagnostics;
+    dedupeDiagnosticsForUri(uri, decision.diagnostics);
     return decision;
   }
 
@@ -121,5 +130,6 @@ DiagnosticsPublishDecision diagnosticsRuntimeBuildSemanticPublish(
   } else if (decision.diagnostics.type != Json::Type::Array) {
     decision.diagnostics = makeArray();
   }
+  dedupeDiagnosticsForUri(uri, decision.diagnostics);
   return decision;
 }

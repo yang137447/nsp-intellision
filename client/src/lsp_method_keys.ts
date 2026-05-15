@@ -13,5 +13,6 @@ export const LSP_METHOD_KEYS = {
 	inlayHint: 'textDocument/inlayHint',
 	didChangeConfiguration: 'workspace/didChangeConfiguration',
 	setActiveUnit: 'nsf/setActiveUnit',
+	getPreprocessorMacroPreset: 'nsf/getPreprocessorMacroPreset',
 	rebuildIndex: 'nsf/rebuildIndex'
 } as const;
