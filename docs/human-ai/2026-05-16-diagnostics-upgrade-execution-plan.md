@@ -410,6 +410,12 @@ P2 实施边界：
 - 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
 - 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-02 5-unit / 50-unit real audit 报告。
 
+Git 记录：
+
+- 2026-05-16 已本地提交 P2 阶段：`ee92d44 fix: model HLSL implicit conversions`。
+- 提交内容覆盖共享 HLSL implicit conversion model、diagnostics / overload consumer 迁移、macro-like numeric alias 归一化、focused fixture、repo integration 断言、架构契约说明和本执行计划。
+- 本阶段未执行远端 push；如后续需要上传远端，应在 push 后追加记录目标 remote / branch。
+
 ## Phase 3: 重建局部作用域和控制流模型
 
 ### 背景
