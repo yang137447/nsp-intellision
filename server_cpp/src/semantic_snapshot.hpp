@@ -4,8 +4,8 @@
 //
 // Responsibilities:
 // - build and cache document semantic facts from the shared HLSL AST layer
-// - expose read-only function, parameter, local, field, cbuffer, and global
-//   facts to request/deferred consumers
+// - expose read-only function, parameter, lexical local-scope, field, cbuffer,
+//   and global facts to request/deferred consumers
 //
 // Non-goals:
 // - this module does not render LSP responses

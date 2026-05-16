@@ -98,6 +98,12 @@ std::vector<std::string> extractDeclaredNamesFromLine(const std::string &line);
 std::vector<ParsedDeclarationInfo>
 extractDeclarationsInLineShared(const std::string &line);
 
+// Parses declarations in the initializer segment of a `for` statement, e.g.
+// `for (int i = 0; i < n; ++i)`. Returned spans are byte offsets in the
+// original line. Non-declaration initializers return an empty list.
+std::vector<ParsedDeclarationInfo>
+extractForInitializerDeclarationsInLineShared(const std::string &line);
+
 // Splits text into logical lines while preserving a trailing empty line when the
 // source ends with '\n'.
 std::vector<std::string> splitLinesShared(const std::string &text);

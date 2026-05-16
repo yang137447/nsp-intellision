@@ -41,6 +41,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 
@@ -89,7 +90,23 @@ void collectReturnAndTypeDiagnostics(
     std::string type;
     PreprocBranchSig sig;
   };
-  std::unordered_map<std::string, std::vector<LocalDeclEntry>> localsByName;
+  struct LocalScopeFrame {
+    int id = 0;
+    int parentId = -1;
+    int braceDepth = 0;
+    bool forScope = false;
+    int closeAfterReturnToDepth = -1;
+    std::unordered_map<std::string, std::vector<LocalDeclEntry>> localsByName;
+  };
+  struct PendingForScope {
+    int scopeId = -1;
+    int parentDepth = 0;
+    int createdLine = -1;
+  };
+  std::vector<LocalScopeFrame> localScopes;
+  std::vector<int> localScopeStack;
+  std::vector<PendingForScope> pendingForScopes;
+  int nextLocalScopeId = 0;
   std::unordered_map<std::string, std::string> localsVisibleTypes;
   std::unordered_set<std::string> localsVisibleNames;
   std::string pendingMultilineLocalName;
@@ -621,33 +638,128 @@ void collectReturnAndTypeDiagnostics(
     return ok;
   };
 
+  auto findLocalScope = [&](int scopeId) -> LocalScopeFrame * {
+    for (auto &scope : localScopes) {
+      if (scope.id == scopeId)
+        return &scope;
+    }
+    return nullptr;
+  };
+
+  auto currentLocalScope = [&]() -> LocalScopeFrame * {
+    if (localScopeStack.empty())
+      return nullptr;
+    return findLocalScope(localScopeStack.back());
+  };
+
+  auto enterLocalScope = [&](int braceDepth, bool forScope = false,
+                             int closeAfterReturnToDepth = -1) -> int {
+    LocalScopeFrame frame;
+    frame.id = nextLocalScopeId++;
+    frame.parentId = localScopeStack.empty() ? -1 : localScopeStack.back();
+    frame.braceDepth = braceDepth;
+    frame.forScope = forScope;
+    frame.closeAfterReturnToDepth = closeAfterReturnToDepth;
+    localScopes.push_back(std::move(frame));
+    localScopeStack.push_back(localScopes.back().id);
+    return localScopeStack.back();
+  };
+
+  auto resetLocalScopes = [&]() {
+    localScopes.clear();
+    localScopeStack.clear();
+    pendingForScopes.clear();
+    nextLocalScopeId = 0;
+    enterLocalScope(1);
+  };
+
+  auto exitTopLocalScope = [&]() {
+    if (localScopeStack.size() <= 1)
+      return;
+    localScopeStack.pop_back();
+  };
+
+  auto closeForScopesReturnedToDepth = [&](int depth) {
+    while (localScopeStack.size() > 1) {
+      LocalScopeFrame *scope = findLocalScope(localScopeStack.back());
+      if (!scope || !scope->forScope ||
+          scope->closeAfterReturnToDepth != depth) {
+        break;
+      }
+      localScopeStack.pop_back();
+    }
+  };
+
+  auto erasePendingForScope = [&](int scopeId) {
+    pendingForScopes.erase(
+        std::remove_if(pendingForScopes.begin(), pendingForScopes.end(),
+                       [&](const PendingForScope &pending) {
+                         return pending.scopeId == scopeId;
+                       }),
+        pendingForScopes.end());
+  };
+
+  auto declareLocalInCurrentScope =
+      [&](const std::string &name, const std::string &type,
+          const PreprocBranchSig &sig) {
+        LocalScopeFrame *scope = currentLocalScope();
+        if (!scope)
+          return;
+        scope->localsByName[name].push_back(
+            LocalDeclEntry{normalizeTypeToken(type), sig});
+      };
+
+  auto hasDuplicateInCurrentScope = [&](const std::string &name,
+                                        const PreprocBranchSig &sig) {
+    LocalScopeFrame *scope = currentLocalScope();
+    if (!scope)
+      return false;
+    auto it = scope->localsByName.find(name);
+    if (it == scope->localsByName.end())
+      return false;
+    for (const auto &decl : it->second) {
+      if (preprocBranchSigsOverlap(decl.sig, sig))
+        return true;
+    }
+    return false;
+  };
+
   auto rebuildVisibleLocals = [&](const PreprocBranchSig &sig) {
     localsVisibleTypes.clear();
     localsVisibleNames.clear();
-    for (const auto &entry : localsByName) {
-      const std::string &name = entry.first;
-      const auto &decls = entry.second;
-      bool any = false;
-      std::string soleType;
-      bool typeSet = false;
-      bool ambiguous = false;
-      for (const auto &decl : decls) {
-        if (!preprocBranchSigsOverlap(decl.sig, sig))
-          continue;
-        any = true;
-        std::string t = normalizeTypeToken(decl.type);
-        if (!typeSet) {
-          soleType = t;
-          typeSet = true;
-        } else if (t != soleType) {
-          ambiguous = true;
-        }
-      }
-      if (!any)
+    std::unordered_set<std::string> resolvedNames;
+    for (auto stackIt = localScopeStack.rbegin();
+         stackIt != localScopeStack.rend(); ++stackIt) {
+      LocalScopeFrame *scope = findLocalScope(*stackIt);
+      if (!scope)
         continue;
-      localsVisibleNames.insert(name);
-      if (typeSet && !ambiguous && !soleType.empty()) {
-        localsVisibleTypes.emplace(name, soleType);
+      for (const auto &entry : scope->localsByName) {
+        const std::string &name = entry.first;
+        if (resolvedNames.find(name) != resolvedNames.end())
+          continue;
+        bool any = false;
+        std::string soleType;
+        bool typeSet = false;
+        bool ambiguous = false;
+        for (const auto &decl : entry.second) {
+          if (!preprocBranchSigsOverlap(decl.sig, sig))
+            continue;
+          any = true;
+          std::string t = normalizeTypeToken(decl.type);
+          if (!typeSet) {
+            soleType = t;
+            typeSet = true;
+          } else if (t != soleType) {
+            ambiguous = true;
+          }
+        }
+        if (!any)
+          continue;
+        resolvedNames.insert(name);
+        localsVisibleNames.insert(name);
+        if (typeSet && !ambiguous && !soleType.empty()) {
+          localsVisibleTypes.emplace(name, soleType);
+        }
       }
     }
   };
@@ -686,6 +798,19 @@ void collectReturnAndTypeDiagnostics(
       if (ch == '{') {
         if (inFunction) {
           functionBraceDepth++;
+          for (size_t pendingIndex = 0; pendingIndex < pendingForScopes.size();
+               pendingIndex++) {
+            if (pendingForScopes[pendingIndex].parentDepth ==
+                functionBraceDepth - 1) {
+              const int pendingScopeId = pendingForScopes[pendingIndex].scopeId;
+              LocalScopeFrame *scope = findLocalScope(pendingScopeId);
+              if (scope)
+                scope->closeAfterReturnToDepth = functionBraceDepth - 1;
+              erasePendingForScope(pendingScopeId);
+              break;
+            }
+          }
+          enterLocalScope(functionBraceDepth);
         } else if (pendingSignature) {
           std::string signatureKey = pendingFunctionName + "(";
           for (size_t i = 0; i < pendingParamTypesOrdered.size(); i++) {
@@ -718,14 +843,14 @@ void collectReturnAndTypeDiagnostics(
           lastIfHadElseAtDepth1 = false;
           conditionalReturnSeen = false;
           unconditionalReturnSeen = false;
-          localsByName.clear();
+          resetLocalScopes();
           localsVisibleTypes.clear();
           localsVisibleNames.clear();
           paramNames.clear();
           for (const auto &entry : pendingParams) {
             paramNames.insert(entry.first);
-            localsByName[entry.first].push_back(
-                LocalDeclEntry{entry.second, PreprocBranchSig{}});
+            declareLocalInCurrentScope(entry.first, entry.second,
+                                       PreprocBranchSig{});
           }
           rebuildVisibleLocals(PreprocBranchSig{});
           pendingParams.clear();
@@ -750,8 +875,11 @@ void collectReturnAndTypeDiagnostics(
                 text, pendingMultilineLocalLine, pendingMultilineLocalStart,
                 pendingMultilineLocalEnd, 1, "nsf", "Missing semicolon."));
           }
+          if (functionBraceDepth > 1)
+            exitTopLocalScope();
           functionBraceDepth =
               functionBraceDepth > 0 ? functionBraceDepth - 1 : 0;
+          closeForScopesReturnedToDepth(functionBraceDepth);
           if (functionBraceDepth == 0) {
             if (normalizeTypeToken(functionReturnType) != "void" &&
                 !sawReturn) {
@@ -768,7 +896,9 @@ void collectReturnAndTypeDiagnostics(
             inFunction = false;
             functionReturnType.clear();
             functionName.clear();
-            localsByName.clear();
+            localScopes.clear();
+            localScopeStack.clear();
+            pendingForScopes.clear();
             localsVisibleTypes.clear();
             localsVisibleNames.clear();
             paramNames.clear();
@@ -1136,6 +1266,33 @@ void collectReturnAndTypeDiagnostics(
         }
       }
 
+      const auto forInitializerDecls =
+          extractForInitializerDeclarationsInLineShared(lineText);
+      if (!forInitializerDecls.empty()) {
+        const int forScopeId =
+            enterLocalScope(functionBraceDepth, true, functionBraceDepth);
+        pendingForScopes.push_back(
+            PendingForScope{forScopeId, functionBraceDepth, lineIndex});
+        bool localsChanged = false;
+        for (const auto &decl : forInitializerDecls) {
+          if (paramNames.find(decl.name) != paramNames.end()) {
+            diags.a.push_back(makeDiagnostic(
+                text, lineIndex, static_cast<int>(decl.start),
+                static_cast<int>(decl.end), 2, "nsf",
+                "Local shadows parameter: " + decl.name + "."));
+          } else if (hasDuplicateInCurrentScope(decl.name, currentSig)) {
+            diags.a.push_back(makeDiagnostic(
+                text, lineIndex, static_cast<int>(decl.start),
+                static_cast<int>(decl.end), 2, "nsf",
+                "Duplicate local declaration: " + decl.name + "."));
+          }
+          declareLocalInCurrentScope(decl.name, decl.type, currentSig);
+          localsChanged = true;
+        }
+        if (localsChanged)
+          rebuildVisibleLocals(currentSig);
+      }
+
       bool handledSharedLocalDeclarations = false;
       bool lineHasSemicolon = false;
       for (const auto &t : tokens) {
@@ -1179,25 +1336,12 @@ void collectReturnAndTypeDiagnostics(
               diags.a.push_back(
                   makeDiagnostic(text, lineIndex, nameStart, nameEnd, 2, "nsf",
                                  "Local shadows parameter: " + name + "."));
-            } else {
-              bool duplicate = false;
-              auto it = localsByName.find(name);
-              if (it != localsByName.end()) {
-                for (const auto &decl : it->second) {
-                  if (preprocBranchSigsOverlap(decl.sig, currentSig)) {
-                    duplicate = true;
-                    break;
-                  }
-                }
-              }
-              if (duplicate) {
+            } else if (hasDuplicateInCurrentScope(name, currentSig)) {
                 diags.a.push_back(makeDiagnostic(
                     text, lineIndex, nameStart, nameEnd, 2, "nsf",
                     "Duplicate local declaration: " + name + "."));
-              }
             }
-            localsByName[name].push_back(
-                LocalDeclEntry{normalizeTypeToken(localType), currentSig});
+            declareLocalInCurrentScope(name, localType, currentSig);
             localsChanged = true;
             if (nameTokenIndex < tokens.size()) {
               int parenDepth = 0;
@@ -1311,27 +1455,14 @@ void collectReturnAndTypeDiagnostics(
                   static_cast<int>(tokens[typeIndex + 1].start),
                   static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
                   "Local shadows parameter: " + name + "."));
-            } else {
-              bool duplicate = false;
-              auto it = localsByName.find(name);
-              if (it != localsByName.end()) {
-                for (const auto &decl : it->second) {
-                  if (preprocBranchSigsOverlap(decl.sig, currentSig)) {
-                    duplicate = true;
-                    break;
-                  }
-                }
-              }
-              if (duplicate) {
+            } else if (hasDuplicateInCurrentScope(name, currentSig)) {
                 diags.a.push_back(makeDiagnostic(
                     text, lineIndex,
                     static_cast<int>(tokens[typeIndex + 1].start),
                     static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
                     "Duplicate local declaration: " + name + "."));
-              }
             }
-            localsByName[name].push_back(
-                LocalDeclEntry{tokens[typeIndex].text, currentSig});
+            declareLocalInCurrentScope(name, tokens[typeIndex].text, currentSig);
             rebuildVisibleLocals(currentSig);
 
             for (size_t k = typeIndex + 2; k + 1 < tokens.size(); k++) {
@@ -1383,27 +1514,14 @@ void collectReturnAndTypeDiagnostics(
                   static_cast<int>(tokens[typeIndex + 1].start),
                   static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
                   "Local shadows parameter: " + name + "."));
-            } else {
-              bool duplicate = false;
-              auto it = localsByName.find(name);
-              if (it != localsByName.end()) {
-                for (const auto &decl : it->second) {
-                  if (preprocBranchSigsOverlap(decl.sig, currentSig)) {
-                    duplicate = true;
-                    break;
-                  }
-                }
-              }
-              if (duplicate) {
+            } else if (hasDuplicateInCurrentScope(name, currentSig)) {
                 diags.a.push_back(makeDiagnostic(
                     text, lineIndex,
                     static_cast<int>(tokens[typeIndex + 1].start),
                     static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
                     "Duplicate local declaration: " + name + "."));
-              }
             }
-            localsByName[name].push_back(
-                LocalDeclEntry{tokens[typeIndex].text, currentSig});
+            declareLocalInCurrentScope(name, tokens[typeIndex].text, currentSig);
             rebuildVisibleLocals(currentSig);
             pendingMultilineLocalName = name;
             pendingMultilineLocalDepth = functionBraceDepth;
@@ -2365,6 +2483,17 @@ void collectReturnAndTypeDiagnostics(
     }
 
     scanForBraces(lineText);
+    if (inFunction && !pendingForScopes.empty() && !tokens.empty()) {
+      for (auto it = pendingForScopes.begin(); it != pendingForScopes.end();) {
+        if (it->createdLine < lineIndex) {
+          if (!localScopeStack.empty() && localScopeStack.back() == it->scopeId)
+            localScopeStack.pop_back();
+          it = pendingForScopes.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
     lineIndex++;
   }
 }

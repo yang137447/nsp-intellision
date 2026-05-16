@@ -986,6 +986,35 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Duplicate local declaration: b.'));
 	});
 
+	it('uses lexical scopes for loop locals, sibling blocks, and block flow diagnostics', async () => {
+		const document = await openFixture('module_diagnostics_local_scope_control_flow.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Undefined identifier: i.') &&
+					messages.includes('Unreachable code.') &&
+					!messages.includes('Duplicate local declaration: scoped.') &&
+					!messages.includes('Potential missing return on some paths.') &&
+					!messages.includes('Missing return statement.')
+				);
+			},
+			'lexical scope diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		const undefinedLoopDiagnostics = diagnostics.filter((diag) => diag.message === 'Undefined identifier: i.');
+		assert.strictEqual(undefinedLoopDiagnostics.length, 1, messages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'total = total + i;'), 'Undefined identifier: i.'));
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'total = total + i;\n    return total;'), 'Undefined identifier: i.'));
+		assert.ok(!messages.includes('Duplicate local declaration: scoped.'));
+		assert.ok(!messages.includes('Potential missing return on some paths.'));
+		assert.ok(!messages.includes('Missing return statement.'));
+		assert.ok(messages.includes('Unreachable code.'));
+	});
+
 	it('treats undefined #if macros as errors and keeps only the #else branch active', async () => {
 		const document = await openFixture('module_diagnostics_preprocessor_branch_scope.nsf');
 

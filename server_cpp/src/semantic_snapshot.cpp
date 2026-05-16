@@ -153,79 +153,249 @@ static void populateSemanticSnapshotFromAst(
 
 static void populateSemanticSnapshotLocals(const std::string &text,
                                            SemanticSnapshot &snapshot) {
-  std::istringstream stream(text);
-  std::string lineText;
-  size_t lineStartOffset = 0;
-  int currentLine = 0;
-  int currentDepth = 0;
-  bool inBlockComment = false;
+  const std::vector<std::string> lines = splitLinesShared(text);
+  std::vector<size_t> lineStarts;
+  lineStarts.reserve(lines.size() + 1);
+  size_t offset = 0;
+  for (const auto &line : lines) {
+    lineStarts.push_back(offset);
+    offset += line.size() + 1;
+  }
+  lineStarts.push_back(text.size());
 
-  auto findOwnerFunction =
-      [&](int line) -> SemanticSnapshot::FunctionInfo * {
-    SemanticSnapshot::FunctionInfo *best = nullptr;
-    int bestSpan = 0;
-    for (auto &function : snapshot.functions) {
-      if (!function.hasBody || function.bodyStartLine < 0 ||
-          function.bodyEndLine < 0) {
-        continue;
-      }
-      if (line < function.bodyStartLine || line > function.bodyEndLine)
-        continue;
-      const int span = function.bodyEndLine - function.bodyStartLine;
-      if (!best || span < bestSpan) {
-        best = &function;
-        bestSpan = span;
-      }
-    }
-    return best;
+  struct ScopeFrame {
+    int id = 0;
+    int parentId = -1;
+    int depth = 0;
+    size_t startOffset = 0;
+    size_t endOffset = 0;
+    bool forScope = false;
+    int closeAfterReturnToDepth = -1;
+  };
+  struct PendingForScope {
+    int scopeId = -1;
+    int parentDepth = 0;
+    int createdLine = -1;
   };
 
-  while (std::getline(stream, lineText)) {
-    SemanticSnapshot::FunctionInfo *ownerFunction = findOwnerFunction(currentLine);
-    std::string code = lineText;
-    size_t lineComment = code.find("//");
-    if (lineComment != std::string::npos)
-      code = code.substr(0, lineComment);
+  auto lineStart = [&](int line) -> size_t {
+    if (line < 0)
+      return 0;
+    if (line < static_cast<int>(lineStarts.size()))
+      return lineStarts[static_cast<size_t>(line)];
+    return text.size();
+  };
 
-    if (ownerFunction && !code.empty() && code.find(';') != std::string::npos) {
-      const auto declarations = extractDeclarationsInLineShared(code);
-      for (const auto &decl : declarations) {
-        SemanticSnapshot::FunctionInfo::LocalInfo local;
-        local.name = decl.name;
-        local.type = decl.type;
-        local.offset = lineStartOffset + decl.start;
-        local.line = currentLine;
-        local.character =
-            byteOffsetInLineToUtf16(lineText, static_cast<int>(decl.start));
-        local.depth = currentDepth;
-        ownerFunction->locals.push_back(std::move(local));
-      }
+  auto lineEnd = [&](int line) -> size_t {
+    if (line < 0)
+      return 0;
+    if (line + 1 < static_cast<int>(lineStarts.size()))
+      return lineStarts[static_cast<size_t>(line + 1)];
+    return text.size();
+  };
+
+  for (auto &function : snapshot.functions) {
+    function.locals.clear();
+    if (!function.hasBody || function.bodyStartLine < 0 ||
+        function.bodyEndLine < 0 ||
+        function.bodyStartLine >= function.bodyEndLine) {
+      continue;
     }
 
-    for (size_t i = 0; i < lineText.size(); i++) {
-      char ch = lineText[i];
-      char next = i + 1 < lineText.size() ? lineText[i + 1] : '\0';
-      if (inBlockComment) {
-        if (ch == '*' && next == '/') {
-          inBlockComment = false;
-          i++;
+    std::vector<ScopeFrame> scopes;
+    std::vector<int> scopeStack;
+    std::vector<PendingForScope> pendingForScopes;
+    int nextScopeId = 0;
+    int functionBraceDepth = 1;
+
+    auto enterScope = [&](size_t startOffset, bool forScope = false,
+                          int closeAfterReturnToDepth = -1) -> int {
+      ScopeFrame scope;
+      scope.id = nextScopeId++;
+      scope.parentId = scopeStack.empty() ? -1 : scopeStack.back();
+      scope.depth = static_cast<int>(scopeStack.size());
+      scope.startOffset = startOffset;
+      scope.endOffset = lineEnd(function.bodyEndLine);
+      scope.forScope = forScope;
+      scope.closeAfterReturnToDepth = closeAfterReturnToDepth;
+      scopes.push_back(scope);
+      scopeStack.push_back(scope.id);
+      return scope.id;
+    };
+
+    auto scopeById = [&](int id) -> ScopeFrame * {
+      for (auto &scope : scopes) {
+        if (scope.id == id)
+          return &scope;
+      }
+      return nullptr;
+    };
+
+    auto exitTopScope = [&](size_t endOffset) {
+      if (scopeStack.size() <= 1)
+        return;
+      ScopeFrame *scope = scopeById(scopeStack.back());
+      if (scope)
+        scope->endOffset = endOffset;
+      scopeStack.pop_back();
+    };
+
+    auto closeForScopesReturnedToDepth = [&](int depth, size_t endOffset) {
+      while (scopeStack.size() > 1) {
+        ScopeFrame *scope = scopeById(scopeStack.back());
+        if (!scope || !scope->forScope ||
+            scope->closeAfterReturnToDepth != depth) {
+          break;
         }
-        continue;
+        scope->endOffset = endOffset;
+        scopeStack.pop_back();
       }
-      if (ch == '/' && next == '*') {
-        inBlockComment = true;
-        i++;
-        continue;
+    };
+
+    auto erasePendingForScope = [&](int scopeId) {
+      pendingForScopes.erase(
+          std::remove_if(pendingForScopes.begin(), pendingForScopes.end(),
+                         [&](const PendingForScope &pending) {
+                           return pending.scopeId == scopeId;
+                         }),
+          pendingForScopes.end());
+    };
+
+    auto currentScope = [&]() -> ScopeFrame * {
+      if (scopeStack.empty())
+        return nullptr;
+      return scopeById(scopeStack.back());
+    };
+
+    enterScope(lineStart(function.bodyStartLine));
+
+    bool inBlockComment = false;
+    for (int line = function.bodyStartLine + 1;
+         line < function.bodyEndLine &&
+         line < static_cast<int>(lines.size());
+         line++) {
+      const std::string &lineText = lines[static_cast<size_t>(line)];
+      std::string code = lineText;
+      const size_t lineComment = code.find("//");
+      if (lineComment != std::string::npos)
+        code = code.substr(0, lineComment);
+
+      const auto forDecls = extractForInitializerDeclarationsInLineShared(code);
+      if (!forDecls.empty()) {
+        const int forScopeId =
+            enterScope(lineStart(line), true, functionBraceDepth);
+        pendingForScopes.push_back(
+            PendingForScope{forScopeId, functionBraceDepth, line});
+        for (const auto &decl : forDecls) {
+          ScopeFrame *scope = currentScope();
+          if (!scope)
+            continue;
+          SemanticSnapshot::FunctionInfo::LocalInfo local;
+          local.name = decl.name;
+          local.type = decl.type;
+          local.offset = lineStart(line) + decl.start;
+          local.line = line;
+          local.character =
+              byteOffsetInLineToUtf16(lineText, static_cast<int>(decl.start));
+          local.depth = scope->depth;
+          local.scopeId = scope->id;
+          local.parentScopeId = scope->parentId;
+          function.locals.push_back(std::move(local));
+        }
       }
-      if (ch == '{') {
-        currentDepth++;
-      } else if (ch == '}' && currentDepth > 0) {
-        currentDepth--;
+
+      if (code.find(';') != std::string::npos) {
+        const auto declarations = extractDeclarationsInLineShared(code);
+        for (const auto &decl : declarations) {
+          ScopeFrame *scope = currentScope();
+          if (!scope)
+            continue;
+          SemanticSnapshot::FunctionInfo::LocalInfo local;
+          local.name = decl.name;
+          local.type = decl.type;
+          local.offset = lineStart(line) + decl.start;
+          local.line = line;
+          local.character =
+              byteOffsetInLineToUtf16(lineText, static_cast<int>(decl.start));
+          local.depth = scope->depth;
+          local.scopeId = scope->id;
+          local.parentScopeId = scope->parentId;
+          function.locals.push_back(std::move(local));
+        }
+      }
+
+      for (size_t i = 0; i < lineText.size(); i++) {
+        const char ch = lineText[i];
+        const char next = i + 1 < lineText.size() ? lineText[i + 1] : '\0';
+        const size_t charOffset = lineStart(line) + i;
+        if (inBlockComment) {
+          if (ch == '*' && next == '/') {
+            inBlockComment = false;
+            i++;
+          }
+          continue;
+        }
+        if (ch == '/' && next == '*') {
+          inBlockComment = true;
+          i++;
+          continue;
+        }
+        if (ch == '/' && next == '/')
+          break;
+        if (ch == '{') {
+          for (size_t pendingIndex = 0; pendingIndex < pendingForScopes.size();
+               pendingIndex++) {
+            if (pendingForScopes[pendingIndex].parentDepth == functionBraceDepth) {
+              const int pendingScopeId = pendingForScopes[pendingIndex].scopeId;
+              ScopeFrame *scope = scopeById(pendingScopeId);
+              if (scope)
+                scope->closeAfterReturnToDepth = functionBraceDepth;
+              erasePendingForScope(pendingScopeId);
+              break;
+            }
+          }
+          functionBraceDepth++;
+          enterScope(charOffset + 1);
+          continue;
+        }
+        if (ch == '}' && functionBraceDepth > 1) {
+          exitTopScope(charOffset);
+          functionBraceDepth--;
+          closeForScopesReturnedToDepth(functionBraceDepth, charOffset);
+        }
+      }
+
+      const auto tokens = lexLineTokens(code);
+      const bool meaningfulLine = !tokens.empty();
+      if (meaningfulLine) {
+        for (auto it = pendingForScopes.begin();
+             it != pendingForScopes.end();) {
+          if (it->createdLine < line) {
+            ScopeFrame *scope = scopeById(it->scopeId);
+            if (scope)
+              scope->endOffset = lineEnd(line);
+            if (!scopeStack.empty() && scopeStack.back() == it->scopeId)
+              scopeStack.pop_back();
+            it = pendingForScopes.erase(it);
+          } else {
+            ++it;
+          }
+        }
       }
     }
 
-    lineStartOffset += lineText.size() + 1;
-    currentLine++;
+    const size_t functionEnd = lineEnd(function.bodyEndLine);
+    for (auto &scope : scopes) {
+      if (scope.endOffset == 0 || scope.endOffset > functionEnd)
+        scope.endOffset = functionEnd;
+    }
+    for (auto &local : function.locals) {
+      ScopeFrame *scope = scopeById(local.scopeId);
+      if (!scope)
+        continue;
+      local.scopeStartOffset = scope->startOffset;
+      local.scopeEndOffset = scope->endOffset;
+    }
   }
 }
 
@@ -551,6 +721,10 @@ bool querySemanticSnapshotLocalTypeAtOffset(
   for (const auto &local : bestFunction->locals) {
     if (local.name != name || local.offset > offset)
       continue;
+    if (local.scopeStartOffset > offset ||
+        (local.scopeEndOffset > 0 && offset >= local.scopeEndOffset)) {
+      continue;
+    }
     if (!bestLocal || local.depth > bestLocal->depth ||
         (local.depth == bestLocal->depth && local.offset >= bestLocal->offset)) {
       bestLocal = &local;

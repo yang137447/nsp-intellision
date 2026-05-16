@@ -43,9 +43,16 @@ struct SemanticSnapshot {
       std::string name;
       std::string type;
       size_t offset = 0;
+      // Lexical scope range where the declaration is visible. Consumers must
+      // check the query offset is inside this half-open range before using the
+      // local type; depth alone is not a visibility contract.
+      size_t scopeStartOffset = 0;
+      size_t scopeEndOffset = 0;
       int line = -1;
       int character = -1;
       int depth = 0;
+      int scopeId = 0;
+      int parentScopeId = -1;
     };
 
     struct ParameterInfo {

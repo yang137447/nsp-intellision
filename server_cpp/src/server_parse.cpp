@@ -1142,6 +1142,64 @@ extractDeclarationsInLineShared(const std::string &line) {
   return parseDeclarationsInLine(line);
 }
 
+std::vector<ParsedDeclarationInfo>
+extractForInitializerDeclarationsInLineShared(const std::string &line) {
+  const auto tokens = lexLineTokens(line);
+  for (size_t i = 0; i + 1 < tokens.size(); i++) {
+    if (tokens[i].kind != LexToken::Kind::Identifier ||
+        tokens[i].text != "for") {
+      continue;
+    }
+    if (tokens[i + 1].kind != LexToken::Kind::Punct ||
+        tokens[i + 1].text != "(") {
+      continue;
+    }
+
+    int parenDepth = 0;
+    size_t initStart = std::string::npos;
+    size_t initEnd = std::string::npos;
+    for (size_t j = i + 1; j < tokens.size(); j++) {
+      const auto &token = tokens[j];
+      if (token.kind != LexToken::Kind::Punct)
+        continue;
+      if (token.text == "(") {
+        parenDepth++;
+        if (parenDepth == 1)
+          initStart = token.end;
+        continue;
+      }
+      if (token.text == ")") {
+        if (parenDepth <= 0)
+          break;
+        parenDepth--;
+        if (parenDepth == 0) {
+          initEnd = token.start;
+          break;
+        }
+        continue;
+      }
+      if (token.text == ";" && parenDepth == 1) {
+        initEnd = token.start;
+        break;
+      }
+    }
+
+    if (initStart == std::string::npos || initEnd == std::string::npos ||
+        initEnd <= initStart) {
+      return {};
+    }
+
+    const std::string initializer = line.substr(initStart, initEnd - initStart);
+    auto parsed = parseDeclarationsInLine(initializer);
+    for (auto &decl : parsed) {
+      decl.start += initStart;
+      decl.end += initStart;
+    }
+    return parsed;
+  }
+  return {};
+}
+
 std::vector<std::string> splitLinesShared(const std::string &text) {
   std::vector<std::string> lines;
   std::istringstream stream(text);

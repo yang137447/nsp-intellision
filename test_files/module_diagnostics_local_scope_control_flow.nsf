@@ -1,0 +1,52 @@
+float LoopScopeMain(float2 uv : TEXCOORD0)
+{
+    float total = 0.0;
+    for (int i = 0; i < 3; i++)
+    {
+        total = total + i;
+    }
+    total = total + i;
+    return total;
+}
+
+float SiblingBlockScopes(float input)
+{
+    if (input > 0.0)
+    {
+        float scoped = input;
+        input = scoped;
+    }
+    {
+        float scoped = input + 1.0;
+        input = scoped;
+    }
+    return input;
+}
+
+float NestedShadowScope(float input)
+{
+    float scoped = input;
+    {
+        float scoped = input + 1.0;
+        input = scoped;
+    }
+    return scoped;
+}
+
+float AllBranchesReturn(float input)
+{
+    if (input > 0.0)
+    {
+        return 1.0;
+    }
+    else
+    {
+        return 2.0;
+    }
+}
+
+float UnreachableAfterReturn(float input)
+{
+    return input;
+    input = input + 1.0;
+}

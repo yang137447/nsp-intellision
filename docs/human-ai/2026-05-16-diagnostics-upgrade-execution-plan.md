@@ -455,6 +455,58 @@ Git 记录：
 - `Unreachable code` 只在明确 control-flow 下出现，不再跟随 parser recovery 大面积级联。
 - scope API 或 semantic snapshot 契约变化已更新对应头文件说明和 `docs/architecture.md`。
 
+### Phase 3 执行记录
+
+状态：已落地 lexical local scope / loop initializer 可见性收敛。
+
+实现内容：
+
+- `server_parse.*` 新增共享 `extractForInitializerDeclarationsInLineShared(...)`，统一解析 `for (int i = ...; ...)` initializer 中的声明，返回原始行 byte span，避免 diagnostics rule 自行猜测 loop 变量。
+- `diagnostics_semantic.cpp` 将函数内 local 状态从按名称平铺的 `localsByName` 改为 lexical scope stack；进入 / 退出 block 时同步维护可见 local 集，`for` initializer 使用独立 loop scope，braced body 结束后释放，非 braced body 在下一条语句后释放。
+- duplicate local declaration 只在当前 lexical scope 内、且 active preprocessor branch signature 重叠时发布；sibling block 同名和 nested block shadow 不再误报 duplicate。
+- `semantic_snapshot.*` 的 local extraction 记录 `scopeStartOffset` / `scopeEndOffset`、`scopeId` 和 `parentScopeId`；`querySemanticSnapshotLocalTypeAtOffset(...)` 必须同时满足 declaration offset 与 half-open lexical scope range，避免 depth-only 查询把已离开 block 的 local 继续暴露给 hover / completion 等共享语义 consumer。
+- 新增 focused fixture `test_files/module_diagnostics_local_scope_control_flow.nsf`，覆盖 loop initializer body 内可见 / loop 外不可见、sibling block 同名、nested block shadow、if/else all-return 和 early return 后 unreachable。
+- `src/test/suite/integration/diagnostics.ts` 新增 lexical-scope diagnostics 集成断言。
+- `docs/architecture.md`、`docs/testing.md`、`semantic_snapshot.hpp`、`semantic_cache.hpp` 已更新 lexical local scope / semantic snapshot / 阶段验证契约。
+
+公开行为变化：
+
+- `for` initializer 变量在 condition / iteration / body 内可见，不再产生 loop 内 `Undefined identifier` 误报；loop 外继续按 undefined identifier 报告。
+- sibling block 或 nested block 中同名 local 不再被当作 `Duplicate local declaration`；同一 lexical scope 内重复声明仍保持 warning。
+- local hover / completion / diagnostics 类型查询不再把 scope range 之外的 local 当作可见符号。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，67 passing / 1 pending；覆盖新增 lexical scope fixture 和既有 diagnostics 回归。
+- `npm run test:client:repo` 全量通过，56 个 repo integration 文件。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-03-local-scope-smoke-5.{json,md}`；相对 P0 baseline：`diagnosticsTotal` 4947 -> 4211（-736，-14.88%），`likely-plugin-limitation` 3907 -> 448（-88.53%），`undefined-identifier` 531 -> 116（-78.15%），`Duplicate local declaration` 284 -> 165（-41.90%），`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。相对 P2 smoke 的 `diagnosticsTotal=4730` 继续下降到 4211。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-03-local-scope-trend-50.{json,md}`；相对 P0 baseline：`diagnosticsTotal` 43341 -> 35806（-7535，-17.39%），`likely-plugin-limitation` 34380 -> 4008（-88.34%），`undefined-identifier` 4842 -> 944（-80.50%），`Duplicate local declaration` 2547 -> 1476（-42.05%），`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。相对 P2 trend 的 `diagnosticsTotal=40625` 继续下降到 35806。
+
+审计备注：
+
+- `Unreachable code` 仍在 real audit 中较高，当前阶段只修复 local scope 污染和明确 block-flow 前提，剩余样本多与 parser/recovery 或真实源码控制流相关，应在 Phase 5 / Phase 7 继续复核。
+- P3 未重跑 full 813-unit audit；本阶段按计划使用 focused fixture、repo diagnostics 回归、5-unit smoke 和 50-unit trend 作为收敛验证。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture 和阶段 audit 报告；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：是，`for` initializer declaration 解析收敛到 `server_parse.*`，semantic snapshot local visibility 改为 half-open lexical scope range。
+- 测试策略是否变化：是，P3 focused fixture 补齐 local scope / loop variable / block-flow 正反用例；audit 趋势验证沿用 P0 机制。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md`、`semantic_snapshot.hpp`、`semantic_cache.hpp` 和本执行计划；资源、测试命令和对象类型 / 方法契约未变化。
+- 是否改变公开 diagnostics 行为：是，loop 内 undefined identifier 误报和跨 sibling / nested scope duplicate local 误报被移除；同 scope duplicate、loop 外 undefined 和明确 unreachable 仍保留。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-03 5-unit / 50-unit real audit 报告。
+
+Git 记录：
+
+- 2026-05-17 已本地提交 P3 阶段：`fix: model lexical local scopes`；当前提交 hash 以 `git log -1 --oneline` 为准。
+- 提交内容覆盖共享 `for` initializer declaration 解析、diagnostics lexical scope stack、semantic snapshot local scope range、focused fixture、repo integration 断言、架构 / 测试契约说明和本执行计划。
+- 本阶段未执行远端 push；如后续需要上传远端，应在 push 后追加记录目标 remote / branch。
+
 ## Phase 4: 对齐预处理宏和真实 unit 编译上下文
 
 ### 背景

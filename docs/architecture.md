@@ -100,12 +100,12 @@
 
 ### 语义与查询
 
-- `server_parse.*`: 共享行级 declaration/header 解析、宏定义头解析、注释/字符串剥离后的 shared line scan 和多行 nesting 结果
+- `server_parse.*`: 共享行级 declaration/header 解析、`for` initializer declaration 解析、宏定义头解析、注释/字符串剥离后的 shared line scan 和多行 nesting 结果
 - `conditional_ast.*`: 每文件预处理结构真相
 - `preprocessor_view.*`: active branch、branch signature、配置预处理宏初始化和 include 链宏传播求值
 - `expanded_source.*`: line-preserving active-only 展开与基础 line source map
 - `hlsl_ast.*`: 顶层 HLSL AST 骨架、include、function、struct/cbuffer/typedef、全局声明和 inline include 元数据
-- `semantic_snapshot.*`: 共享语义快照构建入口，产出函数、overload、参数、局部变量、struct 字段、全局类型等语义
+- `semantic_snapshot.*`: 共享语义快照构建入口，产出函数、overload、参数、lexical local scope / 局部变量、struct 字段、全局类型等语义；local 查询必须同时满足 declaration offset 和 half-open lexical scope range，不能只按 brace depth 近似可见性
 - `call_query.*`、`callsite_parser.*`、`symbol_query.*`、`member_query.*`、`declaration_query.*`: 请求间共享查询 helper
 
 ### 能力与资源
@@ -113,7 +113,7 @@
 - `server_request_handlers.hpp` / `requests/server_request_handlers.cpp`: LSP 请求编排层；`ServerRequestContext` 携带只读文档 / 配置快照和 attribution-only 的 request queue/context-build 耗时；interactive miss 可以查询 `workspace_summary_runtime.*`，但不应重新引入 include-graph 直扫或全工作区现算热路径
 - `hover_markdown.*` / `hover_rendering.*`: hover 内容渲染
 - `completion_rendering.*`: completion item 拼装
-- `diagnostics/*`: diagnostics facade、semantic rules、expression type、symbol type、emit、preprocessor、syntax 和 indeterminate 分层
+- `diagnostics/*`: diagnostics facade、semantic rules、expression type、symbol type、emit、preprocessor、syntax 和 indeterminate 分层；semantic diagnostics 的 local symbol、duplicate local declaration、`for` initializer 可见性和基础 block-flow 诊断基于函数内 lexical scope stack，duplicate local 只在同一 lexical scope 且 active preprocessor branch 重叠时发布
 - `diagnostics_expression_type.*`: diagnostics 共享表达式类型 helper；负责类型 token 归一化、builtin call 类型规则、numeric literal token-span 解析和表达式结果类型推断。numeric literal 解析必须在该共享入口按官方 HLSL numeric literal 语法处理，因为当前 lexer 会把 decimal point 和 exponent sign 切为 punctuation token，semantic diagnostics 不应在规则层复制后缀判断；合法 exponent、leading/trailing dot、octal / hex integer、`h/H/f/F/l/L` 浮点 suffix 和 `u/U/l/L` 整数 suffix 组合都应在这里统一判定。implementation-only `ll/ull` 整数 suffix 作为历史写法只应由共享入口产生 warning 并推荐 `l/ul`，真正不符合语法的 suffix 继续作为 error。
 - `type_desc.*`: diagnostics / overload 共享轻量类型形状解析；负责把 HLSL scalar / vector / matrix / object token 和常见 macro-like numeric alias（如 `MaterialFloat3`、`MaterialHalf4x4`）归一为 `TypeDesc`。它不负责完整 typedef 展开、用户 struct 建模或对象方法坐标维度，这些仍由 semantic snapshot、symbol query 和 `type_model.*` 负责。
 - `type_relation.*`: diagnostics / overload 共享 HLSL 隐式转换模型；以官方 standard conversion sequence、usual arithmetic conversions 和 overload conversion rank 为基础，结构化返回 compatible / incompatible、conversion kind、cost 和 risky implicit conversion warning。assignment、return、user function argument、builtin argument、object method argument 和 binary operator diagnostics 不应再各自复制 half/float、scalar splat、component-wise conversion、truncation、signedness 或 boolean conversion 判断。合法但有风险的隐式转换发布独立 warning；找不到官方转换序列时才发布 type mismatch error。
