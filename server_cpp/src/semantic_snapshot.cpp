@@ -6,10 +6,12 @@
 #include "nsf_lexer.hpp"
 #include "preprocessor_view.hpp"
 #include "server_parse.hpp"
+#include "text_utils.hpp"
 #include "uri_utils.hpp"
 
 #include <algorithm>
 #include <sstream>
+#include <utility>
 
 namespace {
 
@@ -33,14 +35,21 @@ static SemanticCacheKey makeSemanticSnapshotCacheKey(
     const std::string &uri, const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
-    const std::unordered_map<std::string, int> &defines) {
+    const std::unordered_map<std::string, int> &defines,
+    const std::string &unitPath = std::string(),
+    const std::string &analysisContextFingerprint = std::string()) {
   SemanticCacheKey key;
   key.workspaceFolders = workspaceFolders;
   key.includePaths = includePaths;
   key.shaderExtensions = shaderExtensions;
   key.definesFingerprint = makeDefinesFingerprint(defines);
   const std::string activeUnitPath = getActiveUnitPath();
-  key.unitPath = activeUnitPath.empty() ? uriToPath(uri) : activeUnitPath;
+  if (!unitPath.empty()) {
+    key.unitPath = unitPath;
+  } else {
+    key.unitPath = activeUnitPath.empty() ? uriToPath(uri) : activeUnitPath;
+  }
+  key.analysisContextFingerprint = analysisContextFingerprint;
   return key;
 }
 
@@ -52,6 +61,8 @@ static void populateSemanticSnapshotFromAst(
   snapshot.structByName.clear();
   snapshot.globals.clear();
   snapshot.globalByName.clear();
+  snapshot.cbuffers.clear();
+  snapshot.cbufferByName.clear();
 
   snapshot.functions.reserve(document.functions.size());
   for (const auto &function : document.functions) {
@@ -67,9 +78,17 @@ static void populateSemanticSnapshotFromAst(
     info.hasBody = function.hasBody;
     info.parameters.reserve(function.parameters.size());
     info.parameterInfos.reserve(function.parameters.size());
+    info.parameterDetails.reserve(function.parameters.size());
     for (const auto &parameter : function.parameters) {
       info.parameters.push_back(parameter.text);
       info.parameterInfos.push_back({parameter.name, parameter.type});
+      SemanticSnapshot::FunctionInfo::ParameterInfo parameterInfo;
+      parameterInfo.name = parameter.name;
+      parameterInfo.type = parameter.type;
+      parameterInfo.line = parameter.line;
+      parameterInfo.character = parameter.character;
+      parameterInfo.offset = parameter.offset;
+      info.parameterDetails.push_back(std::move(parameterInfo));
     }
     const size_t index = snapshot.functions.size();
     snapshot.functions.push_back(std::move(info));
@@ -87,6 +106,8 @@ static void populateSemanticSnapshotFromAst(
       fieldInfo.name = field.name;
       fieldInfo.type = field.type;
       fieldInfo.line = field.line;
+      fieldInfo.character = field.character;
+      fieldInfo.offset = field.offset;
       info.fields.push_back(std::move(fieldInfo));
     }
     const size_t index = snapshot.structs.size();
@@ -100,9 +121,31 @@ static void populateSemanticSnapshotFromAst(
     info.name = decl.name;
     info.type = decl.type;
     info.line = decl.line;
+    info.character = decl.character;
+    info.offset = decl.offset;
     const size_t index = snapshot.globals.size();
     snapshot.globals.push_back(std::move(info));
     snapshot.globalByName[decl.name] = index;
+  }
+
+  snapshot.cbuffers.reserve(document.cbuffers.size());
+  for (const auto &decl : document.cbuffers) {
+    SemanticSnapshot::CBufferInfo info;
+    info.name = decl.name;
+    info.line = decl.line;
+    info.fields.reserve(decl.fields.size());
+    for (const auto &field : decl.fields) {
+      SemanticSnapshot::FieldInfo fieldInfo;
+      fieldInfo.name = field.name;
+      fieldInfo.type = field.type;
+      fieldInfo.line = field.line;
+      fieldInfo.character = field.character;
+      fieldInfo.offset = field.offset;
+      info.fields.push_back(std::move(fieldInfo));
+    }
+    const size_t index = snapshot.cbuffers.size();
+    snapshot.cbuffers.push_back(std::move(info));
+    snapshot.cbufferByName[decl.name] = index;
   }
 
   snapshot.semanticDataComplete = true;
@@ -151,6 +194,9 @@ static void populateSemanticSnapshotLocals(const std::string &text,
         local.name = decl.name;
         local.type = decl.type;
         local.offset = lineStartOffset + decl.start;
+        local.line = currentLine;
+        local.character =
+            byteOffsetInLineToUtf16(lineText, static_cast<int>(decl.start));
         local.depth = currentDepth;
         ownerFunction->locals.push_back(std::move(local));
       }
@@ -184,13 +230,17 @@ static void populateSemanticSnapshotLocals(const std::string &text,
 }
 
 static std::shared_ptr<const SemanticSnapshot> getOrBuildSemanticSnapshot(
-    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::string &uri, const ExpandedSource &expandedSource,
+    uint64_t epoch,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
-    const std::unordered_map<std::string, int> &defines) {
+    const std::unordered_map<std::string, int> &defines,
+    const std::string &unitPath = std::string(),
+    const std::string &analysisContextFingerprint = std::string()) {
   SemanticCacheKey key = makeSemanticSnapshotCacheKey(
-      uri, workspaceFolders, includePaths, shaderExtensions, defines);
+      uri, workspaceFolders, includePaths, shaderExtensions, defines, unitPath,
+      analysisContextFingerprint);
   auto snapshot = semanticCacheGetSnapshot(key, uri, epoch);
   if (snapshot && snapshot->semanticDataComplete)
     return snapshot;
@@ -198,13 +248,23 @@ static std::shared_ptr<const SemanticSnapshot> getOrBuildSemanticSnapshot(
   SemanticSnapshot created = snapshot ? *snapshot : SemanticSnapshot{};
   created.uri = uri;
   created.documentEpoch = epoch;
-  const ExpandedSource expandedSource =
-      buildLinePreservingExpandedSource(text, defines);
   const HlslAstDocument document = buildHlslAstDocument(expandedSource);
   populateSemanticSnapshotFromAst(document, created);
   populateSemanticSnapshotLocals(expandedSource.text, created);
   semanticCacheUpsertSnapshot(key, created);
   return semanticCacheGetSnapshot(key, uri, epoch);
+}
+
+static std::shared_ptr<const SemanticSnapshot> getOrBuildSemanticSnapshot(
+    const std::string &uri, const std::string &text, uint64_t epoch,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines) {
+  const ExpandedSource expandedSource =
+      buildLinePreservingExpandedSource(text, defines);
+  return getOrBuildSemanticSnapshot(uri, expandedSource, epoch, workspaceFolders,
+                                    includePaths, shaderExtensions, defines);
 }
 
 static int lineIndexForOffset(const std::string &text, size_t offset) {
@@ -666,4 +726,17 @@ std::shared_ptr<const SemanticSnapshot> getSemanticSnapshotView(
     const std::unordered_map<std::string, int> &defines) {
   return getOrBuildSemanticSnapshot(uri, text, epoch, workspaceFolders,
                                     includePaths, shaderExtensions, defines);
+}
+
+std::shared_ptr<const SemanticSnapshot> getSemanticSnapshotViewFromExpandedSource(
+    const std::string &uri, const ExpandedSource &expandedSource,
+    uint64_t epoch, const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
+    const std::string &unitPath,
+    const std::string &analysisContextFingerprint) {
+  return getOrBuildSemanticSnapshot(
+      uri, expandedSource, epoch, workspaceFolders, includePaths,
+      shaderExtensions, defines, unitPath, analysisContextFingerprint);
 }

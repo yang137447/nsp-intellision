@@ -184,6 +184,112 @@ bool findSymbolRangeOnLine(const std::string &lineText, const std::string &symbo
   return false;
 }
 
+bool findContextDocumentText(const DeferredDocBuildContext &context,
+                             const std::string &uri, std::string &textOut) {
+  textOut.clear();
+  if (uri.empty())
+    return false;
+  auto exact = context.documents.find(uri);
+  if (exact != context.documents.end()) {
+    textOut = exact->second.text;
+    return true;
+  }
+  for (const auto &entry : context.documents) {
+    if (!uriEquivalent(entry.first, uri))
+      continue;
+    textOut = entry.second.text;
+    return true;
+  }
+  return false;
+}
+
+std::string resolveActiveUnitUriForRuntime(
+    const ActiveUnitSnapshot &activeUnitSnapshot,
+    const AnalysisSnapshotKey &analysisKey) {
+  if (!activeUnitSnapshot.uri.empty())
+    return activeUnitSnapshot.uri;
+  if (!activeUnitSnapshot.path.empty())
+    return pathToUri(activeUnitSnapshot.path);
+  if (!analysisKey.activeUnitPath.empty())
+    return pathToUri(analysisKey.activeUnitPath);
+  return std::string();
+}
+
+std::string resolveActiveUnitPathForRuntime(
+    const ActiveUnitSnapshot &activeUnitSnapshot,
+    const AnalysisSnapshotKey &analysisKey) {
+  if (!activeUnitSnapshot.path.empty())
+    return activeUnitSnapshot.path;
+  return analysisKey.activeUnitPath;
+}
+
+bool resolveActiveUnitTextForRuntime(
+    const DeferredDocBuildContext &context,
+    const ActiveUnitSnapshot &activeUnitSnapshot,
+    const AnalysisSnapshotKey &analysisKey, const std::string &activeUnitUri,
+    std::string &textOut) {
+  if (!findContextDocumentText(context, activeUnitUri, textOut)) {
+    const std::string activeUnitPath =
+        resolveActiveUnitPathForRuntime(activeUnitSnapshot, analysisKey);
+    if (activeUnitPath.empty() || !readFileText(activeUnitPath, textOut))
+      return false;
+  }
+  return !textOut.empty();
+}
+
+ExpandedSource buildDeferredExpandedSource(
+    const Document &doc, const DeferredDocBuildContext &context,
+    const AnalysisSnapshotKey &analysisKey,
+    const ActiveUnitSnapshot &activeUnitSnapshot) {
+  PreprocessorIncludeContext includeContext;
+  includeContext.currentUri = doc.uri;
+  includeContext.workspaceFolders = context.workspaceFolders;
+  includeContext.includePaths = context.includePaths;
+  includeContext.shaderExtensions = context.shaderExtensions;
+
+  const std::string activeUnitUri =
+      resolveActiveUnitUriForRuntime(activeUnitSnapshot, analysisKey);
+  std::string activeUnitText;
+  if (!activeUnitUri.empty()) {
+    resolveActiveUnitTextForRuntime(context, activeUnitSnapshot, analysisKey,
+                                    activeUnitUri, activeUnitText);
+  }
+
+  includeContext.loadText =
+      [docUri = doc.uri, docText = doc.text, activeUnitUri, activeUnitText,
+       context](const std::string &includeUri, std::string &textOut) -> bool {
+    if (!docUri.empty() && uriEquivalent(includeUri, docUri)) {
+      textOut = docText;
+      return true;
+    }
+    if (!activeUnitUri.empty() && uriEquivalent(includeUri, activeUnitUri) &&
+        !activeUnitText.empty()) {
+      textOut = activeUnitText;
+      return true;
+    }
+    if (findContextDocumentText(context, includeUri, textOut))
+      return true;
+    const std::string path = uriToPath(includeUri);
+    return !path.empty() && readFileText(path, textOut);
+  };
+
+  if (!activeUnitUri.empty() && !uriEquivalent(activeUnitUri, doc.uri) &&
+      !activeUnitText.empty()) {
+    PreprocessorIncludeContext rootContext = includeContext;
+    rootContext.currentUri = activeUnitUri;
+    PreprocessorView includedView;
+    if (buildIncludedDocumentPreprocessorView(activeUnitText, context.defines,
+                                              rootContext, doc.uri,
+                                              includedView)) {
+      return buildLinePreservingExpandedSource(doc.text, includedView);
+    }
+  }
+
+  const PreprocessorView preprocessorView =
+      buildPreprocessorView(doc.text, context.defines, includeContext);
+  return buildLinePreservingExpandedSource(doc.text, preprocessorView);
+}
+
 int findBlockEndLine(const std::vector<std::string> &lines, int startLine) {
   if (startLine < 0 || startLine >= static_cast<int>(lines.size()))
     return startLine;
@@ -430,17 +536,20 @@ Json buildDocumentSymbolsFromAst(const std::string &text,
 
 static std::shared_ptr<DeferredDocSnapshot> buildDeferredSemanticCoreFromInputs(
     const Document &doc, const DeferredDocBuildContext &context,
-    const AnalysisSnapshotKey &analysisKey) {
+    const AnalysisSnapshotKey &analysisKey,
+    const ActiveUnitSnapshot &activeUnitSnapshot) {
   auto deferred = std::make_shared<DeferredDocSnapshot>();
   deferred->key = analysisKey;
   deferred->documentEpoch = doc.epoch;
   deferred->documentVersion = doc.version;
+  const ExpandedSource expandedSource =
+      buildDeferredExpandedSource(doc, context, analysisKey, activeUnitSnapshot);
   deferred->astDocument = std::make_shared<HlslAstDocument>(
-      buildHlslAstDocument(
-          buildLinePreservingExpandedSource(doc.text, context.defines)));
-  deferred->semanticSnapshot = getSemanticSnapshotView(
-      doc.uri, doc.text, doc.epoch, context.workspaceFolders,
-      context.includePaths, context.shaderExtensions, context.defines);
+      buildHlslAstDocument(expandedSource));
+  deferred->semanticSnapshot = getSemanticSnapshotViewFromExpandedSource(
+      doc.uri, expandedSource, doc.epoch, context.workspaceFolders,
+      context.includePaths, context.shaderExtensions, context.defines,
+      analysisKey.activeUnitPath, analysisKey.stableContextFingerprint);
   deferred->builtAtMs = currentTimeMs();
   return deferred;
 }
@@ -513,7 +622,8 @@ void runDeferredDocWorker() {
     DeferredDocBuildContext effectiveContext =
         makeDeferredContextFromRuntime(runtime, job.context);
     auto deferred = buildDeferredSemanticCoreFromInputs(
-        job.document, effectiveContext, runtime.analysisSnapshotKey);
+        job.document, effectiveContext, runtime.analysisSnapshotKey,
+        runtime.activeUnitSnapshot);
     const bool willBuildFullInlay =
         effectiveContext.prewarmInlayHints &&
         effectiveContext.inlayHintsEnabled &&
@@ -615,6 +725,7 @@ std::shared_ptr<const DeferredDocSnapshot> ensureDeferredSemanticCore(
   }
 
   DeferredDocBuildContext buildContext;
+  buildContext.documents = ctx.documents;
   buildContext.workspaceFolders = runtime.activeUnitSnapshot.workspaceFolders;
   buildContext.includePaths = runtime.activeUnitSnapshot.includePaths;
   buildContext.shaderExtensions = runtime.activeUnitSnapshot.shaderExtensions;
@@ -629,7 +740,8 @@ std::shared_ptr<const DeferredDocSnapshot> ensureDeferredSemanticCore(
 
   const auto buildStartedAt = std::chrono::steady_clock::now();
   auto deferred = buildDeferredSemanticCoreFromInputs(
-      doc, buildContext, runtime.analysisSnapshotKey);
+      doc, buildContext, runtime.analysisSnapshotKey,
+      runtime.activeUnitSnapshot);
   const double buildMs = static_cast<double>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - buildStartedAt)
@@ -649,7 +761,8 @@ Json buildDeferredSemanticTokensFull(const std::string &uri, const Document &doc
 
   auto writable = std::make_shared<DeferredDocSnapshot>(*deferred);
   writable->semanticTokensFull =
-      buildSemanticTokensFull(doc.text, ctx.semanticLegend);
+      buildSemanticTokensFull(doc.text, ctx.semanticLegend,
+                              deferred->semanticSnapshot.get());
   writable->hasSemanticTokensFull = true;
   writable->builtAtMs = currentTimeMs();
   documentOwnerMergeAndStoreDeferredSnapshot(uri, writable);
@@ -675,7 +788,8 @@ Json buildDeferredSemanticTokensRange(const std::string &uri, const Document &do
 
   Json tokens = buildSemanticTokensRange(doc.text, startLine, startCharacter,
                                          endLine, endCharacter,
-                                         ctx.semanticLegend);
+                                         ctx.semanticLegend,
+                                         deferred->semanticSnapshot.get());
   auto writable = std::make_shared<DeferredDocSnapshot>(*deferred);
   storeRangeCacheEntry(writable->semanticTokensRangeCache, normalizedStart,
                        normalizedEnd, tokens);

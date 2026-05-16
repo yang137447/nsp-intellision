@@ -22,8 +22,105 @@ import {
 	waitForInlayFallbackPreconditionForTests,
 	waitForInlayHintsDuringClientFallback,
 	waitForIndexingIdle,
+	waitForActiveUnitAndVisibilityReadyForTests,
 	waitForHoverText
 } from '../test_helpers';
+
+type DecodedSemanticToken = {
+	line: number;
+	start: number;
+	length: number;
+	type: string;
+	modifiers: string[];
+	text: string;
+};
+
+function decodeSemanticTokens(
+	document: vscode.TextDocument,
+	legend: vscode.SemanticTokensLegend,
+	tokens: vscode.SemanticTokens
+): DecodedSemanticToken[] {
+	const decoded: DecodedSemanticToken[] = [];
+	let line = 0;
+	let start = 0;
+	const data = tokens.data;
+	for (let i = 0; i + 4 < data.length; i += 5) {
+		const deltaLine = data[i];
+		const deltaStart = data[i + 1];
+		line += deltaLine;
+		start = deltaLine === 0 ? start + deltaStart : deltaStart;
+		const length = data[i + 2];
+		const tokenType = legend.tokenTypes[data[i + 3]] ?? '';
+		const modifierBits = data[i + 4];
+		const modifiers = legend.tokenModifiers.filter((_, index) => (modifierBits & (1 << index)) !== 0);
+		decoded.push({
+			line,
+			start,
+			length,
+			type: tokenType,
+			modifiers,
+			text: document.lineAt(line).text.substr(start, length)
+		});
+	}
+	return decoded;
+}
+
+async function getDecodedSemanticTokens(document: vscode.TextDocument): Promise<{
+	legend: vscode.SemanticTokensLegend;
+	tokens: DecodedSemanticToken[];
+}> {
+	const legend = await waitFor(
+		() =>
+			vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
+				'vscode.provideDocumentSemanticTokensLegend',
+				document.uri
+			),
+		(value) => Array.isArray(value?.tokenTypes) && value.tokenTypes.length > 0,
+		'semantic token legend'
+	);
+	const fullTokens = await waitFor(
+		() =>
+			vscode.commands.executeCommand<vscode.SemanticTokens>(
+				'vscode.provideDocumentSemanticTokens',
+				document.uri
+			),
+		(value) => Boolean(value) && value.data.length > 0,
+		'full semantic tokens'
+	);
+	return { legend, tokens: decodeSemanticTokens(document, legend, fullTokens) };
+}
+
+function semanticTokenAtText(
+	tokens: DecodedSemanticToken[],
+	text: string,
+	occurrence = 1
+): DecodedSemanticToken {
+	const matches = tokens.filter((token) => token.text === text);
+	assert.ok(
+		matches.length >= occurrence,
+		`Expected at least ${occurrence} semantic token(s) for ${text}, found ${matches.length}.`
+	);
+	return matches[occurrence - 1];
+}
+
+function assertSemanticTokenRole(
+	tokens: DecodedSemanticToken[],
+	text: string,
+	occurrence: number,
+	type: string,
+	modifiers: string[]
+): void {
+	const token = semanticTokenAtText(tokens, text, occurrence);
+	assert.strictEqual(token.type, type, `${text} occurrence ${occurrence} token type`);
+	for (const modifier of modifiers) {
+		assert.ok(
+			token.modifiers.includes(modifier),
+			`${text} occurrence ${occurrence} should include ${modifier}; actual=${token.modifiers.join(',')}`
+		);
+	}
+	const unexpected = token.modifiers.filter((modifier) => !modifiers.includes(modifier));
+	assert.deepStrictEqual(unexpected, [], `${text} occurrence ${occurrence} unexpected modifiers`);
+}
 
 export function registerDeferredDocSemanticTokenTests(): void {
 	repoDescribe('NSF client integration: Deferred Doc Runtime / Semantic Tokens', () => {
@@ -41,6 +138,9 @@ export function registerDeferredDocSemanticTokenTests(): void {
 				'semantic token legend'
 			);
 			assert.ok(Array.isArray(legend.tokenTypes) && legend.tokenTypes.length > 0);
+			assert.ok(legend.tokenTypes.includes('parameter'));
+			assert.ok(legend.tokenModifiers.includes('declaration'));
+			assert.ok(legend.tokenModifiers.includes('modification'));
 
 			const fullTokens = await waitFor(
 				() =>
@@ -82,6 +182,69 @@ export function registerDeferredDocSemanticTokenTests(): void {
 			);
 			assert.strictEqual(rangeTokens.data.length % 5, 0);
 			assert.ok(rangeTokens.data.length <= fullTokens.data.length);
+		});
+
+		it('classifies semantic token roles and modifiers for NSF documents', async () => {
+			const document = await openFixture('module_semantic_token_roles.nsf');
+			await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+			const { tokens } = await getDecodedSemanticTokens(document);
+			assertSemanticTokenRole(tokens, 'uv', 1, 'parameter', ['declaration']);
+			assertSemanticTokenRole(tokens, 'uv', 2, 'parameter', []);
+			assertSemanticTokenRole(tokens, 'value', 1, 'variable', ['declaration']);
+			assertSemanticTokenRole(tokens, 'value', 2, 'variable', ['modification']);
+			assertSemanticTokenRole(tokens, 'GlobalTint', 1, 'variable', ['declaration']);
+			assertSemanticTokenRole(tokens, 'color', 1, 'property', ['declaration']);
+			assertSemanticTokenRole(tokens, 'CBufferTint', 1, 'property', ['declaration']);
+			assertSemanticTokenRole(tokens, 'CBufferTint', 2, 'property', []);
+			assertSemanticTokenRole(tokens, 'material', 1, 'parameter', ['declaration']);
+			assertSemanticTokenRole(tokens, 'material', 2, 'parameter', []);
+			assertSemanticTokenRole(tokens, 'base_color', 1, 'property', ['modification']);
+		});
+
+		it('classifies semantic token roles and modifiers for standalone HLSL documents', async () => {
+			let document = await openFixture('module_semantic_token_roles.hlsl');
+			document = await vscode.languages.setTextDocumentLanguage(document, 'hlsl');
+			assert.strictEqual(document.languageId, 'hlsl');
+			await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+			const { tokens } = await getDecodedSemanticTokens(document);
+			assertSemanticTokenRole(tokens, 'uv', 1, 'parameter', ['declaration']);
+			assertSemanticTokenRole(tokens, 'value', 1, 'variable', ['declaration']);
+			assertSemanticTokenRole(tokens, 'value', 2, 'variable', ['modification']);
+			assertSemanticTokenRole(tokens, 'GlobalTint', 1, 'variable', ['declaration']);
+			assertSemanticTokenRole(tokens, 'color', 1, 'property', ['declaration']);
+			assertSemanticTokenRole(tokens, 'CBufferTint', 1, 'property', ['declaration']);
+			assertSemanticTokenRole(tokens, 'CBufferTint', 2, 'property', []);
+			assertSemanticTokenRole(tokens, 'base_color', 1, 'property', ['modification']);
+		});
+
+		it('classifies included HLSL under the selected NSF active-unit context', async function () {
+			this.timeout(120000);
+			try {
+				const root = await openFixture('module_semantic_token_active_context_root.nsf');
+				assert.ok(root.uri.fsPath.endsWith('.nsf'));
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+				const document = await openFixture('module_semantic_token_active_context.hlsl');
+				await waitForActiveUnitAndVisibilityReadyForTests(
+					document.uri.toString(),
+					'module_semantic_token_active_context_root.nsf',
+					'semantic token active-unit context ready'
+				);
+				await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+				const { tokens } = await getDecodedSemanticTokens(document);
+				assertSemanticTokenRole(tokens, 'ActiveContextTint', 1, 'variable', ['declaration']);
+				assertSemanticTokenRole(tokens, 'ActiveContextTint', 2, 'variable', []);
+				assertSemanticTokenRole(tokens, 'activeValue', 1, 'variable', ['declaration']);
+				assertSemanticTokenRole(tokens, 'activeValue', 2, 'variable', []);
+
+				const standaloneInactiveToken = semanticTokenAtText(tokens, 'StandaloneContextTint', 1);
+				assert.strictEqual(standaloneInactiveToken.type, 'variable');
+				assert.deepStrictEqual(standaloneInactiveToken.modifiers, []);
+			} finally {
+				await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+			}
 		});
 
 		it('reports deferred artifact state in document runtime debug', async function () {

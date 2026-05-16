@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <utility>
 
 namespace {
 
@@ -402,6 +403,57 @@ static std::vector<std::string> splitParamsTopLevel(const std::string &params) {
   std::string last = trimCopy(params.substr(start));
   if (!last.empty())
     result.push_back(last);
+  return result;
+}
+
+static std::vector<ParsedFunctionSignatureTextInfo::ParameterSpanInfo>
+splitParamSpansTopLevel(const std::string &text, size_t paramsStart,
+                        size_t paramsEnd) {
+  std::vector<ParsedFunctionSignatureTextInfo::ParameterSpanInfo> result;
+  int paren = 0;
+  int angle = 0;
+  int bracket = 0;
+  size_t segmentStart = paramsStart;
+
+  auto appendSegment = [&](size_t rawStart, size_t rawEnd) {
+    while (rawStart < rawEnd &&
+           std::isspace(static_cast<unsigned char>(text[rawStart]))) {
+      rawStart++;
+    }
+    while (rawEnd > rawStart &&
+           std::isspace(static_cast<unsigned char>(text[rawEnd - 1]))) {
+      rawEnd--;
+    }
+    if (rawEnd <= rawStart)
+      return;
+    ParsedFunctionSignatureTextInfo::ParameterSpanInfo info;
+    info.text = text.substr(rawStart, rawEnd - rawStart);
+    info.startOffset = rawStart;
+    info.endOffset = rawEnd;
+    result.push_back(std::move(info));
+  };
+
+  for (size_t i = paramsStart; i < paramsEnd; i++) {
+    const char ch = text[i];
+    if (ch == '(')
+      paren++;
+    else if (ch == ')' && paren > 0)
+      paren--;
+    else if (ch == '<')
+      angle++;
+    else if (ch == '>' && angle > 0)
+      angle--;
+    else if (ch == '[')
+      bracket++;
+    else if (ch == ']' && bracket > 0)
+      bracket--;
+
+    if (ch == ',' && paren == 0 && angle == 0 && bracket == 0) {
+      appendSegment(segmentStart, i);
+      segmentStart = i + 1;
+    }
+  }
+  appendSegment(segmentStart, paramsEnd);
   return result;
 }
 
@@ -1040,8 +1092,11 @@ bool extractFunctionSignatureFromTextShared(
     std::string params =
         collapseWhitespace(text.substr(openParen + 1, closeParen - openParen - 1));
     params = trimCopy(params);
-    if (!params.empty() && params != "void")
+    if (!params.empty() && params != "void") {
       resultOut.parameters = splitParamsTopLevel(params);
+      resultOut.parameterSpans =
+          splitParamSpansTopLevel(text, openParen + 1, closeParen);
+    }
   }
 
   for (size_t i = closeParen + 1; i < text.size(); i++) {

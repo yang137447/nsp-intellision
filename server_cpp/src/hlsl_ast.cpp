@@ -4,6 +4,7 @@
 #include "server_parse.hpp"
 #include "text_utils.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <sstream>
 
@@ -39,6 +40,43 @@ static int sourceLineForOutputLine(const ExpandedSource &expandedSource,
   return outputLine;
 }
 
+static size_t lineStartOffsetForLine(const std::string &text, int targetLine) {
+  if (targetLine <= 0)
+    return 0;
+  int line = 0;
+  for (size_t i = 0; i < text.size(); i++) {
+    if (text[i] != '\n')
+      continue;
+    line++;
+    if (line == targetLine)
+      return i + 1;
+  }
+  return text.size();
+}
+
+static int lineIndexForOffset(const std::string &text, size_t offset) {
+  offset = std::min(offset, text.size());
+  int line = 0;
+  for (size_t i = 0; i < offset; i++) {
+    if (text[i] == '\n')
+      line++;
+  }
+  return line;
+}
+
+static void fillLocationFromExpandedOffset(const ExpandedSource &expandedSource,
+                                           size_t offset, int &lineOut,
+                                           int &characterOut) {
+  offset = std::min(offset, expandedSource.text.size());
+  const int outputLine = lineIndexForOffset(expandedSource.text, offset);
+  const size_t lineStart =
+      lineStartOffsetForLine(expandedSource.text, outputLine);
+  const std::string lineText = getLineAt(expandedSource.text, outputLine);
+  lineOut = sourceLineForOutputLine(expandedSource, outputLine);
+  characterOut = byteOffsetInLineToUtf16(
+      lineText, static_cast<int>(offset - std::min(lineStart, offset)));
+}
+
 static std::string trimCopy(std::string value) {
   value = trimLeftCopy(value);
   value = trimRightCopy(value);
@@ -55,15 +93,20 @@ extractReturnTypeFromFunctionLabel(const std::string &label,
   return prefix;
 }
 
-static HlslAstParameter parseParameterDecl(const std::string &text) {
+static HlslAstParameter
+parseParameterDecl(const std::string &text,
+                   const ExpandedSource *expandedSource = nullptr,
+                   size_t absoluteStartOffset = 0,
+                   const std::string &displayText = std::string()) {
   HlslAstParameter parameter;
-  parameter.text = trimCopy(text);
+  parameter.text = displayText.empty() ? trimCopy(text) : displayText;
   if (parameter.text.empty() || parameter.text == "void")
     return parameter;
 
-  auto tokens = lexLineTokens(parameter.text);
+  auto tokens = lexLineTokens(text);
   std::string typeName;
   std::string name;
+  const LexToken *nameToken = nullptr;
   int angleDepth = 0;
   int parenDepth = 0;
   int bracketDepth = 0;
@@ -94,10 +137,16 @@ static HlslAstParameter parseParameterDecl(const std::string &text) {
       continue;
     }
     name = tokenText;
+    nameToken = &token;
   }
 
   parameter.type = typeName;
   parameter.name = name;
+  if (nameToken && expandedSource) {
+    parameter.offset = absoluteStartOffset + nameToken->start;
+    fillLocationFromExpandedOffset(*expandedSource, parameter.offset,
+                                   parameter.line, parameter.character);
+  }
   return parameter;
 }
 
@@ -166,25 +215,75 @@ static bool parseFunctionDeclAtLine(const ExpandedSource &expandedSource,
         sourceLineForOutputLine(expandedSource, signatureText.bodyEndLine);
     functionOut.hasBody = signatureText.hasBody;
     functionOut.parameters.reserve(signatureText.parameters.size());
-    for (const auto &parameter : signatureText.parameters)
-      functionOut.parameters.push_back(parseParameterDecl(parameter));
+    for (size_t parameterIndex = 0;
+         parameterIndex < signatureText.parameters.size(); parameterIndex++) {
+      const std::string &displayParameter =
+          signatureText.parameters[parameterIndex];
+      if (parameterIndex < signatureText.parameterSpans.size()) {
+        const auto &span = signatureText.parameterSpans[parameterIndex];
+        functionOut.parameters.push_back(parseParameterDecl(
+            span.text, &expandedSource, span.startOffset, displayParameter));
+      } else {
+        functionOut.parameters.push_back(parseParameterDecl(displayParameter));
+      }
+    }
     return true;
   }
   return false;
 }
 
-static void collectFieldDeclsFromLine(const std::string &line, int sourceLine,
+static void collectFieldDeclsFromLine(const ExpandedSource &expandedSource,
+                                      const std::string &line, int outputLine,
                                       std::vector<HlslAstFieldDecl> &fieldsOut) {
   if (line.find(';') == std::string::npos || line.find('(') != std::string::npos)
     return;
   const auto declarations = extractDeclarationsInLineShared(line);
+  const size_t lineStart =
+      lineStartOffsetForLine(expandedSource.text, outputLine);
   for (const auto &decl : declarations) {
     HlslAstFieldDecl field;
     field.name = decl.name;
     field.type = decl.type;
-    field.line = sourceLine;
+    field.offset = lineStart + decl.start;
+    fillLocationFromExpandedOffset(expandedSource, field.offset, field.line,
+                                   field.character);
     fieldsOut.push_back(std::move(field));
   }
+}
+
+static bool findIdentifierSpanInLine(const std::string &line,
+                                     const std::string &name,
+                                     size_t &startOut, size_t &endOut) {
+  if (name.empty())
+    return false;
+  size_t searchFrom = 0;
+  while (searchFrom <= line.size()) {
+    const size_t pos = line.find(name, searchFrom);
+    if (pos == std::string::npos)
+      return false;
+    const size_t end = pos + name.size();
+    const bool leftBoundary =
+        pos == 0 || !isIdentifierChar(line[pos - 1]);
+    const bool rightBoundary =
+        end >= line.size() || !isIdentifierChar(line[end]);
+    if (leftBoundary && rightBoundary) {
+      startOut = pos;
+      endOut = end;
+      return true;
+    }
+    searchFrom = pos + 1;
+  }
+  return false;
+}
+
+static void fillGlobalLocationFromLine(const ExpandedSource &expandedSource,
+                                       int outputLine, size_t nameStart,
+                                       HlslAstGlobalVariableDecl &decl) {
+  const size_t lineStart =
+      lineStartOffsetForLine(expandedSource.text, outputLine);
+  decl.offset = lineStart + nameStart;
+  fillLocationFromExpandedOffset(expandedSource, decl.offset, decl.line,
+                                 decl.character);
 }
 
 static void updateBraceDepthFromLine(const std::string &lineText, int &braceDepth,
@@ -262,6 +361,13 @@ HlslAstDocument buildHlslAstDocument(const ExpandedSource &expandedSource) {
       globalDecl.type = pendingUiMetadataType;
       globalDecl.line = pendingUiMetadataLine >= 0 ? pendingUiMetadataLine
                                                    : sourceLine;
+      size_t nameStart = 0;
+      size_t nameEnd = 0;
+      if (findIdentifierSpanInLine(lineText, globalDecl.name, nameStart,
+                                   nameEnd)) {
+        fillGlobalLocationFromLine(expandedSource, outputLine, nameStart,
+                                   globalDecl);
+      }
       document.globalVariables.push_back(globalDecl);
       appendTopLevelDecl(document, HlslTopLevelDeclKind::GlobalVariable,
                          globalDecl.name, globalDecl.line);
@@ -340,6 +446,13 @@ HlslAstDocument buildHlslAstDocument(const ExpandedSource &expandedSource) {
               globalDecl.name = pendingUiMetadataName;
               globalDecl.type = pendingUiMetadataType;
               globalDecl.line = sourceLine;
+              size_t nameStart = 0;
+              size_t nameEnd = 0;
+              if (findIdentifierSpanInLine(lineText, globalDecl.name,
+                                           nameStart, nameEnd)) {
+                fillGlobalLocationFromLine(expandedSource, outputLine,
+                                           nameStart, globalDecl);
+              }
               document.globalVariables.push_back(globalDecl);
               appendTopLevelDecl(document, HlslTopLevelDeclKind::GlobalVariable,
                                  globalDecl.name, globalDecl.line);
@@ -350,11 +463,16 @@ HlslAstDocument buildHlslAstDocument(const ExpandedSource &expandedSource) {
               pendingUiMetadataLine = sourceLine;
             } else if (lineText.find(';') != std::string::npos) {
               const auto declarations = extractDeclarationsInLineShared(lineText);
+              const size_t lineStart =
+                  lineStartOffsetForLine(expandedSource.text, outputLine);
               for (const auto &decl : declarations) {
                 HlslAstGlobalVariableDecl globalDecl;
                 globalDecl.name = decl.name;
                 globalDecl.type = decl.type;
-                globalDecl.line = sourceLine;
+                globalDecl.offset = lineStart + decl.start;
+                fillLocationFromExpandedOffset(
+                    expandedSource, globalDecl.offset, globalDecl.line,
+                    globalDecl.character);
                 document.globalVariables.push_back(globalDecl);
                 appendTopLevelDecl(document,
                                    HlslTopLevelDeclKind::GlobalVariable,
@@ -378,14 +496,14 @@ HlslAstDocument buildHlslAstDocument(const ExpandedSource &expandedSource) {
         document.structs[activeAggregateIndex].inlineIncludes.push_back(
             std::move(includeDecl));
       } else {
-        collectFieldDeclsFromLine(lineText, sourceLine,
+        collectFieldDeclsFromLine(expandedSource, lineText, outputLine,
                                   document.structs[activeAggregateIndex].fields);
       }
     } else if (activeAggregateKind == AggregateKind::CBuffer &&
                !activeAggregateAwaitingBodyOpen &&
                braceDepthBeforeLine == activeAggregateBodyDepth &&
                activeAggregateIndex < document.cbuffers.size()) {
-      collectFieldDeclsFromLine(lineText, sourceLine,
+      collectFieldDeclsFromLine(expandedSource, lineText, outputLine,
                                 document.cbuffers[activeAggregateIndex].fields);
     }
 

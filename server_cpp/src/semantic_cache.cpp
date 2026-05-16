@@ -108,7 +108,8 @@ SemanticCacheManager::makeKeyFingerprint(const SemanticCacheKey &key) const {
   appendJoined(oss, key.workspaceFolders);
   oss << "|";
   oss << key.definesFingerprint << "|";
-  oss << key.unitPath;
+  oss << key.unitPath << "|";
+  oss << key.analysisContextFingerprint;
   return oss.str();
 }
 

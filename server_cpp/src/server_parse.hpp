@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -11,8 +12,15 @@ struct ParsedDeclarationInfo {
 };
 
 struct ParsedFunctionSignatureTextInfo {
+  struct ParameterSpanInfo {
+    std::string text;
+    size_t startOffset = 0;
+    size_t endOffset = 0;
+  };
+
   std::string label;
   std::vector<std::string> parameters;
+  std::vector<ParameterSpanInfo> parameterSpans;
   int signatureEndLine = -1;
   int bodyStartLine = -1;
   int bodyEndLine = -1;

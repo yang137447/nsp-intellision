@@ -174,12 +174,7 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 
 	const rememberLastGoodInlayHints = (documentUri: string, range: Range, hints: InlayHint[]): void => {
 		const existing = inlayLastGoodByUri.get(documentUri);
-		if (
-			hints.length === 0 &&
-			existing &&
-			existing.hints.length > 0 &&
-			!doesRangeCover(range, existing.range)
-		) {
+		if (hints.length === 0 && existing && existing.hints.length > 0) {
 			return;
 		}
 		inlayLastGoodByUri.delete(documentUri);
@@ -196,9 +191,6 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 	const getLastGoodInlayHints = (documentUri: string, range: Range): InlayHint[] | undefined => {
 		const cached = inlayLastGoodByUri.get(documentUri);
 		if (!cached) {
-			return undefined;
-		}
-		if (!doesRangeCover(cached.range, range)) {
 			return undefined;
 		}
 		const filtered = cached.hints.filter((hint) => isPositionWithinRange(hint.position, range));
@@ -878,6 +870,12 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 					recordDuration(inlayMetrics.provider, Date.now() - providerStartedAt);
 					inlayMetrics.lastDocumentUri = document.uri.toString();
 					inlayMetrics.lastEndLine = effectiveRange.end.line;
+					if (hints.length === 0) {
+						const fallback = lastGoodFallback();
+						if (fallback.length > 0) {
+							return fallback;
+						}
+					}
 					rememberLastGoodInlayHints(document.uri.toString(), effectiveRange, hints);
 					return hints;
 				}

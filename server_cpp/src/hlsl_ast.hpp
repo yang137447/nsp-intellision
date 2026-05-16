@@ -1,7 +1,19 @@
 #pragma once
 
+// Lightweight top-level HLSL/NSF AST used by shared semantic consumers.
+//
+// Responsibilities:
+// - preserve line-mapped declarations from an ExpandedSource
+// - expose declaration names, types, and binding-name spans for downstream
+//   semantic snapshot construction
+//
+// Non-goals:
+// - this is not a full expression AST
+// - it does not own active-unit selection or include-context policy
+
 #include "expanded_source.hpp"
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -19,12 +31,17 @@ struct HlslAstFieldDecl {
   std::string name;
   std::string type;
   int line = -1;
+  int character = -1;
+  size_t offset = 0;
 };
 
 struct HlslAstParameter {
   std::string text;
   std::string type;
   std::string name;
+  int line = -1;
+  int character = -1;
+  size_t offset = 0;
 };
 
 struct HlslAstIncludeDecl {
@@ -70,6 +87,8 @@ struct HlslAstGlobalVariableDecl {
   std::string name;
   std::string type;
   int line = -1;
+  int character = -1;
+  size_t offset = 0;
 };
 
 struct HlslAstTopLevelDecl {

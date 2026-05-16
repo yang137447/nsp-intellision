@@ -1,0 +1,7 @@
+#define ENABLE_ACTIVE_TOKEN 1
+#include "module_semantic_token_active_context.hlsl"
+
+float4 RootSemanticTokenMain(float2 uv) : SV_Target0
+{
+    return ActiveContextFunc(uv);
+}

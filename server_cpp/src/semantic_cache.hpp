@@ -1,8 +1,21 @@
 #pragma once
 
+// Shared semantic snapshot storage and cache contract.
+//
+// Responsibilities:
+// - define the consumer-ready semantic fact model used across server features
+// - cache snapshots by resource/config/unit/context fingerprints and document
+//   epoch
+// - track dependency invalidation for snapshots that include other documents
+//
+// Non-goals:
+// - this module does not parse source text
+// - it does not decide active-unit selection or request scheduling
+
 #include "type_eval.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -17,6 +30,11 @@ struct SemanticCacheKey {
   std::vector<std::string> workspaceFolders;
   std::string definesFingerprint;
   std::string unitPath;
+  // Optional analysis-context fingerprint supplied by document_runtime.* when a
+  // consumer has already resolved active-unit/include/branch freshness. This
+  // prevents shared semantic snapshots for opened include files from surviving
+  // an active-unit branch or include-context change.
+  std::string analysisContextFingerprint;
 };
 
 struct SemanticSnapshot {
@@ -25,7 +43,17 @@ struct SemanticSnapshot {
       std::string name;
       std::string type;
       size_t offset = 0;
+      int line = -1;
+      int character = -1;
       int depth = 0;
+    };
+
+    struct ParameterInfo {
+      std::string name;
+      std::string type;
+      int line = -1;
+      int character = -1;
+      size_t offset = 0;
     };
 
     std::string name;
@@ -34,6 +62,7 @@ struct SemanticSnapshot {
     std::string label;
     std::vector<std::string> parameters;
     std::vector<std::pair<std::string, std::string>> parameterInfos;
+    std::vector<ParameterInfo> parameterDetails;
     std::string returnType;
     int signatureEndLine = -1;
     int bodyStartLine = -1;
@@ -46,6 +75,8 @@ struct SemanticSnapshot {
     std::string name;
     std::string type;
     int line = -1;
+    int character = -1;
+    size_t offset = 0;
   };
 
   struct StructInfo {
@@ -58,6 +89,14 @@ struct SemanticSnapshot {
     std::string name;
     std::string type;
     int line = -1;
+    int character = -1;
+    size_t offset = 0;
+  };
+
+  struct CBufferInfo {
+    std::string name;
+    int line = -1;
+    std::vector<FieldInfo> fields;
   };
 
   std::string uri;
@@ -70,6 +109,8 @@ struct SemanticSnapshot {
   std::unordered_map<std::string, size_t> structByName;
   std::vector<GlobalInfo> globals;
   std::unordered_map<std::string, size_t> globalByName;
+  std::vector<CBufferInfo> cbuffers;
+  std::unordered_map<std::string, size_t> cbufferByName;
   bool semanticDataComplete = false;
 };
 

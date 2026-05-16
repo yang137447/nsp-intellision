@@ -1,11 +1,25 @@
 #pragma once
 
+// Shared consumer-ready semantic snapshot API.
+//
+// Responsibilities:
+// - build and cache document semantic facts from the shared HLSL AST layer
+// - expose read-only function, parameter, local, field, cbuffer, and global
+//   facts to request/deferred consumers
+//
+// Non-goals:
+// - this module does not render LSP responses
+// - it does not own active-unit selection; callers with a resolved analysis
+//   context pass the prepared expanded source and context fingerprint
+
 #include "semantic_cache.hpp"
 
 #include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+struct ExpandedSource;
 
 struct SemanticSnapshotFieldQueryResult {
   std::string type;
@@ -109,3 +123,12 @@ std::shared_ptr<const SemanticSnapshot> getSemanticSnapshotView(
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines);
+
+std::shared_ptr<const SemanticSnapshot> getSemanticSnapshotViewFromExpandedSource(
+    const std::string &uri, const ExpandedSource &expandedSource,
+    uint64_t epoch, const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
+    const std::string &unitPath,
+    const std::string &analysisContextFingerprint);
