@@ -57,8 +57,12 @@
   - diagnostics probe 可显式配置 `requireRuntimeReady`、`touchEveryMs` / `maxTouches`；runner 会记录 runtime ready 和 touch 次数，用于区分自然稳定时间和需要重新排队后才发布的 full diagnostics
 - real workspace diagnostics audit
   - 定向统计真实 workspace 的 `.nsf/.hlsl` 诊断，报告写入 `out/test/diagnostics-audit/`
+  - 统计口径是 `.nsf` unit：runner 逐个设置 active unit，使用 server indexed include closure 枚举该 unit 触达的 `.nsf/.hlsl`，再按当前 diagnostics 配置直接构建诊断快照；共享 include 会按使用它的 unit 重复计数
   - 测试模式不会污染真实 workspace；如果 workspace 未显式配置 `nsf.preprocessorMacros`，audit 会把 server registry 的默认 preset 写入本次测试专用 user-data 配置，用来模拟普通用户首次填充后的分析环境
   - 扫描范围优先使用 `nsf.intellisionPath` 配置的 shader 根；未配置时才退回 workspace folders，避免把编译临时产物和工具目录误当源码统计
+  - 每次 audit 都会写入 timestamp 归档和 `real-workspace-diagnostics-audit.latest.{json,md}`；设置 `NSF_REAL_DIAGNOSTICS_REPORT_LABEL` 时会额外写入 `real-workspace-diagnostics-audit.<label>.{json,md}`，阶段验证推荐使用 `phase-XX-<topic>-smoke-5` / `phase-XX-<topic>-trend-50` / `phase-XX-<topic>-full` 这类稳定 label
+  - 报告会自动生成 baseline trend，比较 summary、triage、category 和 top canonical messages；5-unit 优先对比 `phase-00-baseline-smoke-5`，50-unit 优先对比 `phase-00-baseline-trend-50`，full audit 对比 `baseline-2026-05-16`，缺少同范围 baseline 时回退到 2026-05-16 full baseline；可用 `NSF_REAL_DIAGNOSTICS_BASELINE_JSON` 指向其他 baseline，或设为 `none` 禁用比较
+  - 趋势判断应优先核对 `diagnosticsTotal`、triage/category delta、top message delta、affected units/files，以及 `truncatedFiles`、`timedOutFiles`、`fileErrors` 是否增加；如果 truncated / timeout 增加，阶段报告必须单独说明原因
   - 默认不随 real suite 执行；需要显式设置：
 
 ```powershell
@@ -66,7 +70,28 @@ $env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
 node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
 ```
 
-  - 可选限制样本数量：`$env:NSF_REAL_DIAGNOSTICS_MAX_FILES = "100"`
+  - 可选限制 unit 数量：`$env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "100"`；历史兼容变量 `NSF_REAL_DIAGNOSTICS_MAX_FILES` 仍会作为未设置 `MAX_UNITS` 时的 fallback
+  - 可选限制单个 unit include closure：`$env:NSF_REAL_DIAGNOSTICS_CLOSURE_LIMIT = "1024"`
+  - 可选限制写入 JSON 的诊断样本数量：`NSF_REAL_DIAGNOSTICS_SAMPLE_PER_GROUP`、`NSF_REAL_DIAGNOSTICS_SAMPLE_PER_UNIT`、`NSF_REAL_DIAGNOSTICS_SAMPLE_MAX_TOTAL`
+  - 5-unit smoke audit 推荐命令：
+
+```powershell
+$env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
+$env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "5"
+$env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "600000"
+$env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL = "phase-XX-topic-smoke-5"
+node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
+```
+
+  - 50-unit trend audit 推荐命令：
+
+```powershell
+$env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
+$env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "50"
+$env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "1800000"
+$env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL = "phase-XX-topic-trend-50"
+node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
+```
 - `npm run gate:d3`
   - 发版前完整门禁：资源校验、TypeScript 编译、Clang 20+ clean configure、C++ 构建、hover smoke、client 全量测试
 - `npm run package:vsix`

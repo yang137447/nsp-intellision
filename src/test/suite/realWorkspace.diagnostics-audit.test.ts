@@ -20,6 +20,8 @@ type PreprocessorMacroPresetResponse = {
 };
 
 type AuditDiagnostic = {
+	unit: string;
+	unitRelativePath: string;
 	file: string;
 	workspaceFolder: string;
 	relativePath: string;
@@ -47,12 +49,98 @@ type GroupSummary = {
 	samples: AuditDiagnostic[];
 };
 
+type UnitClosureResponse = {
+	unitUri?: string;
+	unitPath?: string;
+	ready?: boolean;
+	files?: Array<{
+		path?: string;
+		uri?: string;
+		extension?: string;
+	}>;
+};
+
+type DebugBuildDiagnosticsResponse = {
+	uri?: string;
+	path?: string;
+	activeUnitUri?: string;
+	activeUnitPath?: string;
+	loaded?: boolean;
+	truncated?: boolean;
+	heavyRulesSkipped?: boolean;
+	timedOut?: boolean;
+	indeterminateTotal?: number;
+	elapsedMs?: number;
+	diagnostics?: unknown[];
+};
+
+type UnitSummary = {
+	unit: string;
+	unitRelativePath: string;
+	filesInClosure: number;
+	filesScanned: number;
+	filesWithDiagnostics: number;
+	diagnosticsTotal: number;
+	truncatedFiles: number;
+	timedOutFiles: number;
+	buildElapsedMs: number;
+	topCategories: Array<{ key: string; count: number }>;
+	topMessages: GroupSummary[];
+};
+
+type UnitFileStat = {
+	unit: string;
+	unitRelativePath: string;
+	file: string;
+	relativePath: string;
+	extension: string;
+	loaded: boolean;
+	diagnosticsTotal: number;
+	truncated: boolean;
+	timedOut: boolean;
+	heavyRulesSkipped: boolean;
+	indeterminateTotal: number;
+	elapsedMs: number;
+};
+
+type AuditDiagnosticSampleConfig = {
+	perGroup: number;
+	perUnit: number;
+	maxTotal: number;
+};
+
+type AuditTrendMetric = {
+	key: string;
+	baseline: number;
+	current: number;
+	delta: number;
+	percentDelta?: number;
+};
+
+type AuditTrendMessageDelta = AuditTrendMetric & {
+	category: string;
+	triage: string;
+};
+
+type AuditTrendComparison = {
+	baselinePath: string;
+	baselineGeneratedAt: string;
+	summary: AuditTrendMetric[];
+	triage: AuditTrendMetric[];
+	category: AuditTrendMetric[];
+	topMessages: AuditTrendMessageDelta[];
+	warnings: string[];
+};
+
 const testMode = process.env.NSF_TEST_MODE ?? 'repo';
 const auditEnabled = process.env.NSF_REAL_DIAGNOSTICS_AUDIT === '1';
 const realDescribe = testMode === 'real' && auditEnabled ? describe : describe.skip;
 
 const DEFAULT_EXTENSIONS = ['.nsf', '.hlsl'];
 const REPORT_DIR = path.resolve(__dirname, '..', '..', '..', 'out', 'test', 'diagnostics-audit');
+const DEFAULT_BASELINE_REPORT = 'real-workspace-diagnostics-audit.baseline-2026-05-16.json';
+const DEFAULT_SMOKE_BASELINE_REPORT = 'real-workspace-diagnostics-audit.phase-00-baseline-smoke-5.json';
+const DEFAULT_TREND_BASELINE_REPORT = 'real-workspace-diagnostics-audit.phase-00-baseline-trend-50.json';
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,6 +156,186 @@ function readIntEnv(name: string, fallback: number, min: number, max: number): n
 		return fallback;
 	}
 	return Math.max(min, Math.min(max, parsed));
+}
+
+function readStringEnv(name: string): string {
+	return (process.env[name] ?? '').trim();
+}
+
+function sanitizeReportLabel(value: string): string | undefined {
+	const compact = value
+		.trim()
+		.replace(/\s+/g, '-')
+		.replace(/[^A-Za-z0-9._-]/g, '-')
+		.replace(/-+/g, '-')
+		.replace(/^[.-]+|[.-]+$/g, '');
+	return compact.length > 0 ? compact : undefined;
+}
+
+function numericValue(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function trendMetric(key: string, baseline: number, current: number): AuditTrendMetric {
+	const delta = current - baseline;
+	return {
+		key,
+		baseline,
+		current,
+		delta,
+		percentDelta: baseline === 0 ? undefined : (delta / baseline) * 100
+	};
+}
+
+function trendCountEntries(
+	currentMap: Record<string, number> | undefined,
+	baselineMap: Record<string, number> | undefined,
+	limit: number
+): AuditTrendMetric[] {
+	const keys = new Set<string>([
+		...Object.keys(currentMap ?? {}),
+		...Object.keys(baselineMap ?? {})
+	]);
+	return Array.from(keys)
+		.map((key) => trendMetric(key, numericValue(baselineMap?.[key]), numericValue(currentMap?.[key])))
+		.sort(
+			(lhs, rhs) =>
+				Math.abs(rhs.delta) - Math.abs(lhs.delta) ||
+				rhs.current - lhs.current ||
+				lhs.key.localeCompare(rhs.key)
+		)
+		.slice(0, limit);
+}
+
+function groupCountMap(groups: unknown): Map<string, AuditTrendMessageDelta> {
+	const out = new Map<string, AuditTrendMessageDelta>();
+	if (!Array.isArray(groups)) {
+		return out;
+	}
+	for (const group of groups) {
+		const entry = group as { key?: unknown; category?: unknown; triage?: unknown; count?: unknown };
+		const key = typeof entry.key === 'string' ? entry.key : '';
+		const category = typeof entry.category === 'string' ? entry.category : '';
+		const triage = typeof entry.triage === 'string' ? entry.triage : '';
+		if (key.length === 0) {
+			continue;
+		}
+		const mapKey = `${triage}|${category}|${key}`;
+		out.set(mapKey, {
+			key,
+			category,
+			triage,
+			baseline: 0,
+			current: numericValue(entry.count),
+			delta: 0,
+			percentDelta: undefined
+		});
+	}
+	return out;
+}
+
+function trendMessageEntries(
+	currentGroups: unknown,
+	baselineGroups: unknown,
+	limit: number
+): AuditTrendMessageDelta[] {
+	const current = groupCountMap(currentGroups);
+	const baseline = groupCountMap(baselineGroups);
+	const keys = new Set<string>([...current.keys(), ...baseline.keys()]);
+	const entries: AuditTrendMessageDelta[] = [];
+	for (const key of keys) {
+		const currentEntry = current.get(key);
+		const baselineEntry = baseline.get(key);
+		const label = currentEntry ?? baselineEntry;
+		if (!label) {
+			continue;
+		}
+		entries.push({
+			...trendMetric(
+				label.key,
+				numericValue(baselineEntry?.current),
+				numericValue(currentEntry?.current)
+			),
+			category: label.category,
+			triage: label.triage
+		});
+	}
+	return entries
+		.sort(
+			(lhs, rhs) =>
+				Math.abs(rhs.delta) - Math.abs(lhs.delta) ||
+				rhs.current - lhs.current ||
+				lhs.key.localeCompare(rhs.key)
+		)
+		.slice(0, limit);
+}
+
+function buildTrendComparison(report: any, baseline: any, baselinePath: string): AuditTrendComparison {
+	const summaryKeys = [
+		'unitsDiscovered',
+		'unitsScanned',
+		'unitsWithDiagnostics',
+		'unitFileVisits',
+		'filesDiscovered',
+		'filesScanned',
+		'filesWithDiagnostics',
+		'diagnosticsTotal',
+		'truncatedFiles',
+		'timedOutFiles',
+		'fileErrors'
+	];
+	const summary = summaryKeys.map((key) =>
+		trendMetric(key, numericValue(baseline?.summary?.[key]), numericValue(report?.summary?.[key]))
+	);
+	const warnings: string[] = [];
+	for (const key of ['truncatedFiles', 'timedOutFiles', 'fileErrors']) {
+		const entry = summary.find((item) => item.key === key);
+		if (entry && entry.delta > 0) {
+			warnings.push(`${key} increased by ${entry.delta}.`);
+		}
+	}
+	return {
+		baselinePath,
+		baselineGeneratedAt: typeof baseline?.generatedAt === 'string' ? baseline.generatedAt : '',
+		summary,
+		triage: trendCountEntries(report?.counts?.byTriage, baseline?.counts?.byTriage, 20),
+		category: trendCountEntries(report?.counts?.byCategory, baseline?.counts?.byCategory, 30),
+		topMessages: trendMessageEntries(report?.groups, baseline?.groups, 30),
+		warnings
+	};
+}
+
+function defaultBaselineCandidates(maxUnits: number): string[] {
+	const candidates: string[] = [];
+	if (maxUnits === 5) {
+		candidates.push(DEFAULT_SMOKE_BASELINE_REPORT);
+	}
+	if (maxUnits === 50) {
+		candidates.push(DEFAULT_TREND_BASELINE_REPORT);
+	}
+	candidates.push(DEFAULT_BASELINE_REPORT);
+	return candidates.map((name) => path.join(REPORT_DIR, name));
+}
+
+function loadBaselineReport(maxUnits: number): { baselinePath: string; report: any } | undefined {
+	const rawPath = readStringEnv('NSF_REAL_DIAGNOSTICS_BASELINE_JSON');
+	const lowered = rawPath.toLowerCase();
+	if (lowered === '0' || lowered === 'false' || lowered === 'none') {
+		return undefined;
+	}
+	const explicit = rawPath.length > 0;
+	const candidates = explicit ? [path.resolve(rawPath)] : defaultBaselineCandidates(maxUnits);
+	const baselinePath = candidates.find((candidate) => fs.existsSync(candidate));
+	if (!baselinePath) {
+		if (explicit) {
+			throw new Error(`Diagnostics audit baseline report not found: ${candidates[0]}`);
+		}
+		return undefined;
+	}
+	return {
+		baselinePath,
+		report: JSON.parse(fs.readFileSync(baselinePath, 'utf8'))
+	};
 }
 
 function severityName(severity: vscode.DiagnosticSeverity | undefined): string {
@@ -103,6 +371,59 @@ function diagnosticCodeText(diagnostic: vscode.Diagnostic): string {
 function diagnosticReasonCode(diagnostic: vscode.Diagnostic): string | undefined {
 	const data = (diagnostic as unknown as { data?: { reasonCode?: unknown } }).data;
 	return typeof data?.reasonCode === 'string' ? data.reasonCode : undefined;
+}
+
+function severityNameFromWire(severity: unknown): string {
+	if (typeof severity !== 'number') {
+		return 'unknown';
+	}
+	switch (severity) {
+		case 1:
+			return 'error';
+		case 2:
+			return 'warning';
+		case 3:
+			return 'information';
+		case 4:
+			return 'hint';
+		default:
+			return 'unknown';
+	}
+}
+
+function diagnosticCodeTextFromWire(diagnostic: unknown): string {
+	const value = (diagnostic as { code?: unknown })?.code;
+	if (typeof value === 'string' || typeof value === 'number') {
+		return String(value);
+	}
+	if (!value || typeof value !== 'object') {
+		return '';
+	}
+	const nested = (value as { value?: unknown }).value;
+	return typeof nested === 'string' || typeof nested === 'number' ? String(nested) : '';
+}
+
+function diagnosticReasonCodeFromWire(diagnostic: unknown): string | undefined {
+	const data = (diagnostic as { data?: { reasonCode?: unknown } })?.data;
+	return typeof data?.reasonCode === 'string' ? data.reasonCode : undefined;
+}
+
+function diagnosticRangeStartFromWire(diagnostic: unknown): { line: number; character: number } {
+	const start = (diagnostic as { range?: { start?: { line?: unknown; character?: unknown } } })?.range?.start;
+	return {
+		line: typeof start?.line === 'number' ? start.line : 0,
+		character: typeof start?.character === 'number' ? start.character : 0
+	};
+}
+
+function diagnosticMessageFromWire(diagnostic: unknown): string {
+	const message = (diagnostic as { message?: unknown })?.message;
+	return typeof message === 'string' ? message : '';
+}
+
+function diagnosticSourceFromWire(diagnostic: unknown): string {
+	const source = (diagnostic as { source?: unknown })?.source;
+	return typeof source === 'string' ? source : '';
 }
 
 function configuredShaderExtensions(): string[] {
@@ -242,6 +563,10 @@ function configuredAuditSearchRoots(): string[] {
 	return normalizeSearchRoots((vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath));
 }
 
+function normalizedPathKey(value: string): string {
+	return path.resolve(value).replace(/\\/g, '/').toLowerCase();
+}
+
 async function findShaderFiles(
 	extensions: string[],
 	maxFiles: number,
@@ -272,6 +597,54 @@ async function findShaderFiles(
 		return deduped.slice(0, maxFiles);
 	}
 	return deduped;
+}
+
+async function findNsfUnits(maxUnits: number, searchRoots: string[]): Promise<vscode.Uri[]> {
+	const units = await findShaderFiles(['.nsf'], maxUnits, searchRoots);
+	return units;
+}
+
+async function getUnitIncludeClosure(unit: vscode.Uri, limit: number): Promise<vscode.Uri[]> {
+	const response = await vscode.commands.executeCommand<UnitClosureResponse>(
+		'nsf._sendServerRequest',
+		{
+			method: 'nsf/_debugIncludeClosureForUnit',
+			params: {
+				uri: unit.toString(),
+				limit
+			}
+		}
+	);
+	const files = Array.isArray(response?.files) ? response.files : [];
+	const uris: vscode.Uri[] = [];
+	const seen = new Set<string>();
+	for (const item of files) {
+		const rawUri = typeof item?.uri === 'string' ? item.uri : '';
+		const rawPath = typeof item?.path === 'string' ? item.path : '';
+		let uri: vscode.Uri | undefined;
+		if (rawUri.length > 0) {
+			uri = vscode.Uri.parse(rawUri);
+		} else if (rawPath.length > 0) {
+			uri = vscode.Uri.file(rawPath);
+		}
+		if (!uri || uri.scheme !== 'file') {
+			continue;
+		}
+		const ext = path.extname(uri.fsPath).toLowerCase();
+		if (!DEFAULT_EXTENSIONS.includes(ext)) {
+			continue;
+		}
+		const key = normalizedPathKey(uri.fsPath);
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		uris.push(uri);
+	}
+	if (!seen.has(normalizedPathKey(unit.fsPath))) {
+		uris.unshift(unit);
+	}
+	return uris;
 }
 
 function hasExplicitPreprocessorMacroSetting(): boolean {
@@ -416,7 +789,13 @@ function classifyDiagnostic(
 		return { category: 'syntax-structure', triage: 'likely-real-source' };
 	}
 	if (message.startsWith('Invalid numeric literal suffix:')) {
+		if (/[0-9](?:\.[0-9]*)?[eE][+-]?[0-9]+/.test(lineText)) {
+			return { category: 'numeric-literal', triage: 'likely-plugin-limitation' };
+		}
 		return { category: 'numeric-literal', triage: 'likely-real-source' };
+	}
+	if (message.startsWith('Deprecated numeric literal suffix:')) {
+		return { category: 'numeric-literal', triage: 'check-config-or-source' };
 	}
 	if (message === 'Unreachable code.') {
 		return { category: 'semantic-source-rule', triage: 'needs-manual-review' };
@@ -479,6 +858,9 @@ function canonicalizeMessage(message: string): string {
 	if (message.startsWith('Invalid numeric literal suffix:')) {
 		return 'Invalid numeric literal suffix: <suffix>.';
 	}
+	if (message.startsWith('Deprecated numeric literal suffix:')) {
+		return 'Deprecated numeric literal suffix: <suffix>.';
+	}
 	if (message.startsWith('Missing parentheses after')) {
 		return 'Missing parentheses after <keyword>.';
 	}
@@ -507,6 +889,25 @@ function increment(map: Record<string, number>, key: string): void {
 	map[key] = (map[key] ?? 0) + 1;
 }
 
+function signedNumber(value: number): string {
+	return value > 0 ? `+${value}` : String(value);
+}
+
+function percentText(value: number | undefined): string {
+	return value === undefined ? 'n/a' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+function appendTrendMetricTable(lines: string[], entries: AuditTrendMetric[], keyLabel: string): void {
+	lines.push(`| ${keyLabel} | Baseline | Current | Delta | Delta % |`);
+	lines.push('| --- | ---: | ---: | ---: | ---: |');
+	for (const entry of entries) {
+		lines.push(
+			`| ${markdownCell(entry.key)} | ${entry.baseline} | ${entry.current} | ` +
+			`${signedNumber(entry.delta)} | ${percentText(entry.percentDelta)} |`
+		);
+	}
+}
+
 function groupDiagnostics(diagnostics: AuditDiagnostic[]): GroupSummary[] {
 	const groups = new Map<string, GroupSummary>();
 	for (const diagnostic of diagnostics) {
@@ -530,6 +931,91 @@ function groupDiagnostics(diagnostics: AuditDiagnostic[]): GroupSummary[] {
 	return Array.from(groups.values()).sort((lhs, rhs) => rhs.count - lhs.count);
 }
 
+function buildUnitSummaries(diagnostics: AuditDiagnostic[], fileStats: UnitFileStat[]): UnitSummary[] {
+	const byUnit = new Map<string, AuditDiagnostic[]>();
+	for (const diagnostic of diagnostics) {
+		const items = byUnit.get(diagnostic.unit) ?? [];
+		items.push(diagnostic);
+		byUnit.set(diagnostic.unit, items);
+	}
+	const fileStatsByUnit = new Map<string, UnitFileStat[]>();
+	for (const stat of fileStats) {
+		const items = fileStatsByUnit.get(stat.unit) ?? [];
+		items.push(stat);
+		fileStatsByUnit.set(stat.unit, items);
+	}
+	const units = new Set<string>([...byUnit.keys(), ...fileStatsByUnit.keys()]);
+	const summaries: UnitSummary[] = [];
+	for (const unit of units) {
+		const items = byUnit.get(unit) ?? [];
+		const stats = fileStatsByUnit.get(unit) ?? [];
+		const byCategory: Record<string, number> = {};
+		for (const item of items) {
+			increment(byCategory, item.category);
+		}
+		summaries.push({
+			unit,
+			unitRelativePath: stats[0]?.unitRelativePath ?? items[0]?.unitRelativePath ?? unit,
+			filesInClosure: stats.length,
+			filesScanned: stats.filter((item) => item.loaded).length,
+			filesWithDiagnostics: new Set(items.map((item) => normalizedPathKey(item.file))).size,
+			diagnosticsTotal: items.length,
+			truncatedFiles: stats.filter((item) => item.truncated).length,
+			timedOutFiles: stats.filter((item) => item.timedOut).length,
+			buildElapsedMs: stats.reduce((sum, item) => sum + item.elapsedMs, 0),
+			topCategories: topEntries(byCategory, 8),
+			topMessages: groupDiagnostics(items).slice(0, 8)
+		});
+	}
+	return summaries.sort(
+		(lhs, rhs) =>
+			rhs.diagnosticsTotal - lhs.diagnosticsTotal ||
+			rhs.filesWithDiagnostics - lhs.filesWithDiagnostics ||
+			lhs.unitRelativePath.localeCompare(rhs.unitRelativePath)
+	);
+}
+
+function sampleDiagnostics(
+	diagnostics: AuditDiagnostic[],
+	config: AuditDiagnosticSampleConfig
+): AuditDiagnostic[] {
+	if (config.maxTotal <= 0) {
+		return [];
+	}
+	const selected: AuditDiagnostic[] = [];
+	const selectedKeys = new Set<string>();
+	const groupCounts = new Map<string, number>();
+	const unitCounts = new Map<string, number>();
+	for (const diagnostic of diagnostics) {
+		if (selected.length >= config.maxTotal) {
+			break;
+		}
+		const groupKey = `${diagnostic.triage}|${diagnostic.category}|${diagnostic.canonicalMessage}`;
+		const unitKey = normalizedPathKey(diagnostic.unit);
+		if ((groupCounts.get(groupKey) ?? 0) >= config.perGroup) {
+			continue;
+		}
+		if ((unitCounts.get(unitKey) ?? 0) >= config.perUnit) {
+			continue;
+		}
+		const key = [
+			unitKey,
+			normalizedPathKey(diagnostic.file),
+			diagnostic.line,
+			diagnostic.character,
+			diagnostic.message
+		].join('|');
+		if (selectedKeys.has(key)) {
+			continue;
+		}
+		selectedKeys.add(key);
+		selected.push(diagnostic);
+		groupCounts.set(groupKey, (groupCounts.get(groupKey) ?? 0) + 1);
+		unitCounts.set(unitKey, (unitCounts.get(unitKey) ?? 0) + 1);
+	}
+	return selected;
+}
+
 function topEntries(map: Record<string, number>, limit: number): Array<{ key: string; count: number }> {
 	return Object.keys(map)
 		.map((key) => ({ key, count: map[key] }))
@@ -542,14 +1028,64 @@ function buildMarkdownReport(report: any): string {
 	lines.push('# Real Workspace Diagnostics Audit');
 	lines.push('');
 	lines.push(`- Generated: ${report.generatedAt}`);
+	if (report.runLabel) {
+		lines.push(`- Report label: ${report.runLabel}`);
+	}
 	lines.push(`- Workspace: ${report.workspaceTarget}`);
 	lines.push(`- Diagnostics mode: ${report.settings.diagnosticsMode}`);
 	lines.push(`- Search roots: ${report.settings.searchRoots.join(', ')}`);
+	if (report.summary.unitsDiscovered !== undefined) {
+		lines.push(`- NSF units discovered: ${report.summary.unitsDiscovered}`);
+		lines.push(`- NSF units scanned: ${report.summary.unitsScanned}`);
+		lines.push(`- NSF units with diagnostics: ${report.summary.unitsWithDiagnostics}`);
+		lines.push(`- Unit file visits: ${report.summary.unitFileVisits}`);
+	}
 	lines.push(`- Files discovered: ${report.summary.filesDiscovered}`);
 	lines.push(`- Files scanned: ${report.summary.filesScanned}`);
 	lines.push(`- Files with diagnostics: ${report.summary.filesWithDiagnostics}`);
 	lines.push(`- Diagnostics: ${report.summary.diagnosticsTotal}`);
 	lines.push(`- Diagnostic wait timeouts: ${report.summary.waitTimeouts}`);
+	if (report.summary.truncatedFiles !== undefined) {
+		lines.push(`- Truncated file builds: ${report.summary.truncatedFiles}`);
+		lines.push(`- Timed-out file builds: ${report.summary.timedOutFiles}`);
+	}
+	const trend = report.trendComparison as AuditTrendComparison | undefined;
+	if (trend) {
+		lines.push('');
+		lines.push('## Baseline Trend');
+		lines.push('');
+		lines.push(`- Baseline: ${trend.baselinePath}`);
+		if (trend.baselineGeneratedAt) {
+			lines.push(`- Baseline generated: ${trend.baselineGeneratedAt}`);
+		}
+		if (trend.warnings.length > 0) {
+			lines.push(`- Warnings: ${trend.warnings.join(' ')}`);
+		}
+		lines.push('');
+		lines.push('### Summary Delta');
+		lines.push('');
+		appendTrendMetricTable(lines, trend.summary, 'Metric');
+		lines.push('');
+		lines.push('### Triage Delta');
+		lines.push('');
+		appendTrendMetricTable(lines, trend.triage, 'Triage');
+		lines.push('');
+		lines.push('### Category Delta');
+		lines.push('');
+		appendTrendMetricTable(lines, trend.category, 'Category');
+		lines.push('');
+		lines.push('### Top Message Delta');
+		lines.push('');
+		lines.push('| Message | Triage | Category | Baseline | Current | Delta | Delta % |');
+		lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: |');
+		for (const entry of trend.topMessages) {
+			lines.push(
+				`| ${markdownCell(entry.key)} | ${markdownCell(entry.triage)} | ` +
+				`${markdownCell(entry.category)} | ${entry.baseline} | ${entry.current} | ` +
+				`${signedNumber(entry.delta)} | ${percentText(entry.percentDelta)} |`
+			);
+		}
+	}
 	lines.push('');
 	lines.push('## Triage Summary');
 	lines.push('');
@@ -574,12 +1110,32 @@ function buildMarkdownReport(report: any): string {
 	for (const group of report.groups.slice(0, 50) as GroupSummary[]) {
 		const sample = group.samples[0];
 		const sampleText = sample
-			? `${sample.relativePath}:${sample.line}:${sample.character} ${sample.lineText}`
+			? `${sample.unitRelativePath} -> ${sample.relativePath}:${sample.line}:${sample.character} ${sample.lineText}`
 			: '';
 		lines.push(
 			`| ${group.count} | ${markdownCell(group.triage)} | ${markdownCell(group.category)} | ` +
 			`${markdownCell(group.key)} | ${markdownCell(sampleText)} |`
 		);
+	}
+	if (Array.isArray(report.units) && report.units.length > 0) {
+		lines.push('');
+		lines.push('## Top Units');
+		lines.push('');
+		lines.push('| Diagnostics | Files | Unit | Top Categories | Top Message |');
+		lines.push('| ---: | ---: | --- | --- | --- |');
+		for (const unit of report.units.slice(0, 50) as UnitSummary[]) {
+			const categories = unit.topCategories
+				.slice(0, 4)
+				.map((entry) => `${entry.key}=${entry.count}`)
+				.join(', ');
+			const message = unit.topMessages[0]
+				? `${unit.topMessages[0].key} (${unit.topMessages[0].count})`
+				: '';
+			lines.push(
+				`| ${unit.diagnosticsTotal} | ${unit.filesWithDiagnostics}/${unit.filesScanned} | ` +
+				`${markdownCell(unit.unitRelativePath)} | ${markdownCell(categories)} | ${markdownCell(message)} |`
+			);
+		}
 	}
 	lines.push('');
 	lines.push('## Top Files');
@@ -595,38 +1151,67 @@ function buildMarkdownReport(report: any): string {
 	lines.push('- `likely-plugin-limitation` is a triage hint for diagnostics that depend heavily on incomplete language modeling, include context, type inference, overload resolution, or macro expansion.');
 	lines.push('- `likely-real-source` is still not a compiler verdict; it means the diagnostic is structural or source-rule-like enough to review as a real issue first.');
 	lines.push('- `check-config-or-source` usually means include roots, generated files, or missing files must be checked before blaming either source or plugin.');
+	lines.push('- Unit-based audit counts diagnostics per NSF unit, so a shared include can be counted once for each unit that uses it.');
 	return `${lines.join('\n')}\n`;
 }
 
-function writeReport(report: any): { jsonPath: string; markdownPath: string } {
+function writeReport(report: any): {
+	jsonPath: string;
+	markdownPath: string;
+	labeledJsonPath?: string;
+	labeledMarkdownPath?: string;
+} {
 	fs.mkdirSync(REPORT_DIR, { recursive: true });
 	const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 	const jsonPath = path.join(REPORT_DIR, `real-workspace-diagnostics-audit.${stamp}.json`);
 	const markdownPath = path.join(REPORT_DIR, `real-workspace-diagnostics-audit.${stamp}.md`);
 	const latestJsonPath = path.join(REPORT_DIR, 'real-workspace-diagnostics-audit.latest.json');
 	const latestMarkdownPath = path.join(REPORT_DIR, 'real-workspace-diagnostics-audit.latest.md');
+	const reportLabel = sanitizeReportLabel(typeof report.runLabel === 'string' ? report.runLabel : '');
+	const labeledJsonPath = reportLabel
+		? path.join(REPORT_DIR, `real-workspace-diagnostics-audit.${reportLabel}.json`)
+		: undefined;
+	const labeledMarkdownPath = reportLabel
+		? path.join(REPORT_DIR, `real-workspace-diagnostics-audit.${reportLabel}.md`)
+		: undefined;
 	const json = `${JSON.stringify(report, null, 2)}\n`;
 	const markdown = buildMarkdownReport(report);
 	fs.writeFileSync(jsonPath, json, 'utf8');
 	fs.writeFileSync(markdownPath, markdown, 'utf8');
 	fs.writeFileSync(latestJsonPath, json, 'utf8');
 	fs.writeFileSync(latestMarkdownPath, markdown, 'utf8');
-	return { jsonPath, markdownPath };
+	if (labeledJsonPath && labeledMarkdownPath) {
+		fs.writeFileSync(labeledJsonPath, json, 'utf8');
+		fs.writeFileSync(labeledMarkdownPath, markdown, 'utf8');
+	}
+	return { jsonPath, markdownPath, labeledJsonPath, labeledMarkdownPath };
 }
 
 realDescribe('NSF real workspace diagnostics audit', () => {
-	it('collects and classifies diagnostics across shader files', async function () {
+	it('collects and classifies diagnostics by NSF unit include closure', async function () {
 		this.timeout(readIntEnv('NSF_REAL_DIAGNOSTICS_TIMEOUT_MS', 1800000, 60000, 7200000));
 
 		const extensions = configuredShaderExtensions();
-		const maxFiles = readIntEnv('NSF_REAL_DIAGNOSTICS_MAX_FILES', 0, 0, 100000);
-		const perFileTimeoutMs = readIntEnv('NSF_REAL_DIAGNOSTICS_PER_FILE_TIMEOUT_MS', 12000, 1000, 120000);
+		const maxUnits = readIntEnv(
+			'NSF_REAL_DIAGNOSTICS_MAX_UNITS',
+			readIntEnv('NSF_REAL_DIAGNOSTICS_MAX_FILES', 0, 0, 100000),
+			0,
+			100000
+		);
+		const closureLimit = readIntEnv('NSF_REAL_DIAGNOSTICS_CLOSURE_LIMIT', 1024, 1, 10000);
+		const diagnosticTimeBudgetMs = readIntEnv('NSF_REAL_DIAGNOSTICS_BUILD_BUDGET_MS', 5000, 30, 120000);
+		const diagnosticMaxItems = readIntEnv('NSF_REAL_DIAGNOSTICS_BUILD_MAX_ITEMS', 2400, 20, 100000);
+		const sampleConfig: AuditDiagnosticSampleConfig = {
+			perGroup: readIntEnv('NSF_REAL_DIAGNOSTICS_SAMPLE_PER_GROUP', 20, 0, 1000),
+			perUnit: readIntEnv('NSF_REAL_DIAGNOSTICS_SAMPLE_PER_UNIT', 80, 0, 5000),
+			maxTotal: readIntEnv('NSF_REAL_DIAGNOSTICS_SAMPLE_MAX_TOTAL', 5000, 0, 100000)
+		};
+		const reportLabel = sanitizeReportLabel(readStringEnv('NSF_REAL_DIAGNOSTICS_REPORT_LABEL'));
 		const searchRoots = configuredAuditSearchRoots();
-		const files = await findShaderFiles(extensions, maxFiles, searchRoots);
-		assert.ok(files.length > 0, 'Expected shader files in real workspace.');
+		const units = await findNsfUnits(maxUnits, searchRoots);
+		assert.ok(units.length > 0, 'Expected .nsf units in real workspace.');
 
-		const activationUri = files.find((uri) => path.extname(uri.fsPath).toLowerCase() === '.nsf') ?? files[0];
-		const activationDocument = await vscode.workspace.openTextDocument(activationUri);
+		const activationDocument = await vscode.workspace.openTextDocument(units[0]);
 		await vscode.window.showTextDocument(activationDocument, { preview: false });
 		await waitForCommandAvailable('nsf._getInternalStatus');
 		await waitForClientReady('client ready before real workspace diagnostics audit');
@@ -634,60 +1219,114 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 		await waitForIndexingIdle('real workspace diagnostics audit initial indexing idle');
 
 		const diagnostics: AuditDiagnostic[] = [];
-		const fileErrors: Array<{ file: string; error: string }> = [];
-		let waitTimeouts = 0;
+		const fileStats: UnitFileStat[] = [];
+		const fileErrors: Array<{ unit: string; file: string; error: string }> = [];
+		const discoveredFiles = new Set<string>();
 
-		for (let index = 0; index < files.length; index++) {
-			const uri = files[index];
-			if (index > 0 && index % 50 === 0) {
-				console.log(`[real-diagnostics-audit] scanned ${index}/${files.length}`);
+		for (let unitIndex = 0; unitIndex < units.length; unitIndex++) {
+			const unit = units[unitIndex];
+			const unitRelativePath = relativePathForUri(unit);
+			if (unitIndex > 0 && unitIndex % 25 === 0) {
+				console.log(`[real-diagnostics-audit] scanned ${unitIndex}/${units.length} nsf units`);
 			}
 			try {
-				const activeUnit = await setActiveUnitForTarget(uri);
-				const document = await vscode.workspace.openTextDocument(uri);
-				const ready = await waitForDiagnosticsReady(uri, perFileTimeoutMs);
-				if (!ready) {
-					waitTimeouts++;
-				}
-				const currentDiagnostics = vscode.languages.getDiagnostics(uri);
-				for (const diagnostic of currentDiagnostics) {
-					const code = diagnosticCodeText(diagnostic);
-					const line = diagnostic.range.start.line;
-					const character = diagnostic.range.start.character;
-					const lineText = line >= 0 && line < document.lineCount ? document.lineAt(line).text.trim() : '';
-					const nextLineText = line + 1 >= 0 && line + 1 < document.lineCount
-						? document.lineAt(line + 1).text.trim()
-						: '';
-					const extension = path.extname(uri.fsPath).toLowerCase();
-					const classification = classifyDiagnostic(diagnostic.message, code, lineText, nextLineText, extension);
-					diagnostics.push({
-						file: uri.fsPath,
-						workspaceFolder: workspaceFolderLabel(uri),
-						relativePath: relativePathForUri(uri),
-						extension,
-						activeUnit,
-						severity: severityName(diagnostic.severity),
-						source: diagnostic.source ?? '',
-						code,
-						message: diagnostic.message,
-						canonicalMessage: canonicalizeMessage(diagnostic.message),
-						category: classification.category,
-						triage: classification.triage,
-						line: line + 1,
-						character: character + 1,
-						lineText,
-						nextLineText,
-						reasonCode: diagnosticReasonCode(diagnostic)
-					});
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', unit.toString());
+				await vscode.commands.executeCommand('nsf._sendServerRequest', { method: 'nsf/ping', params: {} });
+				const closure = await getUnitIncludeClosure(unit, closureLimit);
+				for (const fileUri of closure) {
+					discoveredFiles.add(normalizedPathKey(fileUri.fsPath));
+					const relativePath = relativePathForUri(fileUri);
+					const extension = path.extname(fileUri.fsPath).toLowerCase();
+					let lines: string[] = [];
+					try {
+						lines = fs.readFileSync(fileUri.fsPath, 'utf8').replace(/\r/g, '').split('\n');
+					} catch {
+						lines = [];
+					}
+					try {
+						const response = await vscode.commands.executeCommand<DebugBuildDiagnosticsResponse>(
+							'nsf._sendServerRequest',
+							{
+								method: 'nsf/_debugBuildDiagnostics',
+								params: {
+									uri: fileUri.toString(),
+									activeUnitUri: unit.toString(),
+									timeBudgetMs: diagnosticTimeBudgetMs,
+									maxItems: diagnosticMaxItems,
+									expensiveRules: true
+								}
+							}
+						);
+						const currentDiagnostics = Array.isArray(response?.diagnostics) ? response.diagnostics : [];
+						fileStats.push({
+							unit: unit.fsPath,
+							unitRelativePath,
+							file: fileUri.fsPath,
+							relativePath,
+							extension,
+							loaded: Boolean(response?.loaded),
+							diagnosticsTotal: currentDiagnostics.length,
+							truncated: Boolean(response?.truncated),
+							timedOut: Boolean(response?.timedOut),
+							heavyRulesSkipped: Boolean(response?.heavyRulesSkipped),
+							indeterminateTotal: Math.max(0, Math.trunc(response?.indeterminateTotal ?? 0)),
+							elapsedMs: Math.max(0, response?.elapsedMs ?? 0)
+						});
+						if (!response?.loaded) {
+							fileErrors.push({
+								unit: unit.fsPath,
+								file: fileUri.fsPath,
+								error: 'debug diagnostics did not load file text'
+							});
+							continue;
+						}
+						for (const diagnostic of currentDiagnostics) {
+							const message = diagnosticMessageFromWire(diagnostic);
+							const code = diagnosticCodeTextFromWire(diagnostic);
+							const start = diagnosticRangeStartFromWire(diagnostic);
+							const lineText = lines[start.line]?.trim() ?? '';
+							const nextLineText = lines[start.line + 1]?.trim() ?? '';
+							const classification = classifyDiagnostic(message, code, lineText, nextLineText, extension);
+							diagnostics.push({
+								unit: unit.fsPath,
+								unitRelativePath,
+								file: fileUri.fsPath,
+								workspaceFolder: workspaceFolderLabel(fileUri),
+								relativePath,
+								extension,
+								activeUnit: unitRelativePath,
+								severity: severityNameFromWire((diagnostic as { severity?: unknown })?.severity),
+								source: diagnosticSourceFromWire(diagnostic),
+								code,
+								message,
+								canonicalMessage: canonicalizeMessage(message),
+								category: classification.category,
+								triage: classification.triage,
+								line: start.line + 1,
+								character: start.character + 1,
+								lineText,
+								nextLineText,
+								reasonCode: diagnosticReasonCodeFromWire(diagnostic)
+							});
+						}
+					} catch (error) {
+						fileErrors.push({
+							unit: unit.fsPath,
+							file: fileUri.fsPath,
+							error: error instanceof Error ? error.message : String(error)
+						});
+					}
 				}
 			} catch (error) {
 				fileErrors.push({
-					file: uri.fsPath,
+					unit: unit.fsPath,
+					file: unit.fsPath,
 					error: error instanceof Error ? error.message : String(error)
 				});
 			}
 		}
 
+		await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
 		await waitForIndexingIdle('real workspace diagnostics audit final indexing idle');
 
 		const counts = {
@@ -698,7 +1337,8 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 			byTriage: {} as Record<string, number>,
 			byExtension: {} as Record<string, number>,
 			byWorkspaceFolder: {} as Record<string, number>,
-			byFile: {} as Record<string, number>
+			byFile: {} as Record<string, number>,
+			byUnit: {} as Record<string, number>
 		};
 		for (const diagnostic of diagnostics) {
 			increment(counts.bySeverity, diagnostic.severity);
@@ -709,10 +1349,13 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 			increment(counts.byExtension, diagnostic.extension || '(none)');
 			increment(counts.byWorkspaceFolder, diagnostic.workspaceFolder || '(none)');
 			increment(counts.byFile, diagnostic.relativePath);
+			increment(counts.byUnit, diagnostic.unitRelativePath);
 		}
 
+		const unitsWithDiagnostics = new Set(diagnostics.map((item) => normalizedPathKey(item.unit))).size;
 		const report = {
 			generatedAt: new Date().toISOString(),
+			runLabel: reportLabel,
 			workspaceTarget: process.env.NSF_TEST_WORKSPACE_PATH ?? '',
 			workspaceFolders: (vscode.workspace.workspaceFolders ?? []).map((folder) => ({
 				name: folder.name,
@@ -726,25 +1369,47 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 				preprocessorMacroCount: Object.keys(
 					vscode.workspace.getConfiguration('nsf').get<Record<string, unknown>>('preprocessorMacros', {})
 				).length,
-				preprocessorMacrosSeededForAudit: seededPreprocessorMacroCount
+				preprocessorMacrosSeededForAudit: seededPreprocessorMacroCount,
+				unitClosureLimit: closureLimit,
+				diagnosticBuildBudgetMs: diagnosticTimeBudgetMs,
+				diagnosticBuildMaxItems: diagnosticMaxItems,
+				diagnosticSample: sampleConfig
 			},
 			summary: {
-				filesDiscovered: files.length,
-				filesScanned: files.length - fileErrors.length,
-				filesWithDiagnostics: new Set(diagnostics.map((item) => item.file.toLowerCase())).size,
+				unitsDiscovered: units.length,
+				unitsScanned: units.length,
+				unitsWithDiagnostics,
+				unitFileVisits: fileStats.length,
+				filesDiscovered: discoveredFiles.size,
+				filesScanned: new Set(fileStats.filter((item) => item.loaded).map((item) => normalizedPathKey(item.file))).size,
+				filesWithDiagnostics: new Set(diagnostics.map((item) => normalizedPathKey(item.file))).size,
 				diagnosticsTotal: diagnostics.length,
-				waitTimeouts,
+				waitTimeouts: 0,
+				truncatedFiles: fileStats.filter((item) => item.truncated).length,
+				timedOutFiles: fileStats.filter((item) => item.timedOut).length,
+				heavyRulesSkippedFiles: fileStats.filter((item) => item.heavyRulesSkipped).length,
 				fileErrors: fileErrors.length
 			},
 			counts,
 			groups: groupDiagnostics(diagnostics),
+			units: buildUnitSummaries(diagnostics, fileStats),
+			fileStats,
 			fileErrors,
-			diagnostics
+			diagnosticSamples: sampleDiagnostics(diagnostics, sampleConfig)
 		};
+
+		const baseline = loadBaselineReport(maxUnits);
+		if (baseline) {
+			(report as any).trendComparison = buildTrendComparison(report, baseline.report, baseline.baselinePath);
+		}
 
 		const paths = writeReport(report);
 		console.log(`[real-diagnostics-audit] wrote ${paths.jsonPath}`);
 		console.log(`[real-diagnostics-audit] wrote ${paths.markdownPath}`);
+		if (paths.labeledJsonPath && paths.labeledMarkdownPath) {
+			console.log(`[real-diagnostics-audit] wrote ${paths.labeledJsonPath}`);
+			console.log(`[real-diagnostics-audit] wrote ${paths.labeledMarkdownPath}`);
+		}
 
 		assert.strictEqual(fileErrors.length, 0, `Failed to scan files: ${JSON.stringify(fileErrors.slice(0, 5))}`);
 	});

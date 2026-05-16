@@ -10,6 +10,7 @@ add_executable(nsf_lsp
   src/app/main.cpp
   src/app/main_background_refresh.cpp
   src/app/main_did_change_classification.cpp
+  src/app/main_diagnostics_audit_debug.cpp
   src/app/main_include_graph_cache.cpp
   src/app/main_occurrence_helpers.cpp
   src/active_unit.cpp

@@ -46,6 +46,7 @@
 #include "lsp_helpers.hpp"
 #include "lsp_io.hpp"
 #include "main_background_refresh.hpp"
+#include "main_diagnostics_audit_debug.hpp"
 #include "main_did_change_classification.hpp"
 #include "main_include_graph_cache.hpp"
 #include "main_occurrence_helpers.hpp"
@@ -2028,6 +2029,44 @@ int main(int argc, char **argv) {
       }
       if (id.type != Json::Type::Null)
         writeResponse(id, result);
+      continue;
+    }
+
+    if (method == "nsf/_debugIncludeClosureForUnit" && params) {
+      if (id.type != Json::Type::Null)
+        writeResponse(id, buildDiagnosticsAuditIncludeClosureDebugResponse(params));
+      continue;
+    }
+
+    if (method == "nsf/_debugBuildDiagnostics" && params) {
+      DiagnosticsAuditDebugContext auditContext;
+      {
+        std::lock_guard<std::mutex> lock(coreMutex);
+        auditContext.documents = core.documents;
+        auditContext.workspaceFolders = core.workspaceFolders;
+        auditContext.includePaths = core.includePaths;
+        auditContext.shaderExtensions = core.shaderExtensions;
+        auditContext.defines = preprocessorDefines;
+        auditContext.diagnosticsOptions.enableExpensiveRules =
+            core.diagnosticsFullExpensiveRulesEnabled;
+        auditContext.diagnosticsOptions.timeBudgetMs =
+            core.diagnosticsFullTimeBudgetMs;
+        auditContext.diagnosticsOptions.maxItems = core.diagnosticsFullMaxItems;
+        auditContext.diagnosticsOptions.semanticCacheEnabled =
+            core.semanticCacheEnabled;
+        auditContext.diagnosticsOptions.indeterminateEnabled =
+            core.diagnosticsIndeterminateEnabled;
+        auditContext.diagnosticsOptions.indeterminateSeverity =
+            core.diagnosticsIndeterminateSeverity;
+        auditContext.diagnosticsOptions.indeterminateMaxItems =
+            core.diagnosticsIndeterminateMaxItems;
+        auditContext.diagnosticsOptions.indeterminateSuppressWhenErrors =
+            core.diagnosticsIndeterminateSuppressWhenErrors;
+      }
+      if (id.type != Json::Type::Null)
+        writeResponse(id, buildDiagnosticsAuditDiagnosticsDebugResponse(
+                              params, auditContext, getActiveUnitUri(),
+                              getActiveUnitPath()));
       continue;
     }
 

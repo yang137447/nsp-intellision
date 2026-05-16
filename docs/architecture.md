@@ -83,6 +83,7 @@
 - `app/main.cpp`: server 启动、全局调度、interactive/background lane 区分、request-scoped 调度归因遥测，以及文档 / active unit / 配置 / workspace summary 事件回流
 - `app/main_background_refresh.*`: diagnostics background queue、latest-only 调度和 worker runtime
 - `app/main_did_change_classification.*`: didChange 分类
+- `app/main_diagnostics_audit_debug.*`: real-workspace diagnostics audit 专用内部 debug 请求；只读取 workspace summary include closure 和 diagnostics 构建结果，不发布 diagnostics，也不改变公开 LSP 行为
 - `app/main_include_graph_cache.*`: include graph cache
 - `app/main_occurrence_helpers.*`: occurrence / definition 辅助
 - `crash_handler.*`: server 进程级 SEH / signal / terminate 崩溃处理入口；`installCrashHandler(...)` 只登记处理器和记录目标日志路径，正常启动不得创建 `nsf_lsp_crash.log`；crash log、stacktrace 和 minidump 只应在真实崩溃路径或显式 debug wait 路径中写出
