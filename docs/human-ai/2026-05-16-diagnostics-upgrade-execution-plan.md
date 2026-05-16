@@ -317,6 +317,99 @@ Git 记录：
 - 新增 focused fixture 覆盖 assignment、return、function argument、builtin argument、object method argument。
 - 如 `type_model.*` 或对象方法共享契约变化，已更新 `docs/type-method-interface-contract.md` 和相关头文件注释。
 
+### Phase 2 官方规则确认记录
+
+状态：已完成人工确认，后续 P2 实现按以下规则收敛。
+
+官方依据：
+
+- [HLSL working draft](https://microsoft.github.io/hlsl-specs/specs/hlsl.html#Conv)：standard conversion sequence 由 lvalue / array、numeric / boolean / elementwise、scalar splat 或 vector / matrix truncation、qualification conversion 组成；并明确列出 integral conversion、floating conversion、floating-integral conversion、boolean conversion、component-wise conversions、usual arithmetic conversions、overload viable functions 和 conversion sequence rank。
+- [Microsoft Learn HLSL operators](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-operators)：compiler 会执行 implicit type cast，例如 `int2 + 2` 可按 `int2 + int2(2, 2)` 理解；显式 cast 只改变表达意图，不改变官方可转换性的基础规则。
+- [Microsoft Learn HLSL scalar data types](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-scalar)：`half` 在部分 shader target 下映射到 `float`，但 SM 6.2 起存在 `float16_t`；因此 diagnostics 不假设所有 target 都没有 half 精度风险，`float -> half` 仍作为有风险的隐式 narrowing 提醒用户。
+
+确认规则：
+
+1. `type mismatch` 的基础判定只看官方规则下是否存在 implicit conversion sequence；能形成转换序列时不再发布 mismatch error，找不到转换序列时才发布 assignment / return / argument / builtin / object method type mismatch。
+   - 示例：`float3 a = float4(1, 2, 3, 4);` 官方可通过 truncation conversion 成立，产品发 truncation warning；`float3 b = float2(1, 2);` 没有扩维 conversion，产品继续发 mismatch error。
+2. scalar splat 到 vector / matrix 是官方 standard conversion；纯 splat 不发 warning。若 splat 同时伴随 narrowing、signedness、boolean 等风险，则按对应风险规则处理。
+   - 示例：`float3 a = 1.0;` 官方 scalar splat，产品不发 warning；`half3 b = runtimeFloat;` 是 splat + `float -> half`，产品发 narrowing warning。
+3. vector / matrix truncation 是官方 standard conversion；隐式 truncation 不发布 mismatch error，但发布 warning：`Implicit truncation conversion: <actual> -> <expected>. Use an explicit cast or swizzle if this is intentional.` 显式 cast、constructor-style conversion 和 swizzle/member projection 不发该 warning。
+   - 示例：`float3 a = wide4;` 发 truncation warning；`float3 b = (float3)wide4;`、`float3 c = float3(wide4);`、`float3 d = wide4.xyz;` 不发 truncation warning。
+4. floating conversion 是官方 standard conversion；`half -> float -> double` 方向不发 warning，隐式 `double -> float/half`、`float -> half` 发布 narrowing warning。同形 vector / matrix 逐元素适用。numeric literal 可按目标类型适配，暂不因 `half h = 1.0;` 发布 narrowing warning。
+   - 示例：`half h = runtimeFloat;` 发 narrowing warning；`half literal = 1.0;` 作为简单安全 literal adaptation，不发 warning。
+5. integer / floating conversion 是官方 standard conversion；`int/uint -> float/double` 不发 warning，`int/uint -> half` 发布 warning，`float/half/double -> int/uint` 发布 warning。精确安全 literal 可不发 warning，例如 `float f = 1;`、`int i = 1.0;`；明显 lossy literal 如 `int i = 1.5;` 发布 warning。
+   - 示例：`float f = intValue;` 不发 warning；`half h = intValue;` 和 `int i = runtimeFloat;` 发 floating-integral warning。
+6. signedness conversion `int <-> uint` 是官方 integral conversion；非 literal 隐式转换发布 signedness warning，明显安全 literal 不发 warning。`uint u = -1;` 这类需要 unary folding 的场景，P2 暂不做复杂常量折叠，可保守 warning。
+   - 示例：`uint u = intValue;` 发 signedness warning；`int i = 1u;` 不发 warning。
+7. boolean conversion 是官方 standard conversion；合法时不发布 mismatch error。隐式 numeric -> bool 和 bool -> numeric 都发布 boolean conversion warning，即使 `bool b = 0/1` 也发布 warning。显式转换不发 warning。
+   - 示例：`bool b = intValue;`、`int i = b;`、`bool literal = 1;` 均发 boolean conversion warning；`bool b = (bool)intValue;` 不发 warning。
+8. vector / matrix 同 shape 时按 component-wise conversion 处理；元素转换合法则整体不发布 mismatch error，warning 跟随元素转换风险。目标 shape 更大仍为 mismatch，除非 source 是 scalar splat。
+   - 示例：`float3 a = int3(1, 2, 3);` 合法且不发 warning；`half3 b = float3(1, 2, 3);` 发 narrowing warning；`float3 c = float2(1, 2);` 继续 mismatch。
+9. binary arithmetic / comparison operator 走官方 usual arithmetic conversions，不复用 assignment expected/actual 规则；合法时不发布 binary mismatch。operand 侧发生隐式 truncation、signedness、floating-integral、boolean 等风险时发布对应 warning，表达式结果再交给外层 assignment / return / argument 规则判断。
+   - 示例：`float3 v = float3(1, 2, 3) + float4(1, 2, 3, 4);` 不发 binary mismatch，发 truncation warning；结果再按外层 `float3` assignment 检查。
+10. function、builtin 和 object method 参数匹配按官方 viable candidate + conversion rank 建模；只要存在 viable candidate，就不发布 argument mismatch / builtin mismatch。对最终选中候选所需的 risky implicit conversion 发布 warning。object method 的对象族、坐标维度仍通过 `type_model.*` 和 Phase 6 处理，不在 P2 复制 array texture 坐标规则。
+    - 示例：`P2AcceptFloat3(float4Value)` 存在 viable candidate，发 truncation warning，不发 `Function call argument mismatch`；`dot(float3Value, float4Value)` 这类 builtin 参数转换可行时同理。
+11. P2 只做简单 numeric literal adaptation：常见安全 literal 不发 warning，明显 lossy literal 发 warning；不实现完整 constant evaluator、unary folding、overflow / underflow range checking。
+    - 示例：`half h = 1.0;` 不发 warning；`int i = 1.5;` 可发 floating-integral warning；`uint u = -1;` 不做 unary folding 精确判定。
+12. C-style cast、HLSL constructor-style conversion 和 swizzle/member projection 压制对应 implicit conversion warning，但不压制真正不可行转换的 error。
+    - 示例：`float3 a = (float3)wide4;` 不发 truncation warning；`float3 b = float2(uv);` 仍是不可行扩维 mismatch。
+13. risky implicit conversion 统一使用 warning，不再伪装成 mismatch error；一次转换同时命中多个风险时只发布最高优先级 warning，优先级为 truncation、boolean、floating-integral、signedness、narrowing。
+    - 示例：`bool b = float2(1, 0);` 同时有 shape reduction 和 boolean risk 时，只发布优先级更高的 truncation warning。
+
+P2 实施边界：
+
+- P2 包含：共享 official implicit conversion sequence 模型，assignment / return / function argument / builtin argument / object method argument / binary operator 统一消费 compatibility result，conversion result 结构化返回 compatible / incompatible、conversion kind / rank / cost、warning kind、normalized expected / actual。
+- P2 focused fixture 覆盖：scalar splat、truncation warning、floating narrowing warning、floating-integral warning、signedness warning、boolean warning、component-wise vector / matrix conversion、overload viable / rank、explicit cast / constructor / swizzle warning suppression。
+- P2 不包含：object method array texture 坐标维度新规则、`label: expr` / `label: Type name` 共享建模、完整 constant evaluator、overflow / underflow range checking、target-profile-specific `half` 存储宽度配置、性能优化建议类 diagnostics。
+
+### Phase 2 执行记录
+
+状态：已完成 P2 主体实现与阶段验证。
+
+实现内容：
+
+- `type_relation.*` 已扩展为 diagnostics / overload 共享 HLSL implicit conversion sequence 模型，结构化返回 conversion kind、warning kind、cost、normalized expected / actual 和 viability。
+- `type_relation.*` 现在覆盖 scalar splat、vector / matrix truncation、floating conversion、floating-integral conversion、signedness conversion、boolean conversion、component-wise vector / matrix conversion、object family conversion 和 usual arithmetic conversion。
+- `overload_resolver.*` 保留既有 resolver 调用方式，并记录 best candidate 的 per-argument relation，供 diagnostics 对最终选中候选发布 risky implicit conversion warning。
+- semantic diagnostics 的 assignment、return、binary operator、builtin call 和 user function call 已迁移到共享 relation；合法官方转换不再发布 type mismatch error。
+- risky implicit conversions 使用独立 warning 文案，包括 truncation、narrowing、floating-integral、signedness 和 boolean；一次转换只由共享 relation 选择最高优先级 warning。
+- numeric literal target adaptation 按已确认边界只做简单单 literal 识别；例如 `half h = 1.0;` 不再发布 narrowing warning，明显 runtime narrowing 仍发布 warning。
+- builtin `dot`、`distance`、`lerp`、`min` 和 `max` 等诊断路径开始消费 shared usual arithmetic conversion / relation warning，避免继续把官方可行转换当作 builtin mismatch。
+- `type_desc.*` 补充 macro-like numeric alias 归一化，例如 `MaterialFloat3`、`MaterialHalf4x4`、`MaterialDouble2`、`MaterialInt4` 和 `MaterialUInt4`，避免项目类型别名绕过共享 relation。
+- 新增 focused fixture `test_files/module_diagnostics_type_relation_official_conversions.nsf`，覆盖 scalar splat、truncation、narrowing、floating-integral、signedness、boolean、component-wise vector conversion、user-call viable conversion、显式 cast / constructor / swizzle warning suppression 和保留非法 shape expansion mismatch。
+- repo diagnostics 断言已按公开行为变化更新：`float4 -> float3/float2` 等官方 truncation 不再期待 mismatch error，而期待 truncation warning；literal adaptation 不再期待 narrowing warning。
+
+公开行为变化：
+
+- 官方 implicit conversion sequence 可行时，不再发布 assignment / return / function argument / builtin / binary operator type mismatch error。
+- 隐式 truncation、floating narrowing、floating-integral、signedness 和 boolean conversion 现在发布 warning，提示使用显式 cast 或 swizzle 表达意图。
+- 简单 numeric literal 到目标 numeric 类型的安全适配不发布 narrowing warning；复杂 constant folding 和范围检查仍不属于 P2。
+- builtin/user function 参数匹配中，存在 viable candidate 时不再发布 mismatch；对最终选中候选的 risky implicit conversion 发布 warning。
+
+已运行验证：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，66 passing / 1 pending；该定向 repo 回归已重跑两次，结果一致。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-02-type-relation-smoke-5.{json,md}`；`diagnosticsTotal` 4947 -> 4730（-217，-4.39%），`likely-plugin-limitation` 3907 -> 863（-77.91%），`expression-type-analysis` 2755 -> 35（-98.73%），assignment mismatch 2455 -> 25，return mismatch 250 -> 10，binary mismatch 50 -> 0，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-02-type-relation-trend-50.{json,md}`；`diagnosticsTotal` 43341 -> 40625（-2716，-6.27%），`likely-plugin-limitation` 34380 -> 7906（-77.00%），`expression-type-analysis` 23841 -> 350（-98.53%），`call-type-analysis` 3337 -> 1731（-48.13%），assignment mismatch 21027 -> 250，return mismatch 2357 -> 100，binary mismatch 457 -> 0，builtin mismatch 1313 -> 493，function mismatch 936 -> 150，`numeric-literal` 1377 -> 0，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+审计备注：
+
+- 新增的 implicit conversion warnings 目前被 audit classifier 归入 `other` / `needs-manual-review`，因此 `other` 和 `needs-manual-review` 明显增加。这不是 P2 回归，而是已确认的公开 diagnostics 行为变化；后续若要细分转换 warning，可在 audit classifier 中新增 conversion-warning 类别。
+- P2 未重跑 full 813-unit audit；本阶段按计划使用 focused fixture、repo diagnostics 回归、5-unit smoke 和 50-unit trend 作为收敛验证。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：是，HLSL implicit conversion sequence 收敛到 `type_relation.*`，轻量类型别名归一化收敛到 `type_desc.*`。
+- 测试策略是否变化：是，P2 focused fixture 补齐官方转换正反用例；audit 趋势验证沿用 P0 机制。
+- 文档是否已同步：已更新 `docs/architecture.md` 和本执行计划；资源、测试命令、对象类型 / 方法契约未变化。
+- 是否改变公开 diagnostics 行为：是，官方可行转换不再发布 mismatch error，改为对 risky implicit conversion 发布 warning。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-02 5-unit / 50-unit real audit 报告。
+
 ## Phase 3: 重建局部作用域和控制流模型
 
 ### 背景

@@ -2,6 +2,7 @@
 
 #include "diagnostics_symbol_type.hpp"
 #include "nsf_lexer.hpp"
+#include "type_relation.hpp"
 
 #include <string>
 #include <unordered_map>
@@ -23,6 +24,7 @@ struct BuiltinResolveResult {
   bool warnMixedSignedness = false;
   bool indeterminate = false;
   BuiltinTypeInfo ret;
+  std::vector<TypeRelationResult> conversions;
 };
 
 struct NumericLiteralParseResult {

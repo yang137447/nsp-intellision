@@ -1,6 +1,7 @@
 #pragma once
 
 #include "type_desc.hpp"
+#include "type_relation.hpp"
 
 #include <string>
 #include <unordered_map>
@@ -26,6 +27,7 @@ struct CandidateScore {
   int candidateIndex = -1;
   int totalCost = 0;
   std::vector<int> perArgCost;
+  std::vector<TypeRelationResult> perArgRelations;
   bool viable = false;
   std::string tieBreakReason;
   std::string rejectReason;
@@ -45,6 +47,7 @@ struct ResolveCallContext {
   bool allowNarrowing = false;
   bool enableVisibilityFiltering = true;
   bool allowPartialArity = false;
+  bool suppressConversionWarnings = false;
 };
 
 ResolveCallResult

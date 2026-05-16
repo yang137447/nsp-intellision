@@ -27,6 +27,7 @@
 #include "type_desc.hpp"
 #include "type_eval.hpp"
 #include "type_model.hpp"
+#include "type_relation.hpp"
 #include "uri_utils.hpp"
 #include "workspace_summary_runtime.hpp"
 
@@ -88,7 +89,9 @@ static std::string builtinElemKindToString(BuiltinElemKind k) {
 }
 
 BuiltinTypeInfo parseBuiltinTypeInfo(std::string type) {
-  type = normalizeTypeToken(type);
+  TypeDesc desc = parseTypeDesc(type);
+  std::string canonicalDesc = typeDescToCanonicalString(desc);
+  type = canonicalDesc.empty() ? normalizeTypeToken(type) : canonicalDesc;
   BuiltinTypeInfo out;
   if (type.empty())
     return out;
@@ -131,6 +134,10 @@ static std::string builtinTypeInfoToString(const BuiltinTypeInfo &t) {
   if (t.shape == BuiltinTypeInfo::ShapeKind::Matrix)
     return makeMatrixType(base, t.rows, t.cols);
   return "";
+}
+
+static TypeDesc builtinInfoToTypeDesc(const BuiltinTypeInfo &t) {
+  return parseTypeDesc(builtinTypeInfoToString(t));
 }
 
 static bool isBuiltinNumericElem(BuiltinElemKind k) {
@@ -215,30 +222,47 @@ resolveBuiltinCall(const std::string &name,
       return true;
     return exactShapeEq(a, ref);
   };
+  auto usualConversion = [&](const BuiltinTypeInfo &a,
+                             const BuiltinTypeInfo &b,
+                             BuiltinTypeInfo &out) -> bool {
+    TypeBinaryConversionResult conversion = evaluateUsualArithmeticConversion(
+        builtinInfoToTypeDesc(a), builtinInfoToTypeDesc(b));
+    if (!conversion.viable)
+      return false;
+    out = parseBuiltinTypeInfo(conversion.resultType);
+    if (out.shape == BuiltinTypeInfo::ShapeKind::Unknown ||
+        out.elem == BuiltinElemKind::Unknown)
+      return false;
+    r.conversions.push_back(conversion.leftConversion);
+    r.conversions.push_back(conversion.rightConversion);
+    return true;
+  };
 
   if (name == "length" || name == "distance") {
     if (args.size() < 1)
       return r;
     if (!isBuiltinNumericElem(args[0].elem))
       return r;
-    BuiltinElemKind outElem = BuiltinElemKind::Unknown;
     if (name == "length") {
-      outElem = args[0].elem;
+      r.ok = true;
+      r.ret.shape = BuiltinTypeInfo::ShapeKind::Scalar;
+      r.ret.elem = args[0].elem;
+      r.ret.dim = 1;
+      return r;
     } else {
       if (args.size() < 2)
         return r;
       if (!isBuiltinNumericElem(args[1].elem))
         return r;
-      if (!exactShapeEq(args[0], args[1]))
+      BuiltinTypeInfo converted;
+      if (!usualConversion(args[0], args[1], converted))
         return r;
-      if (!unifyElem(outElem))
-        return r;
+      r.ok = true;
+      r.ret.shape = BuiltinTypeInfo::ShapeKind::Scalar;
+      r.ret.elem = converted.elem;
+      r.ret.dim = 1;
+      return r;
     }
-    r.ok = true;
-    r.ret.shape = BuiltinTypeInfo::ShapeKind::Scalar;
-    r.ret.elem = outElem;
-    r.ret.dim = 1;
-    return r;
   }
 
   if (name == "dot") {
@@ -247,24 +271,12 @@ resolveBuiltinCall(const std::string &name,
     if (!isBuiltinNumericElem(args[0].elem) ||
         !isBuiltinNumericElem(args[1].elem))
       return r;
-    bool okShape = false;
-    if (args[0].shape == BuiltinTypeInfo::ShapeKind::Vector &&
-        args[1].shape == BuiltinTypeInfo::ShapeKind::Vector &&
-        args[0].dim == args[1].dim) {
-      okShape = true;
-    }
-    if (args[0].shape == BuiltinTypeInfo::ShapeKind::Scalar &&
-        args[1].shape == BuiltinTypeInfo::ShapeKind::Scalar) {
-      okShape = true;
-    }
-    if (!okShape)
-      return r;
-    BuiltinElemKind outElem = BuiltinElemKind::Unknown;
-    if (!unifyElem(outElem))
+    BuiltinTypeInfo converted;
+    if (!usualConversion(args[0], args[1], converted))
       return r;
     r.ok = true;
     r.ret.shape = BuiltinTypeInfo::ShapeKind::Scalar;
-    r.ret.elem = outElem;
+    r.ret.elem = converted.elem;
     r.ret.dim = 1;
     return r;
   }
@@ -506,17 +518,14 @@ resolveBuiltinCall(const std::string &name,
         !isBuiltinNumericElem(args[1].elem) ||
         !isBuiltinNumericElem(args[2].elem))
       return r;
-    if (!exactShapeEq(args[0], args[1]))
+    BuiltinTypeInfo xyType;
+    if (!usualConversion(args[0], args[1], xyType))
       return r;
-    if (!(args[2].shape == BuiltinTypeInfo::ShapeKind::Scalar ||
-          exactShapeEq(args[2], args[0])))
-      return r;
-    BuiltinElemKind outElem = BuiltinElemKind::Unknown;
-    if (!unifyElem(outElem))
+    BuiltinTypeInfo resultType;
+    if (!usualConversion(xyType, args[2], resultType))
       return r;
     r.ok = true;
-    r.ret = args[0];
-    r.ret.elem = outElem;
+    r.ret = resultType;
     return r;
   }
 
@@ -563,21 +572,11 @@ resolveBuiltinCall(const std::string &name,
     if (!isBuiltinNumericElem(args[0].elem) ||
         !isBuiltinNumericElem(args[1].elem))
       return r;
-    BuiltinTypeInfo::ShapeKind outShape = args[0].shape;
-    if (args[0].shape == BuiltinTypeInfo::ShapeKind::Scalar)
-      outShape = args[1].shape;
-    else if (args[1].shape == BuiltinTypeInfo::ShapeKind::Scalar)
-      outShape = args[0].shape;
-    else if (!exactShapeEq(args[0], args[1]))
-      return r;
-
-    BuiltinElemKind outElem = BuiltinElemKind::Unknown;
-    if (!unifyElem(outElem))
+    BuiltinTypeInfo converted;
+    if (!usualConversion(args[0], args[1], converted))
       return r;
     r.ok = true;
-    r.ret = outShape == BuiltinTypeInfo::ShapeKind::Scalar ? args[0] : args[0];
-    r.ret.shape = outShape;
-    r.ret.elem = outElem;
+    r.ret = converted;
     return r;
   }
 

@@ -28,6 +28,7 @@
 #include "type_desc.hpp"
 #include "type_eval.hpp"
 #include "type_model.hpp"
+#include "type_relation.hpp"
 #include "uri_utils.hpp"
 #include "workspace_summary_runtime.hpp"
 
@@ -238,54 +239,103 @@ void collectReturnAndTypeDiagnostics(
     return "";
   };
 
-  enum class ScalarCategory { FloatLike, IntLike, Other };
-  auto scalarCategory = [&](const std::string &scalar) {
-    if (scalar == "float" || scalar == "half" || scalar == "double")
-      return ScalarCategory::FloatLike;
-    if (scalar == "int" || scalar == "uint")
-      return ScalarCategory::IntLike;
-    return ScalarCategory::Other;
+  auto relationOptionsForExpressionRange =
+      [&](const std::vector<LexToken> &rangeTokens, size_t startIndex,
+          size_t endIndex) {
+        TypeRelationOptions options;
+        endIndex = std::min(endIndex, rangeTokens.size());
+        int parenDepth = 0;
+        int bracketDepth = 0;
+        for (size_t i = startIndex; i < endIndex; i++) {
+          if (rangeTokens[i].kind != LexToken::Kind::Punct)
+            continue;
+          const std::string &p = rangeTokens[i].text;
+          if (p == "(") {
+            parenDepth++;
+            continue;
+          }
+          if (p == ")") {
+            if (parenDepth > 0)
+              parenDepth--;
+            continue;
+          }
+          if (p == "[") {
+            bracketDepth++;
+            continue;
+          }
+          if (p == "]") {
+            if (bracketDepth > 0)
+              bracketDepth--;
+            continue;
+          }
+          if (parenDepth == 0 && bracketDepth == 0 &&
+              (p == ";" || p == ",")) {
+            endIndex = i;
+            break;
+          }
+        }
+        if (startIndex >= endIndex || startIndex >= rangeTokens.size())
+          return options;
+        size_t cursor = startIndex;
+        NumericLiteralParseResult numeric =
+            parseNumericLiteralFromTokens(rangeTokens, cursor);
+        if (!numeric.matched || !numeric.valid || numeric.tokenSpan == 0)
+          return options;
+        cursor += numeric.tokenSpan;
+        if (cursor != endIndex)
+          return options;
+        options.actualIsNumericLiteral = true;
+        std::string literalText;
+        for (size_t i = startIndex; i < endIndex && i < rangeTokens.size();
+             i++) {
+          literalText += rangeTokens[i].text;
+        }
+        options.actualLiteralText = literalText;
+        return options;
+      };
+
+  auto relationForTypesWithOptions =
+      [&](const std::string &expected, const std::string &actual,
+          const TypeRelationOptions &options) {
+        return evaluateTypeRelationWithOptions(parseTypeDesc(expected),
+                                               parseTypeDesc(actual), options);
+      };
+
+  auto relationForTypes = [&](const std::string &expected,
+                              const std::string &actual,
+                              bool suppressWarnings = false) {
+    TypeRelationOptions options;
+    options.suppressWarnings = suppressWarnings;
+    return relationForTypesWithOptions(expected, actual, options);
   };
 
-  auto normalizeObjectType = [](const std::string &type) {
-    std::string out = normalizeTypeToken(type);
-    std::string lower;
-    lower.reserve(out.size());
-    for (char ch : out)
-      lower.push_back(
-          static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
-    if (lower == "texture")
-      return std::string("texture2d");
-    if (lower == "texture2d")
-      return std::string("texture2d");
-    if (lower == "sampler" || lower == "samplerstate")
-      return std::string("sampler");
-    return lower;
-  };
+  auto emitTypeRelationDiagnostic =
+      [&](int line, int startByte, int endByte, const std::string &expected,
+          const std::string &actual, const std::string &mismatchMessage,
+          const TypeRelationOptions &options = TypeRelationOptions{}) {
+        if (expected.empty() || actual.empty())
+          return;
+        TypeRelationResult relation =
+            relationForTypesWithOptions(expected, actual, options);
+        if (!relation.viable) {
+          diags.a.push_back(makeDiagnostic(text, line, startByte, endByte, 1,
+                                           "nsf", mismatchMessage));
+          return;
+        }
+        std::string warning = typeRelationWarningMessage(relation);
+        if (!warning.empty()) {
+          diags.a.push_back(
+              makeDiagnostic(text, line, startByte, endByte, 2, "nsf", warning));
+        }
+      };
 
-  auto compatibleValueType = [&](const std::string &expected,
-                                 const std::string &actual) -> bool {
-    if (expected.empty() || actual.empty())
-      return true;
-    if (expected == actual)
-      return true;
-    std::string expectedObjectType = normalizeObjectType(expected);
-    std::string actualObjectType = normalizeObjectType(actual);
-    if (!expectedObjectType.empty() && expectedObjectType == actualObjectType)
-      return true;
-    std::string eScalar;
-    std::string aScalar;
-    int eDim = 0;
-    int aDim = 0;
-    if (parseVectorOrScalarType(expected, eScalar, eDim) &&
-        parseVectorOrScalarType(actual, aScalar, aDim) && eDim == aDim) {
-      auto ec = scalarCategory(eScalar);
-      auto ac = scalarCategory(aScalar);
-      if (ec == ScalarCategory::Other || ac == ScalarCategory::Other)
-        return false;
-      return ec == ac;
+  auto emitRelationWarning = [&](int line, int startByte, int endByte,
+                                 const TypeRelationResult &relation) {
+    std::string warning = typeRelationWarningMessage(relation);
+    if (!warning.empty()) {
+      diags.a.push_back(
+          makeDiagnostic(text, line, startByte, endByte, 2, "nsf", warning));
     }
-    return false;
   };
 
   auto getUserFunctionCandidates = [&](const std::string &name)
@@ -1210,18 +1260,13 @@ void collectReturnAndTypeDiagnostics(
                   }
                 }
                 const std::string rhsType = rhsEval.type;
-                if (!lhsType.empty() && !rhsType.empty() &&
-                    lhsType != rhsType &&
-                    !(isNumericScalarType(lhsType) &&
-                      isNumericScalarType(rhsType) && lhsType != "half")) {
-                  int severity =
-                      isNarrowingPrecisionAssignment(lhsType, rhsType) ? 2 : 1;
-                  diags.a.push_back(makeDiagnostic(
-                      text, lineIndex, static_cast<int>(tokens[eqIndex].start),
-                      static_cast<int>(tokens[eqIndex].end), severity, "nsf",
-                      "Assignment type mismatch: " + lhsType + " = " + rhsType +
-                          "."));
-                }
+                emitTypeRelationDiagnostic(
+                    lineIndex, static_cast<int>(tokens[eqIndex].start),
+                    static_cast<int>(tokens[eqIndex].end), lhsType, rhsType,
+                    "Assignment type mismatch: " + lhsType + " = " + rhsType +
+                        ".",
+                    relationOptionsForExpressionRange(tokens, eqIndex + 1,
+                                                       segmentEnd));
               }
             }
           }
@@ -1320,18 +1365,13 @@ void collectReturnAndTypeDiagnostics(
                   }
                 }
                 const std::string rhsType = rhsEval.type;
-                if (!lhsType.empty() && !rhsType.empty() &&
-                    lhsType != rhsType &&
-                    !(isNumericScalarType(lhsType) &&
-                      isNumericScalarType(rhsType) && lhsType != "half")) {
-                  int severity =
-                      isNarrowingPrecisionAssignment(lhsType, rhsType) ? 2 : 1;
-                  diags.a.push_back(makeDiagnostic(
-                      text, lineIndex, static_cast<int>(tokens[k].start),
-                      static_cast<int>(tokens[k].end), severity, "nsf",
-                      "Assignment type mismatch: " + lhsType + " = " + rhsType +
-                          "."));
-                }
+                emitTypeRelationDiagnostic(
+                    lineIndex, static_cast<int>(tokens[k].start),
+                    static_cast<int>(tokens[k].end), lhsType, rhsType,
+                    "Assignment type mismatch: " + lhsType + " = " + rhsType +
+                        ".",
+                    relationOptionsForExpressionRange(tokens, k + 1,
+                                                       tokens.size()));
                 break;
               }
             }
@@ -1436,13 +1476,13 @@ void collectReturnAndTypeDiagnostics(
             workspaceFolders, includePaths, scanExtensions, shaderExtensions,
             defines, structCache, symbolCache, &fileTextCache);
         exprType = normalizeTypeToken(exprType);
-        if (!exprType.empty() && exprType != normalizedReturnType) {
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(tokens[i].start),
-              static_cast<int>(tokens[i].end), 1, "nsf",
-              "Return type mismatch: expected " + normalizedReturnType +
-                  " but got " + exprType + "."));
-        }
+        emitTypeRelationDiagnostic(
+            lineIndex, static_cast<int>(tokens[i].start),
+            static_cast<int>(tokens[i].end), normalizedReturnType, exprType,
+            "Return type mismatch: expected " + normalizedReturnType +
+                " but got " + exprType + ".",
+            relationOptionsForExpressionRange(tokens, exprStart,
+                                               tokens.size()));
         bool hasSemi = false;
         for (const auto &t : tokens) {
           if (t.kind == LexToken::Kind::Punct && t.text == ";") {
@@ -1500,16 +1540,11 @@ void collectReturnAndTypeDiagnostics(
           }
         }
         const std::string rhsType = rhsEval.type;
-        if (!lhsType.empty() && !rhsType.empty() && lhsType != rhsType &&
-            !(isNumericScalarType(lhsType) && isNumericScalarType(rhsType) &&
-              lhsType != "half")) {
-          int severity =
-              isNarrowingPrecisionAssignment(lhsType, rhsType) ? 2 : 1;
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(tokens[i + 1].start),
-              static_cast<int>(tokens[i + 1].end), severity, "nsf",
-              "Assignment type mismatch: " + lhsType + " = " + rhsType + "."));
-        }
+        emitTypeRelationDiagnostic(
+            lineIndex, static_cast<int>(tokens[i + 1].start),
+            static_cast<int>(tokens[i + 1].end), lhsType, rhsType,
+            "Assignment type mismatch: " + lhsType + " = " + rhsType + ".",
+            relationOptionsForExpressionRange(tokens, i + 2, tokens.size()));
         bool hasSemi = false;
         for (const auto &t : tokens) {
           if (t.kind == LexToken::Kind::Punct && t.text == ";") {
@@ -1575,6 +1610,8 @@ void collectReturnAndTypeDiagnostics(
                       applySwizzleType(current, tokens[cursor - 1].text);
                   if (!swizzled.empty())
                     current = swizzled;
+                } else {
+                  return "";
                 }
                 continue;
               }
@@ -1622,23 +1659,26 @@ void collectReturnAndTypeDiagnostics(
         if (rightType.empty())
           continue;
 
-        if ((leftType == "bool" || rightType == "bool") &&
-            (op == "+" || op == "-" || op == "*" || op == "/")) {
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(tokens[i + 1].start),
-              static_cast<int>(tokens[i + 1].end), 1, "nsf",
-              "Binary operator type mismatch: " + leftType + " " + op + " " +
-                  rightType + "."));
-          continue;
-        }
-
-        if ((op == "&&" || op == "||") &&
-            (leftType != "bool" || rightType != "bool")) {
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(tokens[i + 1].start),
-              static_cast<int>(tokens[i + 1].end), 1, "nsf",
-              "Binary operator type mismatch: " + leftType + " " + op + " " +
-                  rightType + "."));
+        const bool isLogicalOperator = op == "&&" || op == "||";
+        if (isLogicalOperator) {
+          TypeRelationResult leftBool =
+              relationForTypes("bool", leftType);
+          TypeRelationResult rightBool =
+              relationForTypes("bool", rightType);
+          if (!leftBool.viable || !rightBool.viable) {
+            diags.a.push_back(makeDiagnostic(
+                text, lineIndex, static_cast<int>(tokens[i + 1].start),
+                static_cast<int>(tokens[i + 1].end), 1, "nsf",
+                "Binary operator type mismatch: " + leftType + " " + op +
+                    " " + rightType + "."));
+            continue;
+          }
+          emitRelationWarning(lineIndex,
+                              static_cast<int>(tokens[i + 1].start),
+                              static_cast<int>(tokens[i + 1].end), leftBool);
+          emitRelationWarning(lineIndex,
+                              static_cast<int>(tokens[i + 1].start),
+                              static_cast<int>(tokens[i + 1].end), rightBool);
           continue;
         }
 
@@ -1652,11 +1692,13 @@ void collectReturnAndTypeDiagnostics(
         int rightCols = 0;
         bool leftMat = isMatrixType(leftType, leftRows, leftCols);
         bool rightMat = isMatrixType(rightType, rightRows, rightCols);
+        const bool isComparisonOperator =
+            op == "==" || op == "!=" || op == "<" || op == ">" ||
+            op == "<=" || op == ">=";
         if (leftMat || rightMat) {
           bool ok = false;
           if (op == "+" || op == "-") {
-            ok = (leftMat && rightMat && leftRows == rightRows &&
-                  leftCols == rightCols) ||
+            ok = (leftMat && rightMat) ||
                  (leftMat && isNumericScalarType(rightType)) ||
                  (rightMat && isNumericScalarType(leftType));
           } else if (op == "*") {
@@ -1667,6 +1709,8 @@ void collectReturnAndTypeDiagnostics(
                  (leftMat && rightVec && leftCols == rightDim);
           } else if (op == "/") {
             ok = (leftMat && isNumericScalarType(rightType));
+          } else if (isComparisonOperator) {
+            ok = leftMat && rightMat;
           }
           if (!ok) {
             diags.a.push_back(makeDiagnostic(
@@ -1674,32 +1718,30 @@ void collectReturnAndTypeDiagnostics(
                 static_cast<int>(tokens[i + 1].end), 1, "nsf",
                 "Binary operator type mismatch: " + leftType + " " + op + " " +
                     rightType + "."));
+            continue;
+          }
+          TypeBinaryConversionResult conversion =
+              evaluateUsualArithmeticConversion(parseTypeDesc(leftType),
+                                                parseTypeDesc(rightType));
+          if (conversion.viable) {
+            emitRelationWarning(lineIndex,
+                                static_cast<int>(tokens[i + 1].start),
+                                static_cast<int>(tokens[i + 1].end),
+                                conversion.leftConversion);
+            emitRelationWarning(lineIndex,
+                                static_cast<int>(tokens[i + 1].start),
+                                static_cast<int>(tokens[i + 1].end),
+                                conversion.rightConversion);
           }
           continue;
         }
-        if (leftVec && rightVec && leftDim != rightDim) {
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(tokens[i + 1].start),
-              static_cast<int>(tokens[i + 1].end), 1, "nsf",
-              "Binary operator type mismatch: " + leftType + " " + op + " " +
-                  rightType + "."));
-          continue;
-        }
 
-        if ((op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" ||
-             op == ">=")) {
-          if (leftVec || rightVec) {
-            if (!(leftVec && rightVec && leftDim == rightDim)) {
-              diags.a.push_back(makeDiagnostic(
-                  text, lineIndex, static_cast<int>(tokens[i + 1].start),
-                  static_cast<int>(tokens[i + 1].end), 1, "nsf",
-                  "Binary operator type mismatch: " + leftType + " " + op +
-                      " " + rightType + "."));
-              continue;
-            }
-          } else if (!(isNumericScalarType(leftType) &&
-                       isNumericScalarType(rightType)) &&
-                     !(leftType == "bool" && rightType == "bool")) {
+        if (op == "+" || op == "-" || op == "*" || op == "/" ||
+            isComparisonOperator) {
+          TypeBinaryConversionResult conversion =
+              evaluateUsualArithmeticConversion(parseTypeDesc(leftType),
+                                                parseTypeDesc(rightType));
+          if (!conversion.viable) {
             diags.a.push_back(makeDiagnostic(
                 text, lineIndex, static_cast<int>(tokens[i + 1].start),
                 static_cast<int>(tokens[i + 1].end), 1, "nsf",
@@ -1707,12 +1749,13 @@ void collectReturnAndTypeDiagnostics(
                     rightType + "."));
             continue;
           }
+          emitRelationWarning(lineIndex, static_cast<int>(tokens[i + 1].start),
+                              static_cast<int>(tokens[i + 1].end),
+                              conversion.leftConversion);
+          emitRelationWarning(lineIndex, static_cast<int>(tokens[i + 1].start),
+                              static_cast<int>(tokens[i + 1].end),
+                              conversion.rightConversion);
         }
-
-        if (leftVec && isNumericScalarType(rightType))
-          continue;
-        if (rightVec && isNumericScalarType(leftType))
-          continue;
       }
 
       int builtinAttributeDepth = 0;
@@ -1791,18 +1834,17 @@ void collectReturnAndTypeDiagnostics(
               IndeterminateReason::DiagnosticsBuiltinArgTypeUnknown,
               "Indeterminate builtin call: arg types unavailable. Name: " +
                   name + ". Args: " + formatTypeList(argTypes) + ".");
-        } else if (rr.warnMixedSignedness) {
-          diags.a.push_back(
-              makeDiagnostic(text, lineIndex, static_cast<int>(tokens[i].start),
-                             static_cast<int>(tokens[i].end), 2, "nsf",
-                             "Builtin call mixed integer signedness: " + name +
-                                 ". Args: " + formatTypeList(argTypes) + "."));
         } else if (!rr.ok) {
           diags.a.push_back(
               makeDiagnostic(text, lineIndex, static_cast<int>(tokens[i].start),
                              static_cast<int>(tokens[i].end), 1, "nsf",
                              "Builtin call type mismatch: " + name +
                                  ". Args: " + formatTypeList(argTypes) + "."));
+        } else {
+          for (const auto &relation : rr.conversions) {
+            emitRelationWarning(lineIndex, static_cast<int>(tokens[i].start),
+                                static_cast<int>(tokens[i].end), relation);
+          }
         }
       }
 
@@ -2083,6 +2125,13 @@ void collectReturnAndTypeDiagnostics(
             resolverCandidates, resolverArgTypes, resolveContext);
         if (resolveResult.status == ResolveCallStatus::Resolved ||
             resolveResult.status == ResolveCallStatus::Ambiguous) {
+          if (!resolveResult.rankedCandidates.empty()) {
+            for (const auto &relation :
+                 resolveResult.rankedCandidates.front().perArgRelations) {
+              emitRelationWarning(lineIndex, static_cast<int>(tokens[i].start),
+                                  static_cast<int>(tokens[i].end), relation);
+            }
+          }
           continue;
         }
 
@@ -2107,7 +2156,8 @@ void collectReturnAndTypeDiagnostics(
             if (expected.empty() || actual.empty())
               continue;
             compared++;
-            if (compatibleValueType(expected, actual)) {
+            TypeRelationResult relation = relationForTypes(expected, actual);
+            if (relation.viable) {
               if (expected == actual)
                 score += 3;
               else

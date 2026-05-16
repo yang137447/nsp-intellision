@@ -151,7 +151,7 @@ export function registerDiagnosticsTests(): void {
 			'diagnostics for preprocessor eval on'
 		);
 		const onMessages = onDiagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(onMessages.includes('Assignment type mismatch: float2 = float4.'));
+		assert.ok(onMessages.includes('Implicit truncation conversion: float4 -> float2. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
 	it('expands object-like macros and arithmetic comparisons in #if expressions', async () => {
@@ -164,7 +164,7 @@ export function registerDiagnosticsTests(): void {
 		);
 
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(messages.includes('Assignment type mismatch: float2 = float4.'));
+		assert.ok(messages.includes('Implicit truncation conversion: float4 -> float2. Use an explicit cast or swizzle if this is intentional.'));
 		assert.ok(!messages.includes('Undefined macro in preprocessor expression'));
 	});
 
@@ -342,7 +342,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Missing return statement.'));
 		assert.ok(messages.includes('Return value in void function.'));
 		assert.ok(messages.includes('Missing return value.'));
-		assert.ok(messages.includes('Return type mismatch: expected float3 but got float4.'));
+		assert.ok(messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
 	it('publishes diagnostics for assignment and operator type mismatches', async () => {
@@ -353,7 +353,7 @@ export function registerDiagnosticsTests(): void {
 			'diagnostics'
 		);
 		const assignMessages = assignDiagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(assignMessages.includes('Assignment type mismatch: float3 = float4.'));
+		assert.ok(assignMessages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 
 		const userReturnDoc = await openFixture('module_diagnostics_user_function_return_type.nsf');
 		const userReturnDiagnostics = await waitFor(
@@ -371,12 +371,66 @@ export function registerDiagnosticsTests(): void {
 			'diagnostics'
 		);
 		const opMessages = opDiagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(opMessages.includes('Binary operator type mismatch: float3 + float4.'));
+		assert.ok(opMessages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
+	});
+
+	it('models official HLSL implicit conversions with risk warnings', async () => {
+		const document = await openFixture('module_diagnostics_type_relation_official_conversions.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.') &&
+					messages.includes('Implicit narrowing conversion: float -> half. Use an explicit cast if this is intentional.') &&
+					messages.includes('Implicit floating-integral conversion: int -> half. Use an explicit cast if this is intentional.') &&
+					messages.includes('Implicit floating-integral conversion: float -> int. Use an explicit cast if this is intentional.') &&
+					messages.includes('Implicit signedness conversion: int -> uint. Use an explicit cast if this is intentional.') &&
+					messages.includes('Implicit boolean conversion: int -> bool. Use an explicit cast if this is intentional.') &&
+					messages.includes('Implicit boolean conversion: bool -> int. Use an explicit cast if this is intentional.') &&
+					messages.includes('Assignment type mismatch: float3 = float2.')
+				);
+			},
+			'official conversion diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(!messages.includes('Assignment type mismatch: float3 = float4.'));
+		assert.ok(!messages.includes('Assignment type mismatch: half = float.'));
+		assert.ok(!messages.includes('Assignment type mismatch: half3 = float3.'));
+		assert.ok(!messages.includes('Function call argument mismatch: P2AcceptFloat3.'));
+		assert.ok(!messages.includes('Function call argument mismatch: P2AcceptHalf3.'));
+		assert.ok(!hasDiagnosticOnLine(
+			diagnostics,
+			lineOf(document, 'float3 truncCast = (float3)wide;'),
+			'Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'
+		));
+		assert.ok(!hasDiagnosticOnLine(
+			diagnostics,
+			lineOf(document, 'float3 truncCtor = float3(wide);'),
+			'Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'
+		));
+		assert.ok(!hasDiagnosticOnLine(
+			diagnostics,
+			lineOf(document, 'float3 truncSwizzle = wide.xyz;'),
+			'Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'
+		));
+		assert.ok(!hasDiagnosticOnLine(
+			diagnostics,
+			lineOf(document, 'half literalHalf = 1.0;'),
+			'Implicit narrowing conversion: float -> half. Use an explicit cast if this is intentional.'
+		));
+		assert.ok(!hasDiagnosticOnLine(
+			diagnostics,
+			lineOf(document, 'int safeSignedLiteral = 1u;'),
+			'Implicit signedness conversion: uint -> int. Use an explicit cast if this is intentional.'
+		));
 	});
 
 	it('keeps semantic diagnostics across comment-only edits before replacement full diagnostics is ready', async () => {
 		let document = await openFixture('module_diagnostics_type_mismatch_assign.nsf');
-		const mismatchText = 'Assignment type mismatch: float3 = float4.';
+		const mismatchText = 'Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.';
 		const restoreText = '    // continuity comment\n';
 		let sawTransientDrop = false;
 		const diagnosticsSubscription = vscode.languages.onDidChangeDiagnostics((event) => {
@@ -424,7 +478,7 @@ export function registerDiagnosticsTests(): void {
 
 	it('keeps same-line semantic diagnostics across whitespace-only edits when full rebuild is skipped', async () => {
 		let document = await openFixture('module_diagnostics_type_mismatch_assign.nsf');
-		const mismatchText = 'Assignment type mismatch: float3 = float4.';
+		const mismatchText = 'Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.';
 		const whitespaceInsert = '  ';
 		let sawTransientDrop = false;
 		const diagnosticsSubscription = vscode.languages.onDidChangeDiagnostics((event) => {
@@ -535,7 +589,7 @@ export function registerDiagnosticsTests(): void {
 			'diagnostics'
 		);
 		const mismatchMessages = mismatchDiagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(mismatchMessages.includes('Assignment type mismatch: float3 = float4.'));
+		assert.ok(mismatchMessages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
 	it('resolves cbuffer members from other files through workspace scan', async () => {
@@ -550,7 +604,7 @@ export function registerDiagnosticsTests(): void {
 				(value) => {
 					const messages = value.map((diag) => diag.message).join('\n');
 					return (
-						messages.includes('Assignment type mismatch: float3 = float4.') &&
+						messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.') &&
 						!messages.includes('Undefined identifier: u_wind_tex_factors.')
 					);
 				},
@@ -558,7 +612,7 @@ export function registerDiagnosticsTests(): void {
 			);
 			const messages = diagnostics.map((diag) => diag.message).join('\n');
 			assert.ok(!messages.includes('Undefined identifier: u_wind_tex_factors.'));
-			assert.ok(messages.includes('Assignment type mismatch: float3 = float4.'));
+			assert.ok(messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 		});
 	});
 
@@ -635,7 +689,7 @@ export function registerDiagnosticsTests(): void {
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(!messages.includes('Undefined identifier: float4x4.'));
 		assert.ok(!messages.includes('Binary operator type mismatch'));
-		assert.ok(messages.includes('Assignment type mismatch: float3 = float4.'));
+		assert.ok(messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
 	it('supports matrix index type inference in arithmetic expressions', async () => {
@@ -647,7 +701,7 @@ export function registerDiagnosticsTests(): void {
 		);
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(!messages.includes('Binary operator type mismatch'));
-		assert.ok(messages.includes('Assignment type mismatch: float3 = float4.'));
+		assert.ok(messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
 	it('publishes diagnostics for undefined identifiers', async () => {
@@ -721,37 +775,12 @@ export function registerDiagnosticsTests(): void {
 
 	it('accepts supported numeric literal forms without suffix diagnostics', async () => {
 		const document = await openFixture('module_diagnostics_numeric_literal_exponent.nsf');
-		const narrowingLines = [
-			'half narrowingLeadingDot = .5;',
-			'half narrowingTrailingDot = 1.;',
-			'half narrowingExponent = 1e-5;'
-		];
 		const noSuffixAfterOperatorLine = lineOf(document, 'half noSuffixAfterOperator = 1.0f-HALF_MIN;');
 
 		const diagnostics = await waitFor(
 			() => vscode.languages.getDiagnostics(document.uri),
 			(value) =>
 				Array.isArray(value) &&
-				hasDiagnosticOnLine(
-					value,
-					lineOf(document, 'half narrowingLeadingDot = .5;'),
-					'Assignment type mismatch: half = float.'
-				) &&
-				hasDiagnosticOnLine(
-					value,
-					lineOf(document, 'half narrowingTrailingDot = 1.;'),
-					'Assignment type mismatch: half = float.'
-				) &&
-				hasDiagnosticOnLine(
-					value,
-					lineOf(document, 'half narrowingExponent = 1e-5;'),
-					'Assignment type mismatch: half = float.'
-				) &&
-				hasDiagnosticOnLine(
-					value,
-					lineOf(document, 'half narrowingDoubleSuffix = 1.0L;'),
-					'Assignment type mismatch: half = double.'
-				) &&
 				hasDiagnosticOnLine(
 					value,
 					noSuffixAfterOperatorLine,
@@ -770,20 +799,18 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Undefined identifier: 0xFF.'));
 		assert.ok(!messages.includes('Undefined identifier: 0xFFu.'));
 		assert.ok(!messages.includes('Undefined identifier: ..'));
-		for (const lineText of narrowingLines.slice(0, 3)) {
+		for (const lineText of [
+			'half narrowingLeadingDot = .5;',
+			'half narrowingTrailingDot = 1.;',
+			'half narrowingExponent = 1e-5;',
+			'half narrowingDoubleSuffix = 1.0L;'
+		]) {
 			assert.ok(
-				hasDiagnosticOnLine(diagnostics, lineOf(document, lineText), 'Assignment type mismatch: half = float.'),
-				`Expected ${lineText} to be parsed as a float literal for half narrowing. Actual diagnostics:\n${messages}`
+				!hasDiagnosticOnLine(diagnostics, lineOf(document, lineText), 'Implicit narrowing conversion: float -> half. Use an explicit cast if this is intentional.') &&
+					!hasDiagnosticOnLine(diagnostics, lineOf(document, lineText), 'Implicit narrowing conversion: double -> half. Use an explicit cast if this is intentional.'),
+				`Expected ${lineText} to be accepted as literal adaptation without narrowing warning. Actual diagnostics:\n${messages}`
 			);
 		}
-		assert.ok(
-			hasDiagnosticOnLine(
-				diagnostics,
-				lineOf(document, 'half narrowingDoubleSuffix = 1.0L;'),
-				'Assignment type mismatch: half = double.'
-			),
-			`Expected double-suffixed literal to be parsed as double. Actual diagnostics:\n${messages}`
-		);
 		assert.ok(
 			hasDiagnosticOnLine(
 				diagnostics,
@@ -901,8 +928,8 @@ export function registerDiagnosticsTests(): void {
 				(value) => {
 					const messages = value.map((diag) => diag.message).join('\n');
 					return (
-						messages.includes('Assignment type mismatch: half4 = float4.') &&
-						messages.includes('Assignment type mismatch: float3 = float4.') &&
+						messages.includes('Implicit narrowing conversion: float4 -> half4. Use an explicit cast if this is intentional.') &&
+						messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.') &&
 						!messages.includes('Undefined identifier: t_fresnel_normalMap.') &&
 						!messages.includes('Undefined identifier: s_fresnel_normalmap.')
 					);
@@ -912,8 +939,8 @@ export function registerDiagnosticsTests(): void {
 			const messages = diagnostics.map((diag) => diag.message).join('\n');
 			assert.ok(!messages.includes('Undefined identifier: t_fresnel_normalMap.'));
 			assert.ok(!messages.includes('Undefined identifier: s_fresnel_normalmap.'));
-			assert.ok(messages.includes('Assignment type mismatch: half4 = float4.'));
-			assert.ok(messages.includes('Assignment type mismatch: float3 = float4.'));
+			assert.ok(messages.includes('Implicit narrowing conversion: float4 -> half4. Use an explicit cast if this is intentional.'));
+			assert.ok(messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 		});
 	});
 
@@ -984,19 +1011,18 @@ export function registerDiagnosticsTests(): void {
 
 		const diagnostics = await waitFor(
 			() => vscode.languages.getDiagnostics(document.uri),
-			(value) => Array.isArray(value) && value.length >= 2,
+			(value) => Array.isArray(value) && value.length >= 1,
 			'diagnostics'
 		);
 
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(messages.includes('Assignment type mismatch: half = float.'));
-		assert.ok(messages.includes('Assignment type mismatch: half3 = float3.'));
+		assert.ok(messages.includes('Implicit narrowing conversion: float3 -> half3. Use an explicit cast if this is intentional.'));
 		const publishKeys = new Set(diagnostics.map(diagnosticPublishKey));
 		assert.strictEqual(publishKeys.size, diagnostics.length, 'Expected diagnostics publish payload to be deduped.');
 		for (const diag of diagnostics) {
 			if (
-				diag.message.includes('Assignment type mismatch: half = float.') ||
-				diag.message.includes('Assignment type mismatch: half3 = float3.')
+				diag.message.includes('Implicit narrowing conversion: float -> half.') ||
+				diag.message.includes('Implicit narrowing conversion: float3 -> half3.')
 			) {
 				assert.strictEqual(diag.severity, vscode.DiagnosticSeverity.Warning);
 			}
@@ -1036,7 +1062,7 @@ export function registerDiagnosticsTests(): void {
 			(value) => Array.isArray(value) && value.length > 0,
 			'diagnostics for narrowing_pow_half'
 		);
-		const powMismatch = powDiagnostics.find((diag) => diag.message.includes('Assignment type mismatch: half = float.'));
+		const powMismatch = powDiagnostics.find((diag) => diag.message.includes('Implicit narrowing conversion: float -> half.'));
 		assert.ok(powMismatch, 'Expected half=float narrowing warning for pow.');
 		assert.strictEqual(powMismatch!.severity, vscode.DiagnosticSeverity.Warning);
 
@@ -1047,7 +1073,7 @@ export function registerDiagnosticsTests(): void {
 			'diagnostics for narrowing_normalize_half3'
 		);
 		const normalizeMismatch = normalizeDiagnostics.find((diag) =>
-			diag.message.includes('Assignment type mismatch: half3 = float3.')
+			diag.message.includes('Implicit narrowing conversion: float3 -> half3.')
 		);
 		assert.ok(normalizeMismatch, 'Expected half3=float3 narrowing warning for normalize.');
 		assert.strictEqual(normalizeMismatch!.severity, vscode.DiagnosticSeverity.Warning);
@@ -1079,9 +1105,8 @@ export function registerDiagnosticsTests(): void {
 		);
 
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(messages.includes('Builtin call type mismatch: dot.'));
-		assert.ok(messages.includes('Builtin call type mismatch: lerp.'));
-		assert.ok(messages.includes('Builtin call mixed integer signedness: max.'));
+		assert.ok(messages.includes('Implicit truncation conversion: float3 -> float2. Use an explicit cast or swizzle if this is intentional.'));
+		assert.ok(messages.includes('Implicit signedness conversion: uint -> int. Use an explicit cast if this is intentional.'));
 	});
 
 	it('publishes diagnostics for user function call argument mismatches', async () => {
@@ -1113,7 +1138,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Expected: (p).'));
 	});
 
-	it('displays inferred argument types instead of nearby identifiers in user function mismatch', async () => {
+	it('displays inferred argument types instead of nearby identifiers in user function conversion diagnostics', async () => {
 		const document = await openFixture('module_diagnostics_user_function_call_arg_display_regression.nsf');
 
 		const diagnostics = await waitFor(
@@ -1122,11 +1147,13 @@ export function registerDiagnosticsTests(): void {
 			'diagnostics'
 		);
 
-		const mismatch = diagnostics.find((diag) => diag.message.includes('Function call argument mismatch: Interaction.'));
-		assert.ok(mismatch, 'Expected user function argument mismatch for Interaction.');
-		assert.ok(mismatch!.message.includes('Expected: (VS_INPUT, float4, float3).'));
-		assert.ok(mismatch!.message.includes('Got: (VS_INPUT, float4, float4).'));
-		assert.ok(!mismatch!.message.includes('world_position'));
+		const messages = diagnostics.map((diag) => diag.message).join('\n');
+		assert.ok(
+			messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'),
+			`Expected user function argument conversion warning for Interaction. Actual diagnostics:\n${messages}`
+		);
+		assert.ok(!messages.includes('Function call argument mismatch: Interaction.'));
+		assert.ok(!messages.includes('world_position'));
 	});
 
 	it('treats texture and sampler aliases as compatible in function calls', async () => {
@@ -1417,7 +1444,7 @@ export function registerDiagnosticsTests(): void {
 		);
 
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
-		assert.ok(messages.includes('Binary operator type mismatch: float3 == float4.'));
+		assert.ok(messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
 	it('infers bitwise expressions when checking return types', async () => {

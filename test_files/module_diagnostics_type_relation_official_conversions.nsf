@@ -1,0 +1,55 @@
+float3 P2AcceptFloat3(float3 value)
+{
+    return value;
+}
+
+float3 P2AcceptHalf3(half3 value)
+{
+    return value;
+}
+
+float4 TypeRelationOfficialMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float scalar = 1.0;
+    float3 splat = scalar;
+
+    float4 wide = float4(uv, 0.0, 1.0);
+    float3 truncAssign = wide;
+    float3 truncCast = (float3)wide;
+    float3 truncCtor = float3(wide);
+    float3 truncSwizzle = wide.xyz;
+
+    float runtimeFloat = uv.x;
+    half narrowScalar = runtimeFloat;
+    half narrowCast = (half)runtimeFloat;
+    half narrowCtor = half(runtimeFloat);
+    half literalHalf = 1.0;
+
+    int intValue = 3;
+    uint uintValue = 4u;
+    float intToFloat = intValue;
+    half intToHalf = intValue;
+    int floatToInt = runtimeFloat;
+    uint signedness = intValue;
+    int safeSignedLiteral = 1u;
+
+    bool boolFromInt = intValue;
+    int intFromBool = boolFromInt;
+
+    float3 intVectorToFloat = int3(1, 2, 3);
+    half3 floatVectorToHalf = float3(1.0, 2.0, 3.0);
+
+    float3 binaryTrunc = splat + wide;
+    float3 callTrunc = P2AcceptFloat3(wide);
+    float3 callNarrow = P2AcceptHalf3(splat);
+
+    float3 impossible = float2(uv);
+
+    return float4(
+        truncAssign + truncCast + truncCtor + truncSwizzle + binaryTrunc +
+            callTrunc + callNarrow + impossible + intVectorToFloat +
+            floatVectorToHalf,
+        intToFloat + intToHalf + floatToInt + signedness +
+            safeSignedLiteral + intFromBool + literalHalf + narrowScalar +
+            narrowCast + narrowCtor);
+}

@@ -58,6 +58,31 @@ bool isNumericScalar(const std::string &base) {
   return base == "float" || base == "half" || base == "double" ||
          base == "int" || base == "uint" || base == "bool";
 }
+
+std::string normalizeMacroLikeNumericAlias(const std::string &typeToken) {
+  static const std::vector<std::pair<std::string, std::string>> aliases = {
+      {"materialfloat", "float"},
+      {"materialhalf", "half"},
+      {"materialdouble", "double"},
+      {"materialint", "int"},
+      {"materialuint", "uint"},
+  };
+  for (const auto &alias : aliases) {
+    const std::string &prefix = alias.first;
+    if (typeToken.rfind(prefix, 0) != 0)
+      continue;
+    const std::string suffix = typeToken.substr(prefix.size());
+    if (suffix.empty())
+      return alias.second;
+    if (suffix.size() == 1 && suffix[0] >= '2' && suffix[0] <= '4')
+      return alias.second + suffix;
+    if (suffix.size() == 3 && suffix[0] >= '2' && suffix[0] <= '4' &&
+        suffix[1] == 'x' && suffix[2] >= '2' && suffix[2] <= '4') {
+      return alias.second + suffix;
+    }
+  }
+  return typeToken;
+}
 } // namespace
 
 TypeDesc parseTypeDesc(const std::string &value) {
@@ -79,6 +104,7 @@ TypeDesc parseTypeDesc(const std::string &value) {
   }
   if (typeToken.empty())
     return out;
+  typeToken = normalizeMacroLikeNumericAlias(typeToken);
 
   if (typeToken == "texture") {
     out.kind = TypeDescKind::Object;

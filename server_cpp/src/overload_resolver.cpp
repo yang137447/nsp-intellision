@@ -46,9 +46,12 @@ CandidateScore scoreCandidate(const CandidateSignature &candidate,
         total += unknownCost;
       continue;
     }
-    TypeRelationResult relation = evaluateTypeRelation(
-        candidate.params[i].type, argumentTypes[i], context.allowNarrowing);
+    TypeRelationOptions relationOptions;
+    relationOptions.suppressWarnings = context.suppressConversionWarnings;
+    TypeRelationResult relation = evaluateTypeRelationWithOptions(
+        candidate.params[i].type, argumentTypes[i], relationOptions);
     score.perArgCost.push_back(relation.cost);
+    score.perArgRelations.push_back(relation);
     if (!relation.viable) {
       score.rejectReason =
           std::string("arg_type_") + typeRelationKindToString(relation.kind);
