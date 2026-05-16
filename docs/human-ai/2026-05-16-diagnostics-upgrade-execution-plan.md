@@ -162,6 +162,12 @@ triage 分布：
 - 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
 - 是否补齐 focused fixture 或稳定 real audit sample：P0 不修具体 diagnostics 类别，使用 2026-05-16 full audit baseline 作为稳定 real audit sample。
 
+Git 记录：
+
+- 2026-05-16 已本地提交 P0 阶段：`1b2d927 test: add unit diagnostics audit trend`。
+- 提交内容覆盖 unit-based real diagnostics audit、内部 debug request、趋势报告和 `docs/testing.md` 阶段验证说明。
+- 本阶段未执行远端 push；如后续需要上传远端，应在 push 后追加记录目标 remote / branch。
+
 ## Phase 1: 修复 numeric literal parser
 
 ### 背景
@@ -252,6 +258,12 @@ triage 分布：
 - 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
 - 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
 - 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-01 5-unit / 50-unit real audit 报告。
+
+Git 记录：
+
+- 2026-05-16 已本地提交 P1 阶段：`946f681 fix: normalize HLSL numeric literal diagnostics`。
+- 提交内容覆盖共享 numeric literal parser、semantic diagnostics 消费路径、focused 正反 fixture、repo integration 断言、架构契约说明和本执行计划。
+- 本阶段未执行远端 push；如后续需要上传远端，应在 push 后追加记录目标 remote / branch。
 
 ## Phase 2: 建立共享 HLSL 类型兼容模型
 

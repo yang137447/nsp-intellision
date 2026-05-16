@@ -206,3 +206,5 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 - Architecture changed: internal debug/audit module added; public LSP behavior unchanged.
 - Testing strategy changed: real diagnostics audit is now unit-based.
 - Docs updated: `docs/architecture.md` and `docs/testing.md`.
+- Git commit: `1b2d927 test: add unit diagnostics audit trend`.
+- Remote push: not run for this stage yet; record remote / branch here after a later push.
