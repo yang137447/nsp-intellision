@@ -66,6 +66,8 @@ static BuiltinElemKind parseBuiltinElemKind(const std::string &t) {
     return BuiltinElemKind::Half;
   if (t == "float")
     return BuiltinElemKind::Float;
+  if (t == "double")
+    return BuiltinElemKind::Double;
   return BuiltinElemKind::Unknown;
 }
 
@@ -80,6 +82,8 @@ static std::string builtinElemKindToString(BuiltinElemKind k) {
     return "half";
   if (k == BuiltinElemKind::Float)
     return "float";
+  if (k == BuiltinElemKind::Double)
+    return "double";
   return "";
 }
 
@@ -131,7 +135,8 @@ static std::string builtinTypeInfoToString(const BuiltinTypeInfo &t) {
 
 static bool isBuiltinNumericElem(BuiltinElemKind k) {
   return k == BuiltinElemKind::Int || k == BuiltinElemKind::UInt ||
-         k == BuiltinElemKind::Half || k == BuiltinElemKind::Float;
+         k == BuiltinElemKind::Half || k == BuiltinElemKind::Float ||
+         k == BuiltinElemKind::Double;
 }
 
 static BuiltinElemKind promoteBuiltinNumericElem(BuiltinElemKind a,
@@ -142,6 +147,8 @@ static BuiltinElemKind promoteBuiltinNumericElem(BuiltinElemKind a,
     return BuiltinElemKind::Unknown;
   if (!isBuiltinNumericElem(a) || !isBuiltinNumericElem(b))
     return BuiltinElemKind::Unknown;
+  if (a == BuiltinElemKind::Double || b == BuiltinElemKind::Double)
+    return BuiltinElemKind::Double;
   if (a == BuiltinElemKind::Float || b == BuiltinElemKind::Float)
     return BuiltinElemKind::Float;
   if (a == BuiltinElemKind::Half || b == BuiltinElemKind::Half)
@@ -684,8 +691,8 @@ bool isVectorType(const std::string &type, int &dimensionOut) {
   if (dim < 2 || dim > 4)
     return false;
   std::string base = type.substr(0, digitPos);
-  if (base == "float" || base == "half" || base == "int" || base == "uint" ||
-      base == "bool") {
+  if (base == "float" || base == "half" || base == "double" ||
+      base == "int" || base == "uint" || base == "bool") {
     dimensionOut = dim;
     return true;
   }
@@ -693,12 +700,13 @@ bool isVectorType(const std::string &type, int &dimensionOut) {
 }
 
 bool isScalarType(const std::string &type) {
-  return type == "float" || type == "half" || type == "int" || type == "uint" ||
-         type == "bool";
+  return type == "float" || type == "half" || type == "double" ||
+         type == "int" || type == "uint" || type == "bool";
 }
 
 bool isNumericScalarType(const std::string &type) {
-  return type == "float" || type == "half" || type == "int" || type == "uint";
+  return type == "float" || type == "half" || type == "double" ||
+         type == "int" || type == "uint";
 }
 
 bool isMatrixType(const std::string &type, std::string &scalarOut,
@@ -721,7 +729,8 @@ bool isMatrixType(const std::string &type, std::string &scalarOut,
   if (rows < 1 || rows > 4 || cols < 1 || cols > 4)
     return false;
   std::string base = type.substr(0, xPos - 1);
-  if (base != "float" && base != "half" && base != "int" && base != "uint")
+  if (base != "float" && base != "half" && base != "double" &&
+      base != "int" && base != "uint")
     return false;
   if (xPos + 2 != type.size())
     return false;
@@ -757,68 +766,13 @@ std::string inferLiteralType(const std::string &token) {
     return "bool";
   if (token.empty())
     return "";
-  auto parseHexIntegerTokenSuffix = [](const std::string &value,
-                                       char &suffixOut,
-                                       bool &invalidSuffixOut) -> bool {
-    suffixOut = 0;
-    invalidSuffixOut = false;
-    if (value.empty())
-      return false;
-    size_t start = 0;
-    if (value[0] == '+' || value[0] == '-')
-      start = 1;
-    if (start + 2 >= value.size())
-      return false;
-    if (value[start] != '0' ||
-        (value[start + 1] != 'x' && value[start + 1] != 'X'))
-      return false;
-    size_t i = start + 2;
-    const size_t digitsStart = i;
-    while (i < value.size() &&
-           std::isxdigit(static_cast<unsigned char>(value[i]))) {
-      i++;
-    }
-    if (i == digitsStart)
-      return false;
-    if (i == value.size())
-      return true;
-    if (i + 1 == value.size() &&
-        std::isalpha(static_cast<unsigned char>(value[i]))) {
-      suffixOut = value[i];
-      invalidSuffixOut = !(suffixOut == 'u' || suffixOut == 'U');
-      return true;
-    }
-    return false;
-  };
-  {
-    char suffix = 0;
-    bool invalid = false;
-    if (parseHexIntegerTokenSuffix(token, suffix, invalid)) {
-      if (suffix == 'u' || suffix == 'U')
-        return "uint";
-      return "int";
-    }
-  }
-  bool hasDigit = false;
-  bool hasDot = false;
-  size_t start = 0;
-  if (token[0] == '+' || token[0] == '-')
-    start = 1;
-  for (size_t i = start; i < token.size(); i++) {
-    unsigned char ch = static_cast<unsigned char>(token[i]);
-    if (std::isdigit(ch)) {
-      hasDigit = true;
-      continue;
-    }
-    if (token[i] == '.') {
-      hasDot = true;
-      continue;
-    }
-    return "";
-  }
-  if (!hasDigit)
-    return "";
-  return hasDot ? "float" : "int";
+  std::vector<LexToken> tokens;
+  tokens.push_back(
+      LexToken{LexToken::Kind::Identifier, token, 0, token.size()});
+  NumericLiteralParseResult numeric = parseNumericLiteralFromTokens(tokens, 0);
+  if (numeric.matched && !numeric.type.empty())
+    return numeric.type;
+  return "";
 }
 
 static bool isSignedDigitsToken(const std::string &token) {
@@ -891,111 +845,612 @@ bool isSignedDigitsWithSingleAlphaSuffixToken(const std::string &token,
   return true;
 }
 
-size_t numericLiteralTokenSpan(const std::vector<LexToken> &tokens,
-                                      size_t index) {
-  if (index >= tokens.size())
+namespace {
+
+struct NumericLiteralTextParseResult {
+  bool matched = false;
+  bool valid = false;
+  std::string type;
+  char invalidSuffix = 0;
+  size_t invalidSuffixOffset = 0;
+  std::string deprecatedSuffix;
+  std::string recommendedSuffix;
+  size_t deprecatedSuffixOffset = 0;
+};
+
+bool isFloatLiteralSuffix(char ch) {
+  return ch == 'h' || ch == 'H' || ch == 'f' || ch == 'F' || ch == 'l' ||
+         ch == 'L';
+}
+
+bool isUnsignedSuffix(char ch) { return ch == 'u' || ch == 'U'; }
+
+bool isLongSuffix(char ch) { return ch == 'l' || ch == 'L'; }
+
+bool isIntegerSuffixStart(char ch) {
+  return isUnsignedSuffix(ch) || isLongSuffix(ch);
+}
+
+bool isDecimalDigit(char ch) {
+  return std::isdigit(static_cast<unsigned char>(ch));
+}
+
+bool isOctalDigit(char ch) { return ch >= '0' && ch <= '7'; }
+
+int diagnosticsNumericScalarRank(const std::string &scalar) {
+  if (scalar == "half")
     return 0;
-  if (tokens[index].kind != LexToken::Kind::Identifier)
-    return 0;
-  {
-    char suffix = 0;
-    bool invalid = false;
-    const std::string &value = tokens[index].text;
-    size_t start = 0;
-    if (!value.empty() && (value[0] == '+' || value[0] == '-'))
-      start = 1;
-    if (start + 2 < value.size() && value[start] == '0' &&
-        (value[start + 1] == 'x' || value[start + 1] == 'X')) {
-      size_t i = start + 2;
-      const size_t digitsStart = i;
-      while (i < value.size() &&
-             std::isxdigit(static_cast<unsigned char>(value[i]))) {
-        i++;
+  if (scalar == "float")
+    return 1;
+  if (scalar == "double")
+    return 2;
+  return -1;
+}
+
+std::string mergeNumericScalar(const std::string &left,
+                               const std::string &right) {
+  if (left == right)
+    return left;
+  const int leftFloatRank = diagnosticsNumericScalarRank(left);
+  const int rightFloatRank = diagnosticsNumericScalarRank(right);
+  if (leftFloatRank >= 0 || rightFloatRank >= 0) {
+    const int outRank = std::max(leftFloatRank, rightFloatRank);
+    if (outRank >= 2)
+      return "double";
+    if (outRank == 1)
+      return "float";
+    return "half";
+  }
+  if (left == "uint" || right == "uint")
+    return "uint";
+  return "int";
+}
+
+std::string decimalLiteralType(bool hasFloatSyntax, char suffix) {
+  if (suffix == 'h' || suffix == 'H')
+    return "half";
+  if (suffix == 'f' || suffix == 'F')
+    return "float";
+  if (suffix == 'l' || suffix == 'L')
+    return hasFloatSyntax ? "double" : "int";
+  return hasFloatSyntax ? "float" : "int";
+}
+
+bool parseIntegerSuffix(const std::string &value, size_t &i,
+                        bool &isUnsigned, size_t &invalidOffset) {
+  const size_t start = i;
+  bool sawUnsigned = false;
+  bool sawLong = false;
+  if (i < value.size() && isUnsignedSuffix(value[i])) {
+    sawUnsigned = true;
+    i++;
+  }
+  if (i < value.size() && isLongSuffix(value[i])) {
+    sawLong = true;
+    i++;
+  }
+  if (!sawUnsigned && i < value.size() && isUnsignedSuffix(value[i])) {
+    sawUnsigned = true;
+    i++;
+  }
+  if (i < value.size() && isLongSuffix(value[i])) {
+    invalidOffset = i;
+    return false;
+  }
+  if (i < value.size() && isUnsignedSuffix(value[i])) {
+    invalidOffset = i;
+    return false;
+  }
+  if (i < value.size()) {
+    invalidOffset = i;
+    return false;
+  }
+  isUnsigned = sawUnsigned;
+  return i > start || sawLong;
+}
+
+bool parseLegacyLongLongIntegerSuffix(const std::string &value, size_t &i,
+                                      bool &isUnsigned,
+                                      std::string &deprecatedSuffix,
+                                      std::string &recommendedSuffix) {
+  const size_t start = i;
+  bool sawUnsigned = false;
+  if (i < value.size() && isUnsignedSuffix(value[i])) {
+    sawUnsigned = true;
+    i++;
+  }
+  if (i + 1 >= value.size() || !isLongSuffix(value[i]) ||
+      !isLongSuffix(value[i + 1]))
+    return false;
+  i += 2;
+  if (!sawUnsigned && i < value.size() && isUnsignedSuffix(value[i])) {
+    sawUnsigned = true;
+    i++;
+  }
+  if (i != value.size())
+    return false;
+  isUnsigned = sawUnsigned;
+  deprecatedSuffix = value.substr(start);
+  recommendedSuffix = isUnsigned ? "ul" : "l";
+  return true;
+}
+
+NumericLiteralTextParseResult parseNumericLiteralText(
+    const std::string &value) {
+  NumericLiteralTextParseResult result;
+  if (value.empty())
+    return result;
+
+  size_t i = 0;
+  if (value[i] == '+' || value[i] == '-')
+    i++;
+  if (i >= value.size())
+    return result;
+
+  if (std::isdigit(static_cast<unsigned char>(value[i])) &&
+      i + 1 < value.size() && value[i] == '0' &&
+      (value[i + 1] == 'x' || value[i + 1] == 'X')) {
+    i += 2;
+    const size_t digitsStart = i;
+    while (i < value.size() &&
+           std::isxdigit(static_cast<unsigned char>(value[i]))) {
+      i++;
+    }
+    if (i == digitsStart)
+      return result;
+
+    result.matched = true;
+    result.type = "int";
+    if (i == value.size()) {
+      result.valid = true;
+      return result;
+    }
+    if (isIntegerSuffixStart(value[i])) {
+      bool isUnsigned = false;
+      size_t invalidOffset = 0;
+      const size_t suffixOffset = i;
+      std::string deprecatedSuffix;
+      std::string recommendedSuffix;
+      size_t legacyCursor = i;
+      if (parseLegacyLongLongIntegerSuffix(value, legacyCursor, isUnsigned,
+                                           deprecatedSuffix,
+                                           recommendedSuffix)) {
+        result.type = isUnsigned ? "uint" : "int";
+        result.valid = true;
+        result.deprecatedSuffix = deprecatedSuffix;
+        result.recommendedSuffix = recommendedSuffix;
+        result.deprecatedSuffixOffset = suffixOffset;
+        return result;
       }
-      if (i > digitsStart) {
-        if (i == value.size())
-          return 1;
-        if (i + 1 == value.size() &&
-            std::isalpha(static_cast<unsigned char>(value[i]))) {
-          suffix = value[i];
-          invalid = !(suffix == 'u' || suffix == 'U');
-          return invalid ? 0 : 1;
-        }
+      if (parseIntegerSuffix(value, i, isUnsigned, invalidOffset)) {
+        result.type = isUnsigned ? "uint" : "int";
+        result.valid = true;
+        return result;
+      }
+      result.type = isUnsigned ? "uint" : "int";
+      result.invalidSuffix = value[invalidOffset];
+      result.invalidSuffixOffset = invalidOffset;
+      return result;
+    }
+    if (std::isalpha(static_cast<unsigned char>(value[i]))) {
+      result.invalidSuffix = value[i];
+      result.invalidSuffixOffset = i;
+      return result;
+    }
+    result.invalidSuffix = value[i];
+    result.invalidSuffixOffset = i;
+    return result;
+  }
+
+  if (value[i] == '0' && i + 1 < value.size() &&
+      isDecimalDigit(value[i + 1])) {
+    i++;
+    while (i < value.size() && isOctalDigit(value[i])) {
+      i++;
+    }
+
+    result.matched = true;
+    result.type = "int";
+    if (i < value.size() && isDecimalDigit(value[i])) {
+      result.invalidSuffix = value[i];
+      result.invalidSuffixOffset = i;
+      return result;
+    }
+    if (i == value.size()) {
+      result.valid = true;
+      return result;
+    }
+    if (isIntegerSuffixStart(value[i])) {
+      bool isUnsigned = false;
+      size_t invalidOffset = 0;
+      const size_t suffixOffset = i;
+      std::string deprecatedSuffix;
+      std::string recommendedSuffix;
+      size_t legacyCursor = i;
+      if (parseLegacyLongLongIntegerSuffix(value, legacyCursor, isUnsigned,
+                                           deprecatedSuffix,
+                                           recommendedSuffix)) {
+        result.type = isUnsigned ? "uint" : "int";
+        result.valid = true;
+        result.deprecatedSuffix = deprecatedSuffix;
+        result.recommendedSuffix = recommendedSuffix;
+        result.deprecatedSuffixOffset = suffixOffset;
+        return result;
+      }
+      if (parseIntegerSuffix(value, i, isUnsigned, invalidOffset)) {
+        result.type = isUnsigned ? "uint" : "int";
+        result.valid = true;
+        return result;
+      }
+      result.type = isUnsigned ? "uint" : "int";
+      result.invalidSuffix = value[invalidOffset];
+      result.invalidSuffixOffset = invalidOffset;
+      return result;
+    }
+    if (std::isalpha(static_cast<unsigned char>(value[i]))) {
+      result.invalidSuffix = value[i];
+      result.invalidSuffixOffset = i;
+      return result;
+    }
+    result.invalidSuffix = value[i];
+    result.invalidSuffixOffset = i;
+    return result;
+  }
+
+  const size_t digitsStart = i;
+  while (i < value.size() &&
+         std::isdigit(static_cast<unsigned char>(value[i]))) {
+    i++;
+  }
+  const bool hasWholeDigits = i > digitsStart;
+
+  bool hasDot = false;
+  bool hasFractionDigits = false;
+  if (i < value.size() && value[i] == '.') {
+    hasDot = true;
+    i++;
+    const size_t fractionDigitsStart = i;
+    while (i < value.size() &&
+           std::isdigit(static_cast<unsigned char>(value[i]))) {
+      i++;
+    }
+    hasFractionDigits = i > fractionDigitsStart;
+  }
+  if (!hasWholeDigits && !hasFractionDigits)
+    return result;
+
+  bool hasExponent = false;
+  size_t exponentOffset = std::string::npos;
+  if (i < value.size() && (value[i] == 'e' || value[i] == 'E')) {
+    hasExponent = true;
+    exponentOffset = i;
+    i++;
+    if (i < value.size() && (value[i] == '+' || value[i] == '-'))
+      i++;
+    const size_t exponentDigitsStart = i;
+    while (i < value.size() &&
+           std::isdigit(static_cast<unsigned char>(value[i]))) {
+      i++;
+    }
+    if (i == exponentDigitsStart) {
+      result.matched = true;
+      result.type = hasDot ? "float" : "int";
+      result.invalidSuffix = value[exponentOffset];
+      result.invalidSuffixOffset = exponentOffset;
+      return result;
+    }
+  }
+
+  const bool hasFloatSyntax = hasDot || hasExponent;
+  if (i < value.size()) {
+    if (!std::isalpha(static_cast<unsigned char>(value[i]))) {
+      result.matched = true;
+      result.type = decimalLiteralType(hasFloatSyntax, 0);
+      result.invalidSuffix = value[i];
+      result.invalidSuffixOffset = i;
+      return result;
+    }
+
+    result.matched = true;
+    if (hasFloatSyntax) {
+      char suffix = value[i];
+      result.type = decimalLiteralType(hasFloatSyntax, suffix);
+      if (!isFloatLiteralSuffix(suffix)) {
+        result.invalidSuffix = suffix;
+        result.invalidSuffixOffset = i;
+        return result;
+      }
+      i++;
+      if (i != value.size()) {
+        result.invalidSuffix = value[i];
+        result.invalidSuffixOffset = i;
+        return result;
+      }
+      result.valid = true;
+      return result;
+    }
+
+    if (isIntegerSuffixStart(value[i])) {
+      bool isUnsigned = false;
+      size_t invalidOffset = 0;
+      const size_t suffixOffset = i;
+      std::string deprecatedSuffix;
+      std::string recommendedSuffix;
+      size_t legacyCursor = i;
+      if (parseLegacyLongLongIntegerSuffix(value, legacyCursor, isUnsigned,
+                                           deprecatedSuffix,
+                                           recommendedSuffix)) {
+        result.type = isUnsigned ? "uint" : "int";
+        result.valid = true;
+        result.deprecatedSuffix = deprecatedSuffix;
+        result.recommendedSuffix = recommendedSuffix;
+        result.deprecatedSuffixOffset = suffixOffset;
+        return result;
+      }
+      if (parseIntegerSuffix(value, i, isUnsigned, invalidOffset)) {
+        result.type = isUnsigned ? "uint" : "int";
+        result.valid = true;
+        return result;
+      }
+      result.type = isUnsigned ? "uint" : "int";
+      result.invalidSuffix = value[invalidOffset];
+      result.invalidSuffixOffset = invalidOffset;
+      return result;
+    }
+
+    result.type = decimalLiteralType(hasFloatSyntax, value[i]);
+    result.invalidSuffix = value[i];
+    result.invalidSuffixOffset = i;
+    return result;
+  }
+
+  result.matched = true;
+  result.valid = true;
+  result.type = decimalLiteralType(hasFloatSyntax, 0);
+  return result;
+}
+
+bool tokensAreAdjacent(const std::vector<LexToken> &tokens, size_t begin,
+                       size_t endInclusive) {
+  if (begin >= tokens.size() || endInclusive >= tokens.size())
+    return false;
+  for (size_t i = begin; i < endInclusive; i++) {
+    if (tokens[i].end != tokens[i + 1].start)
+      return false;
+  }
+  return true;
+}
+
+bool startsWithDigit(const LexToken &token) {
+  if (token.text.empty())
+    return false;
+  size_t start = 0;
+  if (token.text[0] == '+' || token.text[0] == '-')
+    start = 1;
+  return start < token.text.size() &&
+         std::isdigit(static_cast<unsigned char>(token.text[start]));
+}
+
+bool isNumericLiteralStartToken(const std::vector<LexToken> &tokens,
+                                size_t index) {
+  if (index >= tokens.size())
+    return false;
+  if (tokens[index].kind == LexToken::Kind::Identifier)
+    return startsWithDigit(tokens[index]);
+  return tokens[index].kind == LexToken::Kind::Punct &&
+         tokens[index].text == "." && index + 1 < tokens.size() &&
+         tokens[index + 1].kind == LexToken::Kind::Identifier &&
+         startsWithDigit(tokens[index + 1]);
+}
+
+bool isDigitsText(const std::string &value) {
+  if (value.empty())
+    return false;
+  for (char ch : value) {
+    if (!std::isdigit(static_cast<unsigned char>(ch)))
+      return false;
+  }
+  return true;
+}
+
+bool isIntegerSuffixText(const std::string &value) {
+  size_t i = 0;
+  bool isUnsigned = false;
+  size_t invalidOffset = 0;
+  return parseIntegerSuffix(value, i, isUnsigned, invalidOffset);
+}
+
+bool hasExponentDigitsAfterMarker(const std::string &value) {
+  const size_t exponent = value.find_first_of("eE");
+  if (exponent == std::string::npos || exponent + 1 >= value.size())
+    return false;
+  size_t digits = exponent + 1;
+  if (value[digits] == '+' || value[digits] == '-')
+    digits++;
+  if (digits >= value.size())
+    return false;
+  for (size_t i = digits; i < value.size(); i++) {
+    if (!std::isdigit(static_cast<unsigned char>(value[i])))
+      return false;
+  }
+  return true;
+}
+
+bool canAppendNumericLiteralToken(const std::string &current,
+                                  const LexToken &next) {
+  if (current.empty() || next.text.empty())
+    return false;
+
+  if (next.kind == LexToken::Kind::Punct) {
+    if (next.text == ".") {
+      return current.find('.') == std::string::npos &&
+             current.find_first_of("eE") == std::string::npos;
+    }
+    if (next.text == "+" || next.text == "-") {
+      return current.back() == 'e' || current.back() == 'E';
+    }
+    return false;
+  }
+
+  if (next.kind != LexToken::Kind::Identifier)
+    return false;
+  if (startsWithDigit(next)) {
+    return current.back() == '.' || current.back() == '+' ||
+           current.back() == '-' || current.back() == 'e' ||
+           current.back() == 'E';
+  }
+  if (next.text.size() == 1 && isFloatLiteralSuffix(next.text[0])) {
+    return current.find('.') != std::string::npos ||
+           hasExponentDigitsAfterMarker(current);
+  }
+  if (isIntegerSuffixText(next.text)) {
+    return current.find('.') == std::string::npos &&
+           current.find_first_of("eE") == std::string::npos;
+  }
+  return false;
+}
+
+NumericLiteralParseResult makeNumericLiteralCandidate(
+    const std::vector<LexToken> &tokens, size_t index, size_t span) {
+  NumericLiteralParseResult result;
+  if (index >= tokens.size() || span == 0 || index + span > tokens.size())
+    return result;
+  if (!tokensAreAdjacent(tokens, index, index + span - 1))
+    return result;
+
+  std::string text;
+  std::vector<std::pair<size_t, size_t>> tokenOffsets;
+  tokenOffsets.reserve(span);
+  for (size_t k = 0; k < span; k++) {
+    tokenOffsets.push_back({text.size(), index + k});
+    text += tokens[index + k].text;
+  }
+
+  NumericLiteralTextParseResult parsed = parseNumericLiteralText(text);
+  if (!parsed.matched)
+    return result;
+
+  result.matched = true;
+  result.valid = parsed.valid;
+  result.tokenSpan = span;
+  result.type = parsed.type;
+  result.invalidSuffix = parsed.invalidSuffix;
+  result.invalidSuffixTokenIndex = index;
+  result.deprecatedSuffix = parsed.deprecatedSuffix;
+  result.recommendedSuffix = parsed.recommendedSuffix;
+  result.deprecatedSuffixTokenIndex = index;
+  if (result.invalidSuffix != 0) {
+    for (size_t k = 0; k < tokenOffsets.size(); k++) {
+      const size_t begin = tokenOffsets[k].first;
+      const size_t end =
+          k + 1 < tokenOffsets.size() ? tokenOffsets[k + 1].first : text.size();
+      if (parsed.invalidSuffixOffset >= begin &&
+          parsed.invalidSuffixOffset < end) {
+        result.invalidSuffixTokenIndex = tokenOffsets[k].second;
+        break;
       }
     }
   }
-  char suffix0 = 0;
-  if (!isSignedDigitsWithOptionalSuffixToken(tokens[index].text, suffix0))
-    return 0;
-  if (suffix0 != 0)
-    return 1;
-  if (index + 2 < tokens.size() &&
-      tokens[index + 1].kind == LexToken::Kind::Punct &&
-      tokens[index + 1].text == "." &&
-      tokens[index + 2].kind == LexToken::Kind::Identifier) {
-    char suffix1 = 0;
-    if (isSignedDigitsWithOptionalSuffixToken(tokens[index + 2].text, suffix1))
-      return 3;
+  if (!result.deprecatedSuffix.empty()) {
+    for (size_t k = 0; k < tokenOffsets.size(); k++) {
+      const size_t begin = tokenOffsets[k].first;
+      const size_t end =
+          k + 1 < tokenOffsets.size() ? tokenOffsets[k + 1].first : text.size();
+      if (parsed.deprecatedSuffixOffset >= begin &&
+          parsed.deprecatedSuffixOffset < end) {
+        result.deprecatedSuffixTokenIndex = tokenOffsets[k].second;
+        break;
+      }
+    }
   }
-  return 1;
+  return result;
+}
+
+std::vector<size_t>
+numericLiteralCandidateSpans(const std::vector<LexToken> &tokens,
+                             size_t index) {
+  std::vector<size_t> spans;
+  if (index >= tokens.size())
+    return spans;
+
+  std::string text;
+  for (size_t cursor = index; cursor < tokens.size(); cursor++) {
+    if (cursor > index && tokens[cursor - 1].end != tokens[cursor].start)
+      break;
+
+    text += tokens[cursor].text;
+    NumericLiteralTextParseResult parsed = parseNumericLiteralText(text);
+    if (parsed.matched)
+      spans.push_back(cursor - index + 1);
+
+    if (cursor + 1 >= tokens.size())
+      break;
+    if (tokens[cursor].end != tokens[cursor + 1].start)
+      break;
+    if (parsed.valid && tokens[cursor + 1].kind == LexToken::Kind::Punct &&
+        tokens[cursor + 1].text == "." && cursor + 2 < tokens.size() &&
+        tokens[cursor + 1].end == tokens[cursor + 2].start &&
+        tokens[cursor + 2].kind == LexToken::Kind::Identifier &&
+        !startsWithDigit(tokens[cursor + 2]) &&
+        !tokens[cursor + 2].text.empty() &&
+        tokens[cursor + 2].text[0] != 'e' &&
+        tokens[cursor + 2].text[0] != 'E')
+      break;
+    if (!canAppendNumericLiteralToken(text, tokens[cursor + 1]))
+      break;
+  }
+  return spans;
+}
+
+} // namespace
+
+NumericLiteralParseResult parseNumericLiteralFromTokens(
+    const std::vector<LexToken> &tokens, size_t index) {
+  NumericLiteralParseResult empty;
+  if (!isNumericLiteralStartToken(tokens, index))
+    return empty;
+
+  std::vector<size_t> spans = numericLiteralCandidateSpans(tokens, index);
+
+  NumericLiteralParseResult longestValid;
+  NumericLiteralParseResult longestInvalid;
+  for (size_t span : spans) {
+    NumericLiteralParseResult candidate =
+        makeNumericLiteralCandidate(tokens, index, span);
+    if (!candidate.matched)
+      continue;
+    if (candidate.valid) {
+      if (!longestValid.matched ||
+          candidate.tokenSpan > longestValid.tokenSpan)
+        longestValid = candidate;
+      continue;
+    }
+    if (!longestInvalid.matched ||
+        candidate.tokenSpan > longestInvalid.tokenSpan)
+      longestInvalid = candidate;
+  }
+  if (longestInvalid.matched &&
+      (!longestValid.matched ||
+       longestInvalid.tokenSpan > longestValid.tokenSpan))
+    return longestInvalid;
+  if (longestValid.matched)
+    return longestValid;
+  return longestInvalid;
+}
+
+size_t numericLiteralTokenSpan(const std::vector<LexToken> &tokens,
+                                      size_t index) {
+  NumericLiteralParseResult parsed =
+      parseNumericLiteralFromTokens(tokens, index);
+  return parsed.matched && parsed.valid ? parsed.tokenSpan : 0;
 }
 
 std::string
 inferNumericLiteralTypeFromTokens(const std::vector<LexToken> &tokens,
                                   size_t index) {
-  if (index >= tokens.size())
-    return "";
-  if (tokens[index].kind != LexToken::Kind::Identifier)
-    return "";
-  {
-    const std::string &value = tokens[index].text;
-    size_t start = 0;
-    if (!value.empty() && (value[0] == '+' || value[0] == '-'))
-      start = 1;
-    if (start + 2 < value.size() && value[start] == '0' &&
-        (value[start + 1] == 'x' || value[start + 1] == 'X')) {
-      size_t i = start + 2;
-      const size_t digitsStart = i;
-      while (i < value.size() &&
-             std::isxdigit(static_cast<unsigned char>(value[i]))) {
-        i++;
-      }
-      if (i > digitsStart) {
-        if (i == value.size())
-          return "int";
-        if (i + 1 == value.size() && (value[i] == 'u' || value[i] == 'U'))
-          return "uint";
-        return "int";
-      }
-    }
-  }
-  char suffix0 = 0;
-  if (!isSignedDigitsWithOptionalSuffixToken(tokens[index].text, suffix0))
-    return "";
-  if (index + 2 < tokens.size() &&
-      tokens[index + 1].kind == LexToken::Kind::Punct &&
-      tokens[index + 1].text == "." &&
-      tokens[index + 2].kind == LexToken::Kind::Identifier && true) {
-    char suffix1 = 0;
-    if (!isSignedDigitsWithOptionalSuffixToken(tokens[index + 2].text,
-                                               suffix1)) {
-      char badSuffix = 0;
-      if (isSignedDigitsWithSingleAlphaSuffixToken(tokens[index + 2].text,
-                                                   badSuffix))
-        return "float";
-      return "int";
-    }
-    if (suffix1 == 'h')
-      return "half";
-    return "float";
-  }
-  if (suffix0 == 'h')
-    return "half";
-  if (suffix0 == 'f' || suffix0 == 'F')
-    return "float";
-  if (suffix0 == 'u' || suffix0 == 'U')
-    return "uint";
-  return "int";
+  NumericLiteralParseResult parsed =
+      parseNumericLiteralFromTokens(tokens, index);
+  return parsed.matched ? parsed.type : "";
 }
 
 bool parseVectorOrScalarType(const std::string &type,
@@ -1060,16 +1515,18 @@ inferNarrowingFallbackRhsTypeFromTokens(const std::vector<LexToken> &tokens,
   bool sawFloatLiteral = false;
   bool sawHalfLiteral = false;
   for (size_t i = startIndex; i < endIndex; i++) {
-    const std::string literal = inferLiteralType(tokens[i].text);
-    if (literal == "float")
-      sawFloatLiteral = true;
-    else if (literal == "half")
-      sawHalfLiteral = true;
-    char suffix = 0;
-    if (isSignedDigitsWithOptionalSuffixToken(tokens[i].text, suffix)) {
-      if (suffix == 'f' || suffix == 'F')
+    NumericLiteralParseResult numeric = parseNumericLiteralFromTokens(tokens, i);
+    if (numeric.matched) {
+      if (numeric.type == "float" || numeric.type == "double")
         sawFloatLiteral = true;
-      else if (suffix == 'h')
+      else if (numeric.type == "half")
+        sawHalfLiteral = true;
+      i += std::max<size_t>(numeric.tokenSpan, 1) - 1;
+    } else {
+      const std::string literal = inferLiteralType(tokens[i].text);
+      if (literal == "float" || literal == "double")
+        sawFloatLiteral = true;
+      else if (literal == "half")
         sawHalfLiteral = true;
     }
     if (sawFloatLiteral)
@@ -1296,17 +1753,20 @@ struct ExprParser {
       if (leftIsMat && rightIsMat) {
         if (leftRows != rightRows || leftCols != rightCols)
           return leftType;
-        std::string outScalar =
-            leftMatScalar == rightMatScalar ? leftMatScalar : "float";
+        std::string outScalar = mergeNumericScalar(leftMatScalar, rightMatScalar);
         return makeMatrixType(outScalar, leftRows, leftCols);
       }
       if (leftIsMat) {
-        if (isNumericScalarType(rightType))
-          return makeMatrixType(leftMatScalar, leftRows, leftCols);
+        if (isNumericScalarType(rightType)) {
+          return makeMatrixType(mergeNumericScalar(leftMatScalar, rightType),
+                                leftRows, leftCols);
+        }
         return leftType;
       }
-      if (isNumericScalarType(leftType))
-        return makeMatrixType(rightMatScalar, rightRows, rightCols);
+      if (isNumericScalarType(leftType)) {
+        return makeMatrixType(mergeNumericScalar(leftType, rightMatScalar),
+                              rightRows, rightCols);
+      }
       return rightType;
     }
 
@@ -1323,7 +1783,7 @@ struct ExprParser {
     }
 
     int outDim = std::max(leftDim, rightDim);
-    std::string outScalar = leftScalar == rightScalar ? leftScalar : "float";
+    std::string outScalar = mergeNumericScalar(leftScalar, rightScalar);
     return makeVectorOrScalarType(outScalar, outDim);
   }
 
@@ -1389,32 +1849,35 @@ struct ExprParser {
     if (leftIsMat && rightIsMat) {
       if (leftCols != rightRows)
         return leftType;
-      std::string outScalar =
-          leftMatScalar == rightMatScalar ? leftMatScalar : "float";
+      std::string outScalar = mergeNumericScalar(leftMatScalar, rightMatScalar);
       return makeMatrixType(outScalar, leftRows, rightCols);
     }
 
     if (leftIsVec && rightIsMat) {
-      if (leftDim != rightRows)
-        return makeVectorOrScalarType("float", rightCols);
-      std::string outScalar =
-          leftScalar == rightMatScalar ? leftScalar : "float";
+      if (leftDim != rightRows) {
+        return makeVectorOrScalarType(
+            mergeNumericScalar(leftScalar, rightMatScalar), rightCols);
+      }
+      std::string outScalar = mergeNumericScalar(leftScalar, rightMatScalar);
       return makeVectorOrScalarType(outScalar, rightCols);
     }
 
     if (leftIsMat && rightIsVec) {
-      if (leftCols != rightDim)
-        return makeVectorOrScalarType("float", leftRows);
-      std::string outScalar =
-          leftMatScalar == rightScalar ? leftMatScalar : "float";
+      if (leftCols != rightDim) {
+        return makeVectorOrScalarType(
+            mergeNumericScalar(leftMatScalar, rightScalar), leftRows);
+      }
+      std::string outScalar = mergeNumericScalar(leftMatScalar, rightScalar);
       return makeVectorOrScalarType(outScalar, leftRows);
     }
 
     if (leftIsMat && isNumericScalarType(rightType)) {
-      return makeMatrixType(leftMatScalar, leftRows, leftCols);
+      return makeMatrixType(mergeNumericScalar(leftMatScalar, rightType),
+                            leftRows, leftCols);
     }
     if (rightIsMat && isNumericScalarType(leftType)) {
-      return makeMatrixType(rightMatScalar, rightRows, rightCols);
+      return makeMatrixType(mergeNumericScalar(leftType, rightMatScalar),
+                            rightRows, rightCols);
     }
 
     return mergeArithmeticType(leftType, rightType);
@@ -1634,6 +2097,14 @@ struct ExprParser {
     }
     if (t->kind == LexToken::Kind::Identifier) {
       std::string word = t->text;
+
+      NumericLiteralParseResult numeric =
+          parseNumericLiteralFromTokens(tokens, i);
+      if (numeric.matched && !numeric.type.empty()) {
+        i += std::max<size_t>(numeric.tokenSpan, 1);
+        return numeric.type;
+      }
+
       consume();
 
       int dim = 0;
@@ -1648,9 +2119,6 @@ struct ExprParser {
         return word;
       }
 
-      std::string numeric = inferNumericLiteralTypeFromTokens(tokens, i - 1);
-      if (!numeric.empty())
-        return numeric;
       std::string literal = inferLiteralType(word);
       if (!literal.empty())
         return literal;
@@ -1697,6 +2165,12 @@ struct ExprParser {
       return resolveSymbolTypeByWorkspaceSummary(word, symbolCache);
     }
     if (t->kind == LexToken::Kind::Punct) {
+      NumericLiteralParseResult numeric =
+          parseNumericLiteralFromTokens(tokens, i);
+      if (numeric.matched && !numeric.type.empty()) {
+        i += std::max<size_t>(numeric.tokenSpan, 1);
+        return numeric.type;
+      }
       return "";
     }
     std::string literal = inferLiteralType(t->text);

@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
-enum class BuiltinElemKind { Unknown, Bool, Int, UInt, Half, Float };
+enum class BuiltinElemKind { Unknown, Bool, Int, UInt, Half, Float, Double };
 
 struct BuiltinTypeInfo {
   enum class ShapeKind { Unknown, Scalar, Vector, Matrix };
@@ -25,9 +25,29 @@ struct BuiltinResolveResult {
   BuiltinTypeInfo ret;
 };
 
+struct NumericLiteralParseResult {
+  bool matched = false;
+  bool valid = false;
+  size_t tokenSpan = 0;
+  std::string type;
+  char invalidSuffix = 0;
+  size_t invalidSuffixTokenIndex = 0;
+  std::string deprecatedSuffix;
+  std::string recommendedSuffix;
+  size_t deprecatedSuffixTokenIndex = 0;
+};
+
 // Diagnostics-side expression typing contract.
 // Responsibilities: normalize type tokens, classify literals, model builtin
 // type rules, and infer expression result types for semantic diagnostics.
+// Numeric literal parsing is token-span aware because the shared lexer splits
+// decimal points and exponent signs into punctuation tokens. The accepted
+// decimal/octal/hex literal grammar follows official HLSL numeric literal forms,
+// including exponent notation, leading/trailing decimal points, h/H/f/F/l/L
+// float suffixes, and u/U/l/L integer suffix orderings. Consumers should use
+// parseNumericLiteralFromTokens before falling back to per-token handling.
+// Implementation-only ll/ull integer suffixes are accepted as legacy forms so
+// diagnostics can warn and recommend the standard l/ul spelling.
 std::string normalizeTypeToken(std::string value);
 
 bool isVectorType(const std::string &type, int &dimensionOut);
@@ -49,6 +69,9 @@ std::string makeVectorOrScalarType(const std::string &scalar, int dim);
 std::string makeMatrixType(const std::string &scalar, int rows, int cols);
 
 std::string inferLiteralType(const std::string &token);
+
+NumericLiteralParseResult parseNumericLiteralFromTokens(
+    const std::vector<LexToken> &tokens, size_t index);
 
 size_t numericLiteralTokenSpan(const std::vector<LexToken> &tokens,
                                size_t index);

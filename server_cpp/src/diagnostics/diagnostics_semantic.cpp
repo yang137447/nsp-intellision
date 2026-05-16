@@ -1583,6 +1583,12 @@ void collectReturnAndTypeDiagnostics(
             return current;
           };
 
+          NumericLiteralParseResult numeric =
+              parseNumericLiteralFromTokens(tokens, index);
+          if (numeric.matched && !numeric.type.empty())
+            return applyPostfixType(
+                index + std::max<size_t>(numeric.tokenSpan, 1),
+                numeric.type);
           if (tokens[index].kind == LexToken::Kind::Identifier) {
             int dim = 0;
             int rows = 0;
@@ -1594,10 +1600,6 @@ void collectReturnAndTypeDiagnostics(
             auto it = localsVisibleTypes.find(tokens[index].text);
             if (it != localsVisibleTypes.end())
               return applyPostfixType(index + 1, it->second);
-            std::string numeric =
-                inferNumericLiteralTypeFromTokens(tokens, index);
-            if (!numeric.empty())
-              return applyPostfixType(index + 1, numeric);
             return applyPostfixType(index + 1,
                                     inferLiteralType(tokens[index].text));
           }
@@ -2214,64 +2216,39 @@ void collectReturnAndTypeDiagnostics(
         }
         if (attributeDepth > 0)
           continue;
-        if (tokens[i].kind != LexToken::Kind::Identifier)
+        if (tokens[i].kind != LexToken::Kind::Identifier &&
+            !(tokens[i].kind == LexToken::Kind::Punct && tokens[i].text == "."))
           continue;
-        size_t span = numericLiteralTokenSpan(tokens, i);
-        if (span == 3) {
-          char suffix = 0;
-          if (isSignedDigitsWithOptionalSuffixToken(tokens[i + 2].text,
-                                                    suffix) &&
-              (suffix == 'u' || suffix == 'U')) {
+        NumericLiteralParseResult numeric =
+            parseNumericLiteralFromTokens(tokens, i);
+        if (numeric.matched) {
+          if (!numeric.deprecatedSuffix.empty() &&
+              numeric.deprecatedSuffixTokenIndex < tokens.size()) {
+            const LexToken &suffixToken =
+                tokens[numeric.deprecatedSuffixTokenIndex];
             diags.a.push_back(makeDiagnostic(
-                text, lineIndex, static_cast<int>(tokens[i + 2].start),
-                static_cast<int>(tokens[i + 2].end), 2, "nsf",
-                std::string("Invalid numeric literal suffix: ") + suffix +
+                text, lineIndex, static_cast<int>(suffixToken.start),
+                static_cast<int>(suffixToken.end), 2, "nsf",
+                std::string("Deprecated numeric literal suffix: ") +
+                    numeric.deprecatedSuffix + ". Use " +
+                    numeric.recommendedSuffix + "."));
+          }
+          if (!numeric.valid && numeric.invalidSuffix != 0 &&
+              numeric.invalidSuffixTokenIndex < tokens.size()) {
+            const LexToken &suffixToken = tokens[numeric.invalidSuffixTokenIndex];
+            diags.a.push_back(makeDiagnostic(
+                text, lineIndex, static_cast<int>(suffixToken.start),
+                static_cast<int>(suffixToken.end), 1, "nsf",
+                std::string("Invalid numeric literal suffix: ") +
+                    numeric.invalidSuffix +
                     "."));
           }
-          i += span - 1;
+          if (numeric.tokenSpan > 0)
+            i += numeric.tokenSpan - 1;
           continue;
         }
-        if (span > 0) {
-          i += span - 1;
+        if (tokens[i].kind == LexToken::Kind::Punct)
           continue;
-        }
-        {
-          const std::string &value = tokens[i].text;
-          size_t start = 0;
-          if (!value.empty() && (value[0] == '+' || value[0] == '-'))
-            start = 1;
-          if (start + 2 < value.size() && value[start] == '0' &&
-              (value[start + 1] == 'x' || value[start + 1] == 'X')) {
-            size_t k = start + 2;
-            const size_t digitsStart = k;
-            while (k < value.size() &&
-                   std::isxdigit(static_cast<unsigned char>(value[k]))) {
-              k++;
-            }
-            if (k > digitsStart) {
-              if (k + 1 == value.size() &&
-                  std::isalpha(static_cast<unsigned char>(value[k])) &&
-                  !(value[k] == 'u' || value[k] == 'U')) {
-                diags.a.push_back(makeDiagnostic(
-                    text, lineIndex, static_cast<int>(tokens[i].start),
-                    static_cast<int>(tokens[i].end), 2, "nsf",
-                    std::string("Invalid numeric literal suffix: ") + value[k] +
-                        "."));
-              }
-              continue;
-            }
-          }
-        }
-        char suffix = 0;
-        if (isSignedDigitsWithSingleAlphaSuffixToken(tokens[i].text, suffix) &&
-            !(suffix == 'h' || suffix == 'f' || suffix == 'F' ||
-              suffix == 'u' || suffix == 'U')) {
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(tokens[i].start),
-              static_cast<int>(tokens[i].end), 2, "nsf",
-              std::string("Invalid numeric literal suffix: ") + suffix + "."));
-          continue;
-        }
         const std::string word = tokens[i].text;
         if (isBuiltinOrKeyword(word))
           continue;

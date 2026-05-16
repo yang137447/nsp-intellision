@@ -1,0 +1,25 @@
+float4 NumericLiteralInvalidSuffixMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float invalidDecimal = 1q;
+    float invalidFraction = 1.0q;
+    float invalidExponent = 1e-5q;
+    float invalidFractionExponent = 1.0e+5q;
+    float invalidFloatSuffixTail = 1.0fQ;
+    float invalidHalfSuffixTail = 1.0hQ;
+    float invalidFloatUnsignedSuffix = 1.0u;
+    float invalidIntegerRepeatedUnsignedSuffix = 42ulu;
+    float invalidOctalDigitEight = 08;
+    float invalidOctalDigitNine = 09u;
+    float invalidHex = 0x1p;
+    float invalidHexFloatStyle = 0x1p2;
+    float invalidHexRepeatedUnsignedSuffix = 0x1ulu;
+    return float4(
+        uv,
+        invalidDecimal + invalidFraction + invalidExponent +
+            invalidFractionExponent + invalidFloatSuffixTail +
+            invalidHalfSuffixTail + invalidFloatUnsignedSuffix +
+            invalidIntegerRepeatedUnsignedSuffix + invalidOctalDigitEight +
+            invalidOctalDigitNine + invalidHex +
+            invalidHexFloatStyle + invalidHexRepeatedUnsignedSuffix,
+        1.0);
+}

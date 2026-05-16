@@ -31,6 +31,30 @@ function diagnosticPublishKey(diagnostic: vscode.Diagnostic): string {
 	].join('|');
 }
 
+function diagnosticMessages(diagnostics: readonly vscode.Diagnostic[]): string {
+	return diagnostics.map((diag) => diag.message).join('\n');
+}
+
+function lineOf(document: vscode.TextDocument, needle: string): number {
+	return positionOf(document, needle).line;
+}
+
+function hasDiagnosticOnLine(
+	diagnostics: readonly vscode.Diagnostic[],
+	line: number,
+	message: string
+): boolean {
+	return diagnostics.some((diag) => diag.range.start.line === line && diag.message === message);
+}
+
+function diagnosticOnLine(
+	diagnostics: readonly vscode.Diagnostic[],
+	line: number,
+	message: string
+): vscode.Diagnostic | undefined {
+	return diagnostics.find((diag) => diag.range.start.line === line && diag.message === message);
+}
+
 async function fetchPreprocessorMacroPresetForTests(): Promise<Record<string, string>> {
 	await waitForClientQuiescent('client ready before preprocessor macro preset request');
 	const response = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
@@ -693,6 +717,136 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Undefined identifier: 0xFFu.'));
 		assert.ok(!messages.includes('Undefined identifier: 0x1p.'));
 		assert.ok(messages.includes('Invalid numeric literal suffix: p.'));
+	});
+
+	it('accepts supported numeric literal forms without suffix diagnostics', async () => {
+		const document = await openFixture('module_diagnostics_numeric_literal_exponent.nsf');
+		const narrowingLines = [
+			'half narrowingLeadingDot = .5;',
+			'half narrowingTrailingDot = 1.;',
+			'half narrowingExponent = 1e-5;'
+		];
+		const noSuffixAfterOperatorLine = lineOf(document, 'half noSuffixAfterOperator = 1.0f-HALF_MIN;');
+
+		const diagnostics = await waitFor(
+			() => vscode.languages.getDiagnostics(document.uri),
+			(value) =>
+				Array.isArray(value) &&
+				hasDiagnosticOnLine(
+					value,
+					lineOf(document, 'half narrowingLeadingDot = .5;'),
+					'Assignment type mismatch: half = float.'
+				) &&
+				hasDiagnosticOnLine(
+					value,
+					lineOf(document, 'half narrowingTrailingDot = 1.;'),
+					'Assignment type mismatch: half = float.'
+				) &&
+				hasDiagnosticOnLine(
+					value,
+					lineOf(document, 'half narrowingExponent = 1e-5;'),
+					'Assignment type mismatch: half = float.'
+				) &&
+				hasDiagnosticOnLine(
+					value,
+					lineOf(document, 'half narrowingDoubleSuffix = 1.0L;'),
+					'Assignment type mismatch: half = double.'
+				) &&
+				hasDiagnosticOnLine(
+					value,
+					noSuffixAfterOperatorLine,
+					'Undefined identifier: HALF_MIN.'
+				),
+			'numeric literal positive diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(
+			!messages.includes('Invalid numeric literal suffix:'),
+			`Expected all supported numeric literal forms to avoid suffix diagnostics. Actual:\n${messages}`
+		);
+		assert.ok(!messages.includes('Undefined identifier: 1e.'));
+		assert.ok(!messages.includes('Undefined identifier: 1E.'));
+		assert.ok(!messages.includes('Undefined identifier: 0xFF.'));
+		assert.ok(!messages.includes('Undefined identifier: 0xFFu.'));
+		assert.ok(!messages.includes('Undefined identifier: ..'));
+		for (const lineText of narrowingLines.slice(0, 3)) {
+			assert.ok(
+				hasDiagnosticOnLine(diagnostics, lineOf(document, lineText), 'Assignment type mismatch: half = float.'),
+				`Expected ${lineText} to be parsed as a float literal for half narrowing. Actual diagnostics:\n${messages}`
+			);
+		}
+		assert.ok(
+			hasDiagnosticOnLine(
+				diagnostics,
+				lineOf(document, 'half narrowingDoubleSuffix = 1.0L;'),
+				'Assignment type mismatch: half = double.'
+			),
+			`Expected double-suffixed literal to be parsed as double. Actual diagnostics:\n${messages}`
+		);
+		assert.ok(
+			hasDiagnosticOnLine(
+				diagnostics,
+				noSuffixAfterOperatorLine,
+				'Undefined identifier: HALF_MIN.'
+			),
+			`Expected '-' after a suffixed literal to remain an operator, not a suffix. Actual diagnostics:\n${messages}`
+		);
+		assert.ok(
+			!hasDiagnosticOnLine(
+				diagnostics,
+				noSuffixAfterOperatorLine,
+				'Invalid numeric literal suffix: -.'
+			),
+			`Expected '-' after a suffixed literal to remain an operator, not a suffix. Actual diagnostics:\n${messages}`
+		);
+
+		const warnings: Array<{ lineText: string; message: string }> = [
+			{ lineText: 'int legacyLongLongLower = 42ll;', message: 'Deprecated numeric literal suffix: ll. Use l.' },
+			{ lineText: 'uint legacyUnsignedLongLongLower = 42ull;', message: 'Deprecated numeric literal suffix: ull. Use ul.' },
+			{ lineText: 'uint legacyLongLongUnsignedUpper = 42LLU;', message: 'Deprecated numeric literal suffix: LLU. Use ul.' },
+			{ lineText: 'int legacyHexLongLongLower = 0xFFll;', message: 'Deprecated numeric literal suffix: ll. Use l.' },
+			{ lineText: 'uint legacyHexUnsignedLongLongLower = 0xFFull;', message: 'Deprecated numeric literal suffix: ull. Use ul.' },
+			{ lineText: 'uint legacyHexLongLongUnsignedUpper = 0xFFLLU;', message: 'Deprecated numeric literal suffix: LLU. Use ul.' }
+		];
+		for (const item of warnings) {
+			const diagnostic = diagnosticOnLine(diagnostics, lineOf(document, item.lineText), item.message);
+			assert.ok(diagnostic, `Expected ${item.message} on line "${item.lineText}". Actual diagnostics:\n${messages}`);
+			assert.strictEqual(diagnostic.severity, vscode.DiagnosticSeverity.Warning);
+		}
+	});
+
+	it('keeps invalid numeric suffix diagnostics for malformed literals', async () => {
+		const document = await openFixture('module_diagnostics_numeric_literal_invalid_suffix.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => value.filter((diag) => diag.message.startsWith('Invalid numeric literal suffix:')).length >= 10,
+			'numeric literal invalid suffix diagnostics'
+		);
+
+		const expected: Array<{ lineText: string; message: string }> = [
+			{ lineText: 'float invalidDecimal = 1q;', message: 'Invalid numeric literal suffix: q.' },
+			{ lineText: 'float invalidFraction = 1.0q;', message: 'Invalid numeric literal suffix: q.' },
+			{ lineText: 'float invalidExponent = 1e-5q;', message: 'Invalid numeric literal suffix: q.' },
+			{ lineText: 'float invalidFractionExponent = 1.0e+5q;', message: 'Invalid numeric literal suffix: q.' },
+			{ lineText: 'float invalidFloatSuffixTail = 1.0fQ;', message: 'Invalid numeric literal suffix: Q.' },
+			{ lineText: 'float invalidHalfSuffixTail = 1.0hQ;', message: 'Invalid numeric literal suffix: Q.' },
+			{ lineText: 'float invalidFloatUnsignedSuffix = 1.0u;', message: 'Invalid numeric literal suffix: u.' },
+			{ lineText: 'float invalidIntegerRepeatedUnsignedSuffix = 42ulu;', message: 'Invalid numeric literal suffix: u.' },
+			{ lineText: 'float invalidOctalDigitEight = 08;', message: 'Invalid numeric literal suffix: 8.' },
+			{ lineText: 'float invalidOctalDigitNine = 09u;', message: 'Invalid numeric literal suffix: 9.' },
+			{ lineText: 'float invalidHex = 0x1p;', message: 'Invalid numeric literal suffix: p.' },
+			{ lineText: 'float invalidHexFloatStyle = 0x1p2;', message: 'Invalid numeric literal suffix: p.' },
+			{ lineText: 'float invalidHexRepeatedUnsignedSuffix = 0x1ulu;', message: 'Invalid numeric literal suffix: u.' }
+		];
+
+		const messages = diagnosticMessages(diagnostics);
+		for (const item of expected) {
+			const diagnostic = diagnosticOnLine(diagnostics, lineOf(document, item.lineText), item.message);
+			assert.ok(diagnostic, `Expected ${item.message} on line "${item.lineText}". Actual diagnostics:\n${messages}`);
+			assert.strictEqual(diagnostic.severity, vscode.DiagnosticSeverity.Error);
+		}
 	});
 
 	it('does not flag builtin function calls as undefined identifiers', async () => {

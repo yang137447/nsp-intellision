@@ -114,6 +114,7 @@
 - `hover_markdown.*` / `hover_rendering.*`: hover 内容渲染
 - `completion_rendering.*`: completion item 拼装
 - `diagnostics/*`: diagnostics facade、semantic rules、expression type、symbol type、emit、preprocessor、syntax 和 indeterminate 分层
+- `diagnostics_expression_type.*`: diagnostics 共享表达式类型 helper；负责类型 token 归一化、builtin call 类型规则、numeric literal token-span 解析和表达式结果类型推断。numeric literal 解析必须在该共享入口按官方 HLSL numeric literal 语法处理，因为当前 lexer 会把 decimal point 和 exponent sign 切为 punctuation token，semantic diagnostics 不应在规则层复制后缀判断；合法 exponent、leading/trailing dot、octal / hex integer、`h/H/f/F/l/L` 浮点 suffix 和 `u/U/l/L` 整数 suffix 组合都应在这里统一判定。implementation-only `ll/ull` 整数 suffix 作为历史写法只应由共享入口产生 warning 并推荐 `l/ul`，真正不符合语法的 suffix 继续作为 error。
 - `semantic_tokens.*`: 语义高亮主入口；在 deferred semantic snapshot 可用时消费 `SemanticSnapshot` 输出变量角色、声明和修改信号，fallback 仍保持词法扫描；comment / string 着色继续由 TextMate grammar / 编辑器壳层负责；`.nsf/.hlsl` 走同一 LSP semantic-token 路径，`.hlsl` 的 active-unit-sensitive 上下文来自当前 `.nsf` include context，`.nsf` 仍是唯一 active/root unit
 - `hlsl_builtin_docs.*`: builtin 函数 registry 和文档 / 签名查询
 - `language_registry.*`: language/keywords、language/directives、language/semantics、language/preprocessor_macros 的统一加载与查询

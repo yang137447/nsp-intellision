@@ -1,0 +1,51 @@
+float4 NumericLiteralPositiveMain(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float decimalInteger = 1;
+    float decimalFraction = 1.0;
+    float decimalTrailingDot = 1.;
+    float decimalLeadingDot = .5;
+    float exponentLower = 1e-5;
+    float exponentUpper = 1E+5;
+    float exponentPlain = 1e5;
+    float exponentNoSignUpper = 1E5;
+    float exponentFraction = 1.0e-5;
+    float exponentFractionNoSign = 1.0e5;
+    float exponentLongFraction = 0.61572017898280213493197203466e-2f;
+    float exponentTrailingDot = 1.e-5;
+    float exponentLeadingDot = .5e+1;
+    float exponentFloatSuffix = 1.0e+5f;
+    float exponentUpperFloatSuffix = 1.0E-5F;
+    half halfSuffix = 1.0h;
+    half upperHalfSuffix = 1.0H;
+    double doubleSuffix = 1.0L;
+    uint integerSuffixLower = 42u;
+    uint integerSuffixUpper = 42U;
+    int integerLongLower = 42l;
+    int integerLongUpper = 42L;
+    uint integerUnsignedLongLower = 42ul;
+    uint integerLongUnsignedUpper = 42LU;
+    int octalInteger = 077;
+    uint octalUnsignedLong = 077ul;
+    int legacyLongLongLower = 42ll;
+    uint legacyUnsignedLongLongLower = 42ull;
+    uint legacyLongLongUnsignedUpper = 42LLU;
+    int hexInteger = 0xFF;
+    uint hexUnsignedLower = 0xFFu;
+    uint hexUnsignedUpper = 0xFFU;
+    int hexLongLower = 0xFFl;
+    int hexLongUpper = 0xFFL;
+    uint hexUnsignedLongLower = 0xFFul;
+    uint hexLongUnsignedUpper = 0xFFLU;
+    int legacyHexLongLongLower = 0xFFll;
+    uint legacyHexUnsignedLongLongLower = 0xFFull;
+    uint legacyHexLongLongUnsignedUpper = 0xFFLLU;
+    half narrowingLeadingDot = .5;
+    half narrowingTrailingDot = 1.;
+    half narrowingExponent = 1e-5;
+    half narrowingDoubleSuffix = 1.0L;
+    half noSuffixAfterOperator = 1.0f-HALF_MIN;
+    return float4(
+        uv + exponentLower.xx + decimalLeadingDot.xx,
+        exponentPlain + exponentTrailingDot + exponentLeadingDot + hexInteger,
+        1.0);
+}
