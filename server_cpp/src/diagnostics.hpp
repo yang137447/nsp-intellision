@@ -33,6 +33,7 @@ struct DiagnosticsBuildOptions {
   int indeterminateSeverity = 4;
   int indeterminateMaxItems = 200;
   bool indeterminateSuppressWhenErrors = true;
+  bool typeConversionRiskWarningsEnabled = false;
 };
 
 struct DiagnosticsBuildResult {

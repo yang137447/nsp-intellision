@@ -26,4 +26,5 @@ void applySettingsFromJson(
     int &diagnosticsIndeterminateSeverity,
     int &diagnosticsIndeterminateMaxItems,
     bool &diagnosticsIndeterminateSuppressWhenErrors,
+    bool &diagnosticsTypeConversionRiskWarningsEnabled,
     int &indexingWorkerCount, int &indexingQueueCapacity);

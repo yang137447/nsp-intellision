@@ -64,7 +64,7 @@
   - 报告会自动生成 baseline trend，比较 summary、triage、category 和 top canonical messages；5-unit 优先对比 `phase-00-baseline-smoke-5`，50-unit 优先对比 `phase-00-baseline-trend-50`，full audit 对比 `baseline-2026-05-16`，缺少同范围 baseline 时回退到 2026-05-16 full baseline；可用 `NSF_REAL_DIAGNOSTICS_BASELINE_JSON` 指向其他 baseline，或设为 `none` 禁用比较
   - 报告 summary / fileStats 会记录 semantic rule prerequisites skipped metadata，包括 active unit、include closure、preprocessor context、parser region、semantic snapshot、local scope 和 expression type 相关 skipped reason；这些计数表示高置信 semantic diagnostics 因上下文前提不足被跳过，不是用户可见 diagnostics
   - 趋势判断应优先核对 `diagnosticsTotal`、triage/category delta、top message delta、affected units/files，以及 `truncatedFiles`、`timedOutFiles`、`fileErrors` 是否增加；如果 truncated / timeout 增加，阶段报告必须单独说明原因
-  - 合法但有风险的隐式转换 warning 会归入 `type-conversion-risk` / `needs-manual-review`，包括 truncation、boolean、floating-integral、signedness 和 narrowing；分析 builtin / object method 阶段时应区分 mismatch 下降与风险 warning 上升
+  - 合法但有风险的隐式转换 warning 会归入 `type-conversion-risk` / `needs-manual-review`，包括 truncation、boolean、floating-integral、signedness 和 narrowing；这些 warning 默认不在 `balanced` mode 发布，只有 `full` mode 用于源码审核或专项治理时才应出现在 audit 中。分析 builtin / object method 阶段时应区分 mismatch 下降与风险 warning 上升
   - 默认不随 real suite 执行；需要显式设置：
 
 ```powershell

@@ -72,7 +72,8 @@ std::string buildDiagnosticsFingerprint(const DiagnosticsBuildOptions &options) 
       << (options.indeterminateEnabled ? "1" : "0") << "|"
       << options.indeterminateSeverity << "|"
       << options.indeterminateMaxItems << "|"
-      << (options.indeterminateSuppressWhenErrors ? "1" : "0");
+      << (options.indeterminateSuppressWhenErrors ? "1" : "0") << "|"
+      << (options.typeConversionRiskWarningsEnabled ? "1" : "0");
   return oss.str();
 }
 

@@ -108,6 +108,7 @@ int main(int argc, char **argv) {
         core.diagnosticsIndeterminateSeverity,
         core.diagnosticsIndeterminateMaxItems,
         core.diagnosticsIndeterminateSuppressWhenErrors,
+        core.diagnosticsTypeConversionRiskWarningsEnabled,
         core.indexingWorkerCount, core.indexingQueueCapacity);
     setConfiguredPreprocessorMacros(preprocessorMacros);
     core.preprocessorDefines = preprocessorDefines;
@@ -183,6 +184,8 @@ int main(int argc, char **argv) {
         core.diagnosticsIndeterminateMaxItems;
     context.diagnosticsOptions.indeterminateSuppressWhenErrors =
         core.diagnosticsIndeterminateSuppressWhenErrors;
+    context.diagnosticsOptions.typeConversionRiskWarningsEnabled =
+        core.diagnosticsTypeConversionRiskWarningsEnabled;
     context.diagnosticsOptions.activeUnitUri = getActiveUnitUri();
     if (context.diagnosticsOptions.activeUnitUri.empty()) {
       const std::string activeUnitPath = getActiveUnitPath();
@@ -525,6 +528,8 @@ int main(int argc, char **argv) {
                 core.diagnosticsIndeterminateMaxItems;
             fastJob.diagnosticsOptions.indeterminateSuppressWhenErrors =
                 core.diagnosticsIndeterminateSuppressWhenErrors;
+            fastJob.diagnosticsOptions.typeConversionRiskWarningsEnabled =
+                core.diagnosticsTypeConversionRiskWarningsEnabled;
             const int delayMs = fastDelayOverrideMs >= 0
                                     ? fastDelayOverrideMs
                                     : core.diagnosticsFastDelayMs;
@@ -564,6 +569,8 @@ int main(int argc, char **argv) {
                 core.diagnosticsIndeterminateMaxItems;
             fullJob.diagnosticsOptions.indeterminateSuppressWhenErrors =
                 core.diagnosticsIndeterminateSuppressWhenErrors;
+            fullJob.diagnosticsOptions.typeConversionRiskWarningsEnabled =
+                core.diagnosticsTypeConversionRiskWarningsEnabled;
             const int delayMs = fullDelayOverrideMs >= 0
                                     ? fullDelayOverrideMs
                                     : core.diagnosticsFullDelayMs;
@@ -2062,6 +2069,8 @@ int main(int argc, char **argv) {
             core.diagnosticsIndeterminateMaxItems;
         auditContext.diagnosticsOptions.indeterminateSuppressWhenErrors =
             core.diagnosticsIndeterminateSuppressWhenErrors;
+        auditContext.diagnosticsOptions.typeConversionRiskWarningsEnabled =
+            core.diagnosticsTypeConversionRiskWarningsEnabled;
       }
       if (id.type != Json::Type::Null)
         writeResponse(id, buildDiagnosticsAuditDiagnosticsDebugResponse(

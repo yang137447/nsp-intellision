@@ -56,7 +56,8 @@ void collectReturnAndTypeDiagnostics(
     int timeBudgetMs, size_t maxDiagnostics, bool &timedOut,
     bool indeterminateEnabled, int indeterminateSeverity,
     size_t indeterminateMaxItems, size_t &indeterminateCount,
-    DiagnosticsPrerequisiteSkipStats &prerequisiteSkips) {
+    DiagnosticsPrerequisiteSkipStats &prerequisiteSkips,
+    bool typeConversionRiskWarningsEnabled) {
   const auto diagnosticsStart = std::chrono::steady_clock::now();
   const auto diagnosticsBudget =
       std::chrono::milliseconds(std::max(30, timeBudgetMs));
@@ -396,7 +397,7 @@ void collectReturnAndTypeDiagnostics(
           return;
         }
         std::string warning = typeRelationWarningMessage(relation);
-        if (!warning.empty()) {
+        if (typeConversionRiskWarningsEnabled && !warning.empty()) {
           diags.a.push_back(
               makeDiagnostic(text, line, startByte, endByte, 2, "nsf", warning));
         }
@@ -407,7 +408,7 @@ void collectReturnAndTypeDiagnostics(
     if (!canPublishRule(DiagnosticsRuleKind::ExpressionType, line, true))
       return;
     std::string warning = typeRelationWarningMessage(relation);
-    if (!warning.empty()) {
+    if (typeConversionRiskWarningsEnabled && !warning.empty()) {
       diags.a.push_back(
           makeDiagnostic(text, line, startByte, endByte, 2, "nsf", warning));
     }

@@ -54,6 +54,7 @@ struct ServerRequestContext {
   int diagnosticsIndeterminateSeverity = 4;
   int diagnosticsIndeterminateMaxItems = 200;
   bool diagnosticsIndeterminateSuppressWhenErrors = true;
+  bool diagnosticsTypeConversionRiskWarningsEnabled = false;
   int indexingWorkerCount = 16;
   int indexingQueueCapacity = 4096;
   std::unordered_map<std::string, int> preprocessorDefines;

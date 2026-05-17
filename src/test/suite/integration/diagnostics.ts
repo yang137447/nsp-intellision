@@ -62,6 +62,33 @@ function debugDiagnosticMessages(response: any): string {
 		.join('\n');
 }
 
+type DiagnosticsMode = 'basic' | 'balanced' | 'full';
+
+async function withDiagnosticsMode<T>(mode: DiagnosticsMode, fn: () => Promise<T>): Promise<T> {
+	await waitForClientQuiescent(`client ready before diagnostics mode ${mode}`);
+	const configuration = vscode.workspace.getConfiguration('nsf');
+	const inspectedMode = configuration.inspect<string>('diagnostics.mode');
+	const originalMode = inspectedMode?.workspaceValue;
+	try {
+		await configuration.update('diagnostics.mode', mode, vscode.ConfigurationTarget.Workspace);
+		await waitForClientQuiescent(`diagnostics mode ${mode} settled`);
+		return await fn();
+	} finally {
+		await configuration.update('diagnostics.mode', originalMode, vscode.ConfigurationTarget.Workspace);
+		await waitForClientQuiescent('diagnostics mode restored');
+	}
+}
+
+function itWithDiagnosticsMode(
+	mode: DiagnosticsMode,
+	title: string,
+	fn: (this: Mocha.Context) => Promise<void>
+): void {
+	it(title, async function () {
+		await withDiagnosticsMode(mode, () => fn.call(this));
+	});
+}
+
 function prerequisiteSkipCount(response: any, key: string): number {
 	const value = response?.prerequisiteSkips?.[key];
 	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -146,7 +173,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Unterminated preprocessor conditional: #if.'));
 	});
 
-	it('filters diagnostics based on #if evaluation for numeric defines', async () => {
+	itWithDiagnosticsMode('full', 'filters diagnostics based on #if evaluation for numeric defines', async () => {
 		const offDoc = await openFixture('module_diagnostics_preprocessor_eval_off.nsf');
 		const offDiagnostics = await waitFor(
 			() => vscode.languages.getDiagnostics(offDoc.uri),
@@ -166,7 +193,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(onMessages.includes('Implicit truncation conversion: float4 -> float2. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
-	it('expands object-like macros and arithmetic comparisons in #if expressions', async () => {
+	itWithDiagnosticsMode('full', 'expands object-like macros and arithmetic comparisons in #if expressions', async () => {
 		const document = await openFixture('module_diagnostics_preprocessor_object_macro_expr.nsf');
 
 		const diagnostics = await waitFor(
@@ -363,7 +390,7 @@ export function registerDiagnosticsTests(): void {
 		}
 	});
 
-	it('publishes diagnostics for missing return and invalid return usage', async () => {
+	itWithDiagnosticsMode('full', 'publishes diagnostics for missing return and invalid return usage', async () => {
 		const document = await openFixture('module_diagnostics_return_errors.nsf');
 
 		const diagnostics = await waitFor(
@@ -379,7 +406,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
-	it('publishes diagnostics for assignment and operator type mismatches', async () => {
+	itWithDiagnosticsMode('full', 'publishes diagnostics for assignment and operator type mismatches', async () => {
 		const assignDoc = await openFixture('module_diagnostics_type_mismatch_assign.nsf');
 		const assignDiagnostics = await waitFor(
 			() => vscode.languages.getDiagnostics(assignDoc.uri),
@@ -408,7 +435,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(opMessages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
-	it('models official HLSL implicit conversions with risk warnings', async () => {
+	itWithDiagnosticsMode('full', 'models official HLSL implicit conversions with risk warnings', async () => {
 		const document = await openFixture('module_diagnostics_type_relation_official_conversions.nsf');
 
 		const diagnostics = await waitForDiagnostics(
@@ -462,7 +489,38 @@ export function registerDiagnosticsTests(): void {
 		));
 	});
 
-	it('keeps semantic diagnostics across comment-only edits before replacement full diagnostics is ready', async () => {
+	itWithDiagnosticsMode('balanced', 'suppresses type-conversion risk warnings in balanced mode', async () => {
+		const document = await openFixture('module_diagnostics_type_relation_official_conversions.nsf');
+		const riskWarnings = [
+			'Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.',
+			'Implicit narrowing conversion: float -> half. Use an explicit cast if this is intentional.',
+			'Implicit floating-integral conversion: int -> half. Use an explicit cast if this is intentional.',
+			'Implicit floating-integral conversion: float -> int. Use an explicit cast if this is intentional.',
+			'Implicit signedness conversion: int -> uint. Use an explicit cast if this is intentional.',
+			'Implicit boolean conversion: int -> bool. Use an explicit cast if this is intentional.',
+			'Implicit boolean conversion: bool -> int. Use an explicit cast if this is intentional.'
+		];
+
+		const diagnostics = await waitForDiagnosticsWithTouches(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Assignment type mismatch: float3 = float2.') &&
+					riskWarnings.every((message) => !messages.includes(message))
+				);
+			},
+			'balanced conversion-risk diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(messages.includes('Assignment type mismatch: float3 = float2.'), messages);
+		for (const warning of riskWarnings) {
+			assert.ok(!messages.includes(warning), messages);
+		}
+	});
+
+	itWithDiagnosticsMode('full', 'keeps semantic diagnostics across comment-only edits before replacement full diagnostics is ready', async () => {
 		let document = await openFixture('module_diagnostics_type_mismatch_assign.nsf');
 		const mismatchText = 'Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.';
 		const restoreText = '    // continuity comment\n';
@@ -510,7 +568,7 @@ export function registerDiagnosticsTests(): void {
 		}
 	});
 
-	it('keeps same-line semantic diagnostics across whitespace-only edits when full rebuild is skipped', async () => {
+	itWithDiagnosticsMode('full', 'keeps same-line semantic diagnostics across whitespace-only edits when full rebuild is skipped', async () => {
 		let document = await openFixture('module_diagnostics_type_mismatch_assign.nsf');
 		const mismatchText = 'Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.';
 		const whitespaceInsert = '  ';
@@ -606,7 +664,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(mismatchMessages.includes('Assignment type mismatch: float3 = float2.'));
 	});
 
-	it('infers cbuffer member types for assignment type checking', async () => {
+	itWithDiagnosticsMode('full', 'infers cbuffer member types for assignment type checking', async () => {
 		const okDoc = await openFixture('module_diagnostics_global_symbol_type_ok.nsf');
 		const okDiagnostics = await waitFor(
 			() => vscode.languages.getDiagnostics(okDoc.uri),
@@ -626,7 +684,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(mismatchMessages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
-	it('resolves cbuffer members from other files through workspace scan', async () => {
+	itWithDiagnosticsMode('full', 'resolves cbuffer members from other files through workspace scan', async () => {
 		await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 		await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 			await waitForIndexingIdle('indexing idle for external cbuffer diagnostics');
@@ -713,7 +771,7 @@ export function registerDiagnosticsTests(): void {
 		});
 	});
 
-	it('supports float4x4 and matrix mul type inference', async () => {
+	itWithDiagnosticsMode('full', 'supports float4x4 and matrix mul type inference', async () => {
 		const document = await openFixture('module_diagnostics_matrix_mul.nsf');
 		const diagnostics = await waitFor(
 			() => vscode.languages.getDiagnostics(document.uri),
@@ -726,7 +784,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
 	});
 
-	it('supports matrix index type inference in arithmetic expressions', async () => {
+	itWithDiagnosticsMode('full', 'supports matrix index type inference in arithmetic expressions', async () => {
 		const document = await openFixture('module_diagnostics_matrix_index.nsf');
 		const diagnostics = await waitFor(
 			() => vscode.languages.getDiagnostics(document.uri),
@@ -752,7 +810,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Undefined identifier: UnknownVar2.'));
 	});
 
-	it('skips high-confidence semantic diagnostics when parser region prerequisites are unreliable', async () => {
+	itWithDiagnosticsMode('full', 'skips high-confidence semantic diagnostics when parser region prerequisites are unreliable', async () => {
 		const document = await openFixture('module_diagnostics_prerequisites_parser_region.nsf');
 
 		const diagnostics = await waitForDiagnostics(
@@ -1004,7 +1062,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Undefined identifier: s_distort1.'));
 	});
 
-	it('infers texture Sample() call return types', async () => {
+	itWithDiagnosticsMode('full', 'infers texture Sample() call return types', async () => {
 		await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 		await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
 			await waitForIndexingIdle('indexing idle for texture sample diagnostics');
@@ -1043,7 +1101,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Built-in method call type mismatch: Load.'));
 	});
 
-	it('matches built-in object method arguments through shared object semantics', async () => {
+	itWithDiagnosticsMode('full', 'matches built-in object method arguments through shared object semantics', async () => {
 		const document = await openFixture('module_diagnostics_builtin_object_method_matching.nsf');
 		const truncationMessage =
 			'Implicit truncation conversion: float3 -> float2. Use an explicit cast or swizzle if this is intentional.';
@@ -1165,7 +1223,7 @@ export function registerDiagnosticsTests(): void {
 		assert.strictEqual(undefinedMacroDiag!.severity, vscode.DiagnosticSeverity.Error);
 	});
 
-	it('publishes diagnostics for narrowing assignment into half', async () => {
+	itWithDiagnosticsMode('full', 'publishes diagnostics for narrowing assignment into half', async () => {
 		const document = await openFixture('module_diagnostics_half_narrowing.nsf');
 
 		const diagnostics = await waitFor(
@@ -1214,7 +1272,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(hoverText.includes('Returns: float3'), hoverText);
 	});
 
-	it('publishes narrowing warnings for pow and normalize into half-family targets', async () => {
+	itWithDiagnosticsMode('full', 'publishes narrowing warnings for pow and normalize into half-family targets', async () => {
 		const powDocument = await openFixture('narrowing_pow_half.nsf');
 		const powDiagnostics = await waitFor(
 			() => vscode.languages.getDiagnostics(powDocument.uri),
@@ -1254,7 +1312,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(indeterminateCodes.length > 0, 'Expected indeterminate diagnostics with NSF_INDET_* code.');
 	});
 
-	it('publishes diagnostics for builtin overload argument mismatches', async () => {
+	itWithDiagnosticsMode('full', 'publishes diagnostics for builtin overload argument mismatches', async () => {
 		const document = await openFixture('module_diagnostics_hlsl_builtin_overload_args.nsf');
 
 		const diagnostics = await waitFor(
@@ -1299,7 +1357,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Expected: (p).'));
 	});
 
-	it('displays inferred argument types instead of nearby identifiers in user function conversion diagnostics', async () => {
+	itWithDiagnosticsMode('full', 'displays inferred argument types instead of nearby identifiers in user function conversion diagnostics', async () => {
 		const document = await openFixture('module_diagnostics_user_function_call_arg_display_regression.nsf');
 
 		const diagnostics = await waitFor(
@@ -1612,7 +1670,7 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Potential missing return on some paths.'));
 	});
 
-	it('publishes diagnostics for comparison operator type mismatches', async () => {
+	itWithDiagnosticsMode('full', 'publishes diagnostics for comparison operator type mismatches', async () => {
 		const document = await openFixture('module_diagnostics_type_mismatch_compare.nsf');
 
 		const diagnostics = await waitFor(

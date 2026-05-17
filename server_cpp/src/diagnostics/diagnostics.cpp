@@ -126,7 +126,8 @@ buildDiagnosticsWithOptions(const std::string &uri, const std::string &text,
         maxDiagnostics,
         result.timedOut, options.indeterminateEnabled,
         options.indeterminateSeverity, indeterminateMaxItems,
-        indeterminateCount, result.prerequisiteSkips);
+        indeterminateCount, result.prerequisiteSkips,
+        options.typeConversionRiskWarningsEnabled);
     if (result.diagnostics.a.size() >= maxDiagnostics) {
       result.truncated = true;
     }

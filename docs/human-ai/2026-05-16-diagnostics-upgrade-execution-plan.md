@@ -761,7 +761,8 @@ Git 记录：
 
 Git 记录：
 
-- 本阶段尚未本地提交。
+- 2026-05-17 已本地提交 P6 阶段：`2046e9c fix: unify builtin method diagnostics`。
+- 本阶段未执行远端 push；如后续需要上传远端，应在 push 后追加记录目标 remote / branch。
 
 ## Phase 7: 建立 diagnostics 可信度和发布前提契约
 
@@ -884,6 +885,178 @@ Git 记录：
 - 剩余 top groups 均有明确 owner：LSP、workspace config、source、rule decision。
 - 最终报告可指导下一轮真实源码审核。
 
+### Phase 8 执行记录
+
+状态：已完成 full audit 和剩余 diagnostics 分流。
+
+实现内容：
+
+- 使用 Phase 4 之后的临时 copy workspace `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace` 跑 full 813-unit audit，避免修改真实 workspace，同时保留补齐后的 `nsf.preprocessorMacros` preset 口径。
+- 生成阶段报告 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-08-final-full.{json,md}`。
+- 将详细分流表直接并入本执行计划，按 LSP、workspace config、source review 和 rule decision 对剩余 top groups 归因。
+- 本阶段未改 diagnostics 代码、资源、schema、测试 helper 或公开行为。
+
+full audit 结果：
+
+- `NSF units scanned=813`，`unitFileVisits=25985`，`filesScanned=1191`。
+- `diagnosticsTotal=306981`，相对 2026-05-16 baseline `463556` 下降 `156575`（`-33.78%`）。
+- `likely-plugin-limitation=22710`，相对 baseline `373861` 下降 `351151`（`-93.93%`），不再占据绝对主导。
+- `needs-manual-review=273719`，主要由新增显式分类的 `type-conversion-risk=251553` 构成。
+- `check-config-or-source=10549`，主要是项目 / workspace 宏未配置。
+- `numeric-literal=0`，`Built-in method call type mismatch=0`，builtin mixed signedness 旧 top groups 为 `0`。
+- `Diagnostic wait timeouts=0`，`fileErrors=0`。
+- `truncatedFiles=1`、`timedOutFiles=1`，均为既有 `ui/floor_board_ui.nsf -> ui/floor_board_ui.nsf`，未比 baseline 增加。
+- `prerequisiteSkippedTotal=178989`，其中 `parser_region_unreliable=121189`、`expression_type_unavailable=57800`；这些是 debug / audit metadata，不是用户可见 diagnostics。
+
+剩余分流结论：
+
+- Rule decision / source review：`type-conversion-risk` 是当前最大量级，需要先决定 `balanced` mode 是否应默认显示这一类合法但有风险的隐式转换 warning，再交源码侧按需加显式 cast / swizzle。
+- Workspace config / source config：`Undefined macro in preprocessor expression` 剩余样本集中在 `RENDER_VELOCITY`、`COLOR_CHANGE_MODE`、`COLOR_CHANGE_PICKER`、`COLOR_CHANGE_MULTIPLE`、`COLOR_CHANGE_GRADIENT`、`CHANNEL_COLOR_CHANGE` 等项目宏或 enum 宏，应通过 workspace 配置或真实 include context 进入，不进入正式资源 bundle。
+- LSP 后续治理：boolean literal 被 undefined identifier 扫到、macro define numeric typing、`MaterialFloat4(...)` 这类 macro-like constructor typing、多行 return / constructor expression parser boundary、control-flow return completeness、`smaa.hlsl` 条件栈和 `sincos/log/log2/fwidth/round/cosh` builtin modeling。
+- Source review 优先样本：`grass_max_offset` only-use、`SampleTexArryPkgNormalBias` 定义 5 参数但调用 4 参数、`GetVisibility(float,float3)` 被传入 `float2`、`shading_models.hlsl` 中两个同签名 `Init(...)`。
+
+Phase 8 剩余 top groups 分流表：
+
+| Group | Count | Owner | 依据与下一步 |
+| --- | ---: | --- | --- |
+| Implicit narrowing / floating-integral / signedness / truncation / boolean conversion | 251553 | Rule decision + source review | 合法但有风险的隐式转换 warning；需要先决定 `balanced` 是否承载这一级噪声，源码侧按需补显式 cast / swizzle，不写成资源或 diagnostics 特判。 |
+| Undefined macro in preprocessor expression | 10549 | Workspace config / source config | 样本集中在 `RENDER_VELOCITY`、`COLOR_CHANGE_MODE`、`COLOR_CHANGE_PICKER`、`COLOR_CHANGE_MULTIPLE`、`COLOR_CHANGE_GRADIENT`、`CHANNEL_COLOR_CHANGE` 等项目宏或枚举宏，应由 workspace `nsf.preprocessorMacros` / `nsf.defines` 或真实 include context 提供。 |
+| Duplicate local declaration | 10289 | Workspace config first, then source review | 样本来自 `surface_functions.hlsl` 的 `COLOR_CHANGE_MODE == ...` 多分支；缺少 enum/config 宏会让多个分支同时按 `0 == 0` 进入 active analysis。 |
+| Undefined identifier | 11733 | Mixed: LSP + source/config | 样本包含 `true` 这类应作为 boolean literal 处理的 LSP 问题，也包含 `grass_max_offset` 这类 search root 内只找到使用点的 source/config 问题；后续 audit 可增加 exact-symbol 聚合。 |
+| Missing semicolon, effect-syntax-or-macro | 3056 | LSP parser/recovery | 样本是合法多行 `return lerp(...)` / `return float3x3(...)` 形式，应补 focused fixture 继续收敛 multiline return / constructor expression boundary。 |
+| Missing semicolon, syntax-structure | 3886 | LSP parser/recovery + source review | 样本包含合法多行 constructor return，如 `return half3(...` 后续行闭合并有分号；先按 parser boundary 治理，剩余真实缺分号再交源码侧。 |
+| Function call argument mismatch | 2243 | Mixed: source/config + LSP context | `GetVisibility(float,float3)` 被传入 `float2` 的样本看起来像真实源码或 inactive branch 配置问题；需结合 `SHADOW_AA` active branch 和真实编译结果确认。 |
+| Return type mismatch | 1478 | LSP type/macro alias modeling | `return MaterialFloat4(...)` 被推成 `define`，说明 macro-like type alias / constructor typing 仍不完整，应补 focused fixture。 |
+| Assignment type mismatch | 3789 | LSP expression typing | ternary / macro constants 被推成 `ifndef` / `define` 等样本说明 conditional expression 和 define numeric value typing 仍需收敛。 |
+| Builtin call type mismatch | 287 | Mixed: source + LSP matrix/shape modeling | `mul(float3x3, half2)` 样本可能是真实形状错误，也可能被上游 member/alias typing 污染，需要抽样编译确认。 |
+| Function call argument count mismatch | 90 | Source review first | `SampleTexArryPkgNormalBias` 定义为 5 个参数，样本调用传 4 个参数；search root 内只找到该定义。 |
+| Indeterminate builtin call | 33 | LSP builtin/type modeling | `sincos`、`log/log2` vector form、`fwidth`、`round`、`cosh` 等 builtin rule 未覆盖；另有 `define` 参数类型不可用。 |
+| Unreachable code / potential missing return | 7671 | LSP control-flow precision + source review | 多个样本看起来不是不可达或缺 return，例如 `InShadowMapRange` 的 if/else 两支均 return；应补 control-flow focused fixture。 |
+| Duplicate global declaration | 307 | Source review | `shading_models.hlsl` 中存在两个同签名 `void Init(...)`，优先按真实源码重复声明处理。 |
+| Duplicate parameter declaration / local shadows parameter | 3 | LSP parser + source review | `1.025f` 被抽成 `025f` 的 duplicate parameter 样本显示 NSF 参数块 / numeric parser 仍有边界问题；`Local shadows parameter` 需要源码侧确认命名意图。 |
+| Unterminated preprocessor conditional | 3 | LSP preprocessor parser/recovery | 报告样本指向 `smaa.hlsl:700 #if SMAA_INCLUDE_PS`，但同文件后续存在 `#endif // SMAA_INCLUDE_PS`；需先补 preprocessor conditional fixture 复核。 |
+
+后续建议：
+
+1. 先做 diagnostics policy 决策，即 `type-conversion-risk` 是否继续在 `balanced` 中默认显示。
+2. 做 workspace config 宏清单，把 `COLOR_CHANGE_*`、`RENDER_VELOCITY`、`SHADOW_AA_*` 等项目宏来源分为真实编译配置、项目 enum 常量和源码缺省值。
+3. 做下一轮 LSP focused fixtures：boolean literal undefined、macro define numeric typing、macro-like constructor return、multiline return / constructor expression、control-flow return completeness、`smaa.hlsl` conditional stack、builtin `sincos/log/log2/fwidth/round/cosh`。
+4. 做源码侧抽样清单：`grass_max_offset` only-use、`SampleTexArryPkgNormalBias` 4/5 参数不一致、`GetVisibility` float2/float3 不一致、`shading_models.hlsl` duplicate `Init`。
+5. 继续降低 audit 体量时，优先顺序是 conversion warning policy -> workspace macro config -> parser/control-flow false positives -> remaining type alias / builtin modeling。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_REAL_DIAGNOSTICS_AUDIT='1'; $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS='0'; $env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS='7200000'; $env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL='phase-08-final-full'; node .\out\test\runCodeTests.js --mode real --workspace "D:\YYBWorkSpace\GitHub\nsp-intellision\out\test\diagnostics-audit\phase-04-preprocessor-context.code-workspace" --file-filter realWorkspace.diagnostics-audit` 通过，`1 passing`，耗时约 37 分钟。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增阶段 audit 输出；P8 分流内容并入本执行计划，无独立 2026-05-17 报告文档；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否，沿用 P0/P7 已记录的 full audit 口径。
+- 文档是否已同步：已更新本执行计划；当前事实文档无需更新。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已生成 `phase-08-final-full` 稳定 real audit sample；未新增 failing focused fixture，避免在未实现后续修复前制造失败回归。
+- 是否重新跑了对应验证并记录结果：是，已记录 C++ build 和 full audit。
+
+Git 记录：
+
+- 本阶段随 P9 收尾一起本地提交，commit message：`fix: gate conversion risk diagnostics by mode`；当前提交 hash 以 `git log -1 --oneline` 为准。
+
+## Phase 9: diagnostics policy 与 workspace macro 分流
+
+### 背景
+
+Phase 8 full audit 显示 `type-conversion-risk=251553` 已成为最大剩余体量。这类 diagnostics 是合法但有风险的隐式转换 warning，适合源码审核，不适合继续作为默认 `balanced` 日常噪声。剩余 `Undefined macro in preprocessor expression` 则集中在项目宏 / enum 宏，应该进入 workspace/source 配置边界，而不是资源 bundle。
+
+### 目标
+
+把隐式转换风险 warning 从默认 `balanced` 移到 `full`，并记录 workspace macro 的长期处理边界。
+
+### 方案
+
+1. 在 diagnostics build options 中新增显式策略位，表达“是否发布合法但有风险的隐式转换 warning”。
+2. 由 `nsf.diagnostics.mode` 派生该策略：
+   - `basic`: 不发布 conversion-risk warning。
+   - `balanced`: 不发布 conversion-risk warning。
+   - `full`: 发布 conversion-risk warning。
+3. 保持共享 type relation 作为唯一类型兼容事实来源；mode gate 只影响 warning 发布，不影响 mismatch / error 判定。
+4. 把该策略纳入 deferred diagnostics fingerprint，避免 mode 切换后复用旧 full diagnostics。
+5. 更新 integration tests：
+   - 依赖 conversion-risk warning 的用例显式跑 `full`。
+   - 新增 `balanced` 用例验证风险 warning 被压下，但真实 mismatch 仍保留。
+6. 对 Phase 8 中暴露的项目宏做分流记录，明确 workspace/source config 边界，不写入资源 bundle。
+
+### 验收标准
+
+- `balanced` 下不再发布 truncation、narrowing、floating-integral、signedness、boolean conversion 等合法隐式转换风险 warning。
+- `full` 下仍发布上述 conversion-risk warning，源码审核能力不丢失。
+- assignment / return / call mismatch 等真实错误不受 warning gate 影响。
+- 5-unit 和 50-unit real audit 中 `type-conversion-risk` 不再出现在默认 `balanced` category summary。
+- 项目宏分流有明确 owner：workspace config、source include context 或项目编译配置；不新增资源 bundle 事实。
+
+### Phase 9 执行记录
+
+状态：已完成 diagnostics policy 实装、测试更新、宏分流报告、5/50-unit audit 验证和 P9 后 full audit 复核。
+
+实现内容：
+
+- 新增 `DiagnosticsBuildOptions::typeConversionRiskWarningsEnabled`，由 `nsf.diagnostics.mode` 派生：`basic=false`、`balanced=false`、`full=true`。
+- `collectReturnAndTypeDiagnostics(...)` 继续统一使用共享 type relation 判定兼容性；只有合法风险 warning 受 mode gate 控制，assignment / return / call mismatch 错误仍照常发布。
+- deferred full diagnostics fingerprint 纳入 `typeConversionRiskWarningsEnabled`，避免 mode 切换后复用旧 diagnostics。
+- diagnostics 集成测试新增 mode helper：依赖 conversion warning 的用例显式跑 `full`，新增 `balanced` 用例验证风险 warning 被压下但硬 mismatch 仍保留。
+- 更新用户设置说明、架构说明、测试口径和 VS Code setting enumDescription。
+- 将 P9 policy、workspace macro triage 和最终 full audit 复核直接并入本执行计划，记录 `RENDER_VELOCITY`、`COLOR_CHANGE_*`、`CHANNEL_COLOR_CHANGE*`、`SHADOW_AA*` 等宏应由 workspace/source config 管理，不进入资源 bundle。
+
+policy / audit 结果：
+
+- `balanced` 现在不发布 `Implicit truncation/narrowing/floating-integral/signedness/boolean conversion` 等 conversion-risk warning。
+- `full` 仍发布 conversion-risk warning；现有 HLSL implicit conversion focused 用例转为显式 `full` mode。
+- `balanced` focused 回归确认 `Assignment type mismatch: float3 = float2.` 仍发布，说明真实 mismatch 不受 warning gate 影响。
+- 5-unit smoke audit：`diagnosticsTotal=775`，相对 Phase 0 smoke baseline `4947` 下降 `4172`（`-84.33%`）；`type-conversion-risk` 未出现在 category summary。
+- 50-unit trend audit：`diagnosticsTotal=6559`，相对 Phase 0 trend baseline `43341` 下降 `36782`（`-84.87%`）；`type-conversion-risk` 未出现在 category summary。
+- 5-unit 和 50-unit audit 均为 `truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- P9 后 full audit：`diagnosticsTotal=69902`，相对 2026-05-16 baseline `463556` 下降 `393654`（`-84.92%`）；`filesWithDiagnostics=382`，相对 baseline `750` 下降 `368`（`-49.07%`）；`type-conversion-risk` 未出现在 category summary。
+- P9 后 full audit triage：`likely-plugin-limitation=37186`，`needs-manual-review=22164`，`check-config-or-source=10549`，`likely-real-source=3`。
+- P9 后 full audit category 前列：`semantic-source-rule=16817`、`indeterminate-analysis=14509`、`undefined-identifier=11733`、`preprocessor-context=10549`、`expression-type-analysis=5268`。
+- P9 后 full audit 为 `Diagnostic wait timeouts=0`、`fileErrors=0`，`truncatedFiles=1`、`timedOutFiles=1` 均未比 baseline 增加；`prerequisiteSkippedTotal=178971`，其中 `parser_region_unreliable=121189`、`expression_type_unavailable=57782`，仍为 debug / audit metadata。
+
+workspace macro 分流结论：
+
+- `RENDER_VELOCITY`：项目 / pass 配置宏，样本来自 `shaderlib/deferred.hlsl:47`，并可在 meadow config XML 与部分 source default 中找到来源；应通过 workspace `nsf.preprocessorMacros` / `nsf.defines` 或真实 active unit context 提供。
+- `COLOR_CHANGE_MODE`、`COLOR_CHANGE_*`、`CHANNEL_COLOR_CHANGE*`：项目 enum / material 参数宏，不同 PBR parameter 文件存在不同取值和默认逻辑；应优先由 source include context 提供，audit preset 只应模拟明确选择的 material family。
+- `SHADOW_AA`、`SHADOW_AA_*`、`SHADOW_AA_PCF_ENABLE`：阴影宏常量和默认选项来自项目 config / shader source，如 `shaderlib/const_macros.hlsl` 与 `no_source/*/macro*.xml`；属于项目编译配置，不属于语言资源事实。
+- 这些宏不进入正式资源 bundle，不新增 diagnostics 特判。
+
+验证结果：
+
+- `npm run compile` 通过。
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`72 passing`，`1 pending`。
+- `$env:NSF_REAL_DIAGNOSTICS_AUDIT='1'; $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS='5'; $env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL='phase-09-policy-macro-smoke-5'; node .\out\test\runCodeTests.js --mode real --workspace "D:\YYBWorkSpace\GitHub\nsp-intellision\out\test\diagnostics-audit\phase-04-preprocessor-context.code-workspace" --file-filter realWorkspace.diagnostics-audit` 通过，`diagnosticsTotal=775`，`type-conversion-risk` 未出现在 category summary，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- `$env:NSF_REAL_DIAGNOSTICS_AUDIT='1'; $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS='50'; $env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL='phase-09-policy-macro-trend-50'; node .\out\test\runCodeTests.js --mode real --workspace "D:\YYBWorkSpace\GitHub\nsp-intellision\out\test\diagnostics-audit\phase-04-preprocessor-context.code-workspace" --file-filter realWorkspace.diagnostics-audit` 通过，`diagnosticsTotal=6559`，`type-conversion-risk` 未出现在 category summary，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- `$env:NSF_REAL_DIAGNOSTICS_AUDIT='1'; $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS='0'; $env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS='7200000'; $env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL='phase-09-final-balanced-full'; node .\out\test\runCodeTests.js --mode real --workspace "D:\YYBWorkSpace\GitHub\nsp-intellision\out\test\diagnostics-audit\phase-04-preprocessor-context.code-workspace" --file-filter realWorkspace.diagnostics-audit` 通过，`1 passing`，耗时约 36 分钟；输出 `real-workspace-diagnostics-audit.phase-09-final-balanced-full.{json,md}`。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 phase-09 audit 输出；P9 分流内容并入本执行计划，无独立 2026-05-17 报告文档；无运行时路径 / 资源命名变化。
+- 架构或单一事实来源是否变化：是，diagnostics mode policy 成为共享 type relation warning 的发布边界；类型兼容知识仍只在共享层维护。
+- 测试策略是否变化：是，conversion-risk 用例显式 `full`，并增加 `balanced` suppression 回归。
+- 文档是否已同步：已更新 `README.md`、`package.json`、`docs/architecture.md`、`docs/development.md`、`docs/testing.md` 和本执行计划。
+- 是否改变公开 diagnostics 行为：是，默认 `balanced` 不再发布合法隐式转换风险 warning。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补 `balanced` / `full` mode focused integration coverage，并生成 `phase-09-policy-macro-smoke-5`、`phase-09-policy-macro-trend-50` 与 `phase-09-final-balanced-full` audit sample。
+- 是否重新跑了对应验证并记录结果：是。
+
+Git 记录：
+
+- 本阶段已本地提交，commit message：`fix: gate conversion risk diagnostics by mode`；当前提交 hash 以 `git log -1 --oneline` 为准。
+
 ## 阶段执行顺序
 
 推荐顺序：
@@ -897,6 +1070,7 @@ Git 记录：
 7. Phase 6: 统一 builtin overload 和 object method 匹配。
 8. Phase 7: 建立 diagnostics 可信度和发布前提契约。
 9. Phase 8: 全量复审和真实源码问题分流。
+10. Phase 9: diagnostics policy 与 workspace macro 分流。
 
 Phase 2、Phase 3、Phase 4、Phase 7 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文和 diagnostics 发布契约；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。
 

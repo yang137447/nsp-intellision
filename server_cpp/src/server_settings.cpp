@@ -59,6 +59,7 @@ void applySettingsFromJson(
     int &diagnosticsIndeterminateSeverity,
     int &diagnosticsIndeterminateMaxItems,
     bool &diagnosticsIndeterminateSuppressWhenErrors,
+    bool &diagnosticsTypeConversionRiskWarningsEnabled,
     int &indexingWorkerCount, int &indexingQueueCapacity) {
   const Json *target = nullptr;
   if (settings.type == Json::Type::Object) {
@@ -147,6 +148,7 @@ void applySettingsFromJson(
         diagnosticsIndeterminateSeverity = 4;
         diagnosticsIndeterminateMaxItems = 100;
         diagnosticsIndeterminateSuppressWhenErrors = true;
+        diagnosticsTypeConversionRiskWarningsEnabled = false;
       } else if (value == "full") {
         diagnosticsExpensiveRulesEnabled = true;
         diagnosticsTimeBudgetMs = 2000;
@@ -166,6 +168,7 @@ void applySettingsFromJson(
         diagnosticsIndeterminateSeverity = 4;
         diagnosticsIndeterminateMaxItems = 400;
         diagnosticsIndeterminateSuppressWhenErrors = true;
+        diagnosticsTypeConversionRiskWarningsEnabled = true;
       } else {
         diagnosticsExpensiveRulesEnabled = true;
         diagnosticsTimeBudgetMs = 1200;
@@ -185,6 +188,7 @@ void applySettingsFromJson(
         diagnosticsIndeterminateSeverity = 4;
         diagnosticsIndeterminateMaxItems = 200;
         diagnosticsIndeterminateSuppressWhenErrors = true;
+        diagnosticsTypeConversionRiskWarningsEnabled = false;
       }
     }
     const Json *expensiveRules = getObjectValue(*diagnostics, "expensiveRules");

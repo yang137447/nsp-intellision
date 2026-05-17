@@ -15,7 +15,9 @@
 // analysis context used by semantic queries.
 // Output: appends diagnostics into `diags` and updates timeout,
 // indeterminate, and prerequisite-skip counters in place; does not own final
-// result assembly or publication.
+// result assembly or publication. `typeConversionRiskWarningsEnabled` controls
+// whether legal-but-risky implicit conversion warnings are emitted; type
+// compatibility and mismatch errors are still evaluated either way.
 void collectReturnAndTypeDiagnostics(
     const std::string &uri, const std::string &text,
     const std::vector<std::string> &workspaceFolders,
@@ -28,4 +30,5 @@ void collectReturnAndTypeDiagnostics(
     size_t maxDiagnostics, bool &timedOut, bool indeterminateEnabled,
     int indeterminateSeverity, size_t indeterminateMaxItems,
     size_t &indeterminateCount,
-    DiagnosticsPrerequisiteSkipStats &prerequisiteSkips);
+    DiagnosticsPrerequisiteSkipStats &prerequisiteSkips,
+    bool typeConversionRiskWarningsEnabled);
