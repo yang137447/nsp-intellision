@@ -591,6 +591,12 @@ Git 记录：
 - 是否有新的资源 bundle、资源路径、命名或加载规则变化：否；仅扩展既有 bundle 内容和生成脚本输入。
 - 是否补齐 focused fixture 或稳定 real audit sample：已扩展 focused fixture，并生成 phase-04 5-unit / 50-unit real audit 报告。
 
+Git 记录：
+
+- 2026-05-17 已本地提交 P4 阶段：`66017be fix: include shader compiler context macros`。
+- 提交内容覆盖 shadercompiler 编译上下文宏提取、预处理宏 preset 资源、资源校验 coverage、focused fixture / repo integration 断言、架构 / 资源契约说明和本执行计划。
+- 本阶段未执行远端 push；如后续需要上传远端，应在 push 后追加记录目标 remote / branch。
+
 ## Phase 5: 修复 HLSL / NSF parser boundary 和 recovery
 
 ### 背景
