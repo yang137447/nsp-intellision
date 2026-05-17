@@ -672,7 +672,9 @@ Git 记录：
 
 Git 记录：
 
-- 本阶段尚未本地提交；提交后应在本记录追加 commit hash。
+- 2026-05-17 已本地提交 P5 阶段：`9caea41 fix: tighten parser boundary diagnostics`。
+- 提交内容覆盖 shared missing-semicolon parser boundary、macro-only / multiline recovery、focused fixture、repo integration 断言、架构 / 测试契约说明和本执行计划。
+- 本阶段未执行远端 push；如后续需要上传远端，应在 push 后追加记录目标 remote / branch。
 
 ## Phase 6: 统一 builtin overload 和 object method 匹配
 
