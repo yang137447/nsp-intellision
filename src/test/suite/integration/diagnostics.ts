@@ -1328,6 +1328,38 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Builtin call type mismatch: mul.'));
 	});
 
+	itWithDiagnosticsMode('balanced', 'models common builtin intrinsics without indeterminate diagnostics', async () => {
+		const document = await openFixture('module_diagnostics_hlsl_builtin_indeterminate_modeled.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => diagnosticMessages(value).includes('Assignment type mismatch: float3 = float2.'),
+			'common builtin intrinsic diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(messages.includes('Assignment type mismatch: float3 = float2.'), messages);
+		for (const name of [
+			'log',
+			'log2',
+			'log10',
+			'round',
+			'Radians',
+			'degrees',
+			'ddx',
+			'ddy',
+			'fwidth',
+			'all',
+			'any',
+			'transpose',
+			'sincos'
+		]) {
+			assert.ok(!messages.includes(`Indeterminate builtin call: type rules not implemented. Name: ${name}.`), messages);
+			assert.ok(!messages.includes(`Indeterminate builtin call: arg types unavailable. Name: ${name}.`), messages);
+			assert.ok(!messages.includes(`Builtin call type mismatch: ${name}.`), messages);
+		}
+	});
+
 	it('publishes diagnostics for user function call argument mismatches', async () => {
 		const document = await openFixture('module_diagnostics_user_function_call_args.nsf');
 

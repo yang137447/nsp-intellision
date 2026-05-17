@@ -46,6 +46,13 @@ static bool isWhitespace(char ch) {
   return std::isspace(static_cast<unsigned char>(ch)) != 0;
 }
 
+static std::string toLowerAscii(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char ch) {
+                   return static_cast<char>(std::tolower(ch));
+                 });
+  return value;
+}
 
 std::string normalizeTypeToken(std::string value);
 bool isVectorType(const std::string &type, int &dimensionOut);
@@ -150,13 +157,19 @@ static bool isBuiltinUnarySameType(const std::string &name) {
   return name == "normalize" || name == "saturate" || name == "abs" ||
          name == "sin" || name == "cos" || name == "tan" || name == "asin" ||
          name == "acos" || name == "atan" || name == "exp" || name == "exp2" ||
+         name == "log" || name == "log2" || name == "log10" ||
          name == "floor" || name == "ceil" || name == "frac" ||
-         name == "fmod" || name == "rsqrt" || name == "sqrt" || name == "sign";
+         name == "fmod" || name == "rsqrt" || name == "sqrt" ||
+         name == "round" || name == "radians" || name == "degrees" ||
+         name == "ddx" || name == "ddy" || name == "ddx_coarse" ||
+         name == "ddy_coarse" || name == "ddx_fine" ||
+         name == "ddy_fine" || name == "fwidth" || name == "sign";
 }
 
 BuiltinResolveResult
 resolveBuiltinCall(const std::string &name,
                    const std::vector<BuiltinTypeInfo> &args) {
+  const std::string builtinName = toLowerAscii(name);
   BuiltinResolveResult r;
   if (args.empty())
     return r;
@@ -219,12 +232,12 @@ resolveBuiltinCall(const std::string &name,
     return outElem != BuiltinElemKind::Unknown;
   };
 
-  if (name == "length" || name == "distance") {
+  if (builtinName == "length" || builtinName == "distance") {
     if (args.size() < 1)
       return r;
     if (!isBuiltinNumericElem(args[0].elem))
       return r;
-    if (name == "length") {
+    if (builtinName == "length") {
       r.ok = true;
       r.ret.shape = BuiltinTypeInfo::ShapeKind::Scalar;
       r.ret.elem = args[0].elem;
@@ -246,7 +259,7 @@ resolveBuiltinCall(const std::string &name,
     }
   }
 
-  if (name == "dot") {
+  if (builtinName == "dot") {
     if (args.size() < 2)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -262,7 +275,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "cross") {
+  if (builtinName == "cross") {
     if (args.size() < 2)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -283,7 +296,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (isBuiltinUnarySameType(name)) {
+  if (isBuiltinUnarySameType(builtinName)) {
     if (args.size() < 1)
       return r;
     if (!isBuiltinNumericElem(args[0].elem))
@@ -293,7 +306,8 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "asfloat" || name == "asint" || name == "asuint") {
+  if (builtinName == "asfloat" || builtinName == "asint" ||
+      builtinName == "asuint") {
     if (args.size() != 1)
       return r;
     if (args[0].elem != BuiltinElemKind::Float &&
@@ -304,17 +318,17 @@ resolveBuiltinCall(const std::string &name,
     }
     r.ok = true;
     r.ret = args[0];
-    if (name == "asfloat")
+    if (builtinName == "asfloat")
       r.ret.elem = BuiltinElemKind::Float;
-    else if (name == "asint")
+    else if (builtinName == "asint")
       r.ret.elem = BuiltinElemKind::Int;
-    else if (name == "asuint")
+    else if (builtinName == "asuint")
       r.ret.elem = BuiltinElemKind::UInt;
     return r;
   }
 
-  if (name == "countbits" || name == "firstbithigh" || name == "firstbitlow" ||
-      name == "reversebits") {
+  if (builtinName == "countbits" || builtinName == "firstbithigh" ||
+      builtinName == "firstbitlow" || builtinName == "reversebits") {
     if (args.size() != 1)
       return r;
     if (args[0].elem != BuiltinElemKind::Int &&
@@ -327,7 +341,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "f16tof32") {
+  if (builtinName == "f16tof32") {
     if (args.size() != 1)
       return r;
     if (args[0].elem != BuiltinElemKind::UInt)
@@ -340,7 +354,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "f32tof16") {
+  if (builtinName == "f32tof16") {
     if (args.size() != 1)
       return r;
     if (!isBuiltinNumericElem(args[0].elem))
@@ -353,7 +367,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "rcp") {
+  if (builtinName == "rcp") {
     if (args.size() != 1)
       return r;
     if (!isBuiltinNumericElem(args[0].elem))
@@ -367,7 +381,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "mad") {
+  if (builtinName == "mad") {
     if (args.size() != 3)
       return r;
     for (const auto &a : args) {
@@ -391,7 +405,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "pow") {
+  if (builtinName == "pow") {
     if (args.size() < 2)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -413,7 +427,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "atan2") {
+  if (builtinName == "atan2") {
     if (args.size() < 2)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -435,7 +449,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "reflect") {
+  if (builtinName == "reflect") {
     if (args.size() < 2)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -452,7 +466,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "refract") {
+  if (builtinName == "refract") {
     if (args.size() < 3)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -472,7 +486,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "clamp") {
+  if (builtinName == "clamp") {
     if (args.size() < 3)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -492,7 +506,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "lerp") {
+  if (builtinName == "lerp") {
     if (args.size() < 3)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -510,7 +524,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "step") {
+  if (builtinName == "step") {
     if (args.size() < 2)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -527,7 +541,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "smoothstep") {
+  if (builtinName == "smoothstep") {
     if (args.size() < 3)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -547,7 +561,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "min" || name == "max") {
+  if (builtinName == "min" || builtinName == "max") {
     if (args.size() < 2)
       return r;
     if (!isBuiltinNumericElem(args[0].elem) ||
@@ -561,7 +575,7 @@ resolveBuiltinCall(const std::string &name,
     return r;
   }
 
-  if (name == "mul" && args.size() >= 2) {
+  if (builtinName == "mul" && args.size() >= 2) {
     const auto &a = args[0];
     const auto &b = args[1];
     if (!isBuiltinNumericElem(a.elem) || !isBuiltinNumericElem(b.elem))
@@ -647,6 +661,52 @@ resolveBuiltinCall(const std::string &name,
       r.ret.dim = 1;
       return r;
     }
+  }
+
+  if (builtinName == "all" || builtinName == "any") {
+    if (args.size() != 1)
+      return r;
+    if (!isBuiltinNumericElem(args[0].elem) &&
+        args[0].elem != BuiltinElemKind::Bool)
+      return r;
+    r.ok = true;
+    r.ret.shape = BuiltinTypeInfo::ShapeKind::Scalar;
+    r.ret.elem = BuiltinElemKind::Bool;
+    r.ret.dim = 1;
+    return r;
+  }
+
+  if (builtinName == "transpose") {
+    if (args.size() != 1)
+      return r;
+    if (!isBuiltinNumericElem(args[0].elem))
+      return r;
+    if (args[0].shape != BuiltinTypeInfo::ShapeKind::Matrix)
+      return r;
+    r.ok = true;
+    r.ret.shape = BuiltinTypeInfo::ShapeKind::Matrix;
+    r.ret.elem = args[0].elem;
+    r.ret.rows = args[0].cols;
+    r.ret.cols = args[0].rows;
+    return r;
+  }
+
+  if (builtinName == "sincos") {
+    if (args.size() != 3)
+      return r;
+    if (!isBuiltinNumericElem(args[0].elem) ||
+        !isBuiltinNumericElem(args[1].elem) ||
+        !isBuiltinNumericElem(args[2].elem))
+      return r;
+    if (!exactShapeEq(args[0], args[1]) || !exactShapeEq(args[0], args[2]))
+      return r;
+    BuiltinTypeInfo converted;
+    if (!usualConversion(args[0], args[1], converted))
+      return r;
+    if (!usualConversion(args[0], args[2], converted))
+      return r;
+    r.ok = true;
+    return r;
   }
 
   return r;

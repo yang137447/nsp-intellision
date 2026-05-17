@@ -48,7 +48,11 @@ const std::unordered_set<std::string> &builtinFallbackNames() {
       "cos",          "tan",          "asin",         "acos",
       "atan",         "exp",          "exp2",         "floor",
       "ceil",         "frac",         "fmod",         "rsqrt",
-      "sqrt",         "sign",
+      "sqrt",         "sign",         "log",          "log2",
+      "log10",        "round",        "radians",      "degrees",
+      "ddx",          "ddy",          "ddx_coarse",   "ddy_coarse",
+      "ddx_fine",     "ddy_fine",     "fwidth",       "all",
+      "any",          "transpose",    "sincos",
   };
   return kNames;
 }
@@ -66,6 +70,11 @@ const std::unordered_set<std::string> &builtinTypeCheckedFallbackNames() {
       "cross",       "asfloat",     "asint",       "asuint",
       "countbits",   "firstbithigh","firstbitlow", "reversebits",
       "f16tof32",    "f32tof16",    "rcp",         "mad",
+      "log",         "log2",        "log10",       "round",
+      "radians",     "degrees",     "ddx",         "ddy",
+      "ddx_coarse",  "ddy_coarse",  "ddx_fine",    "ddy_fine",
+      "fwidth",      "all",         "any",         "transpose",
+      "sincos",
   };
   return kNames;
 }

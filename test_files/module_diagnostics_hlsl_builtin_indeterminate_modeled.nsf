@@ -1,0 +1,26 @@
+void test_common_builtin_modeling()
+{
+    float x = 1.0;
+    float2 uv = float2(1.0, 2.0);
+    bool3 mask = bool3(true, false, true);
+    float4 phase = float4(0.0, 0.5, 1.0, 1.5);
+    float4 phaseSin;
+    float4 phaseCos;
+
+    float lx = log(x);
+    float l2 = log2(x);
+    float l10 = log10(x);
+    float rounded = round(x);
+    float rad = Radians(x);
+    float deg = degrees(x);
+    float dx = ddx(x);
+    float dy = ddy(x);
+    float fw = fwidth(x);
+    bool allOk = all(uv);
+    bool anyOk = any(mask);
+    float3x2 transposed = transpose(float2x3(1.0, 2.0, 3.0, 4.0, 5.0, 6.0));
+
+    sincos(phase, phaseSin, phaseCos);
+
+    float3 hardMismatch = float2(1.0, 2.0);
+}

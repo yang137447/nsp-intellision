@@ -41,6 +41,9 @@ struct NumericLiteralParseResult {
 // Diagnostics-side expression typing contract.
 // Responsibilities: normalize type tokens, classify literals, model builtin
 // type rules, and infer expression result types for semantic diagnostics.
+// Builtin modeling covers common scalar/vector/matrix intrinsics in one shared
+// path; unsupported or unavailable argument types should surface as
+// indeterminate diagnostics instead of feature-local fallback guesses.
 // Numeric literal parsing is token-span aware because the shared lexer splits
 // decimal points and exponent signs into punctuation tokens. The accepted
 // decimal/octal/hex literal grammar follows official HLSL numeric literal forms,

@@ -1057,6 +1057,72 @@ Git 记录：
 
 - 本阶段已本地提交，commit message：`fix: gate conversion risk diagnostics by mode`；当前提交 hash 以 `git log -1 --oneline` 为准。
 
+## Phase 10: 收敛 common builtin indeterminate modeling
+
+### 背景
+
+P9 后 full audit 中最大 LSP-owned 剩余项之一是 `indeterminate-analysis=14509`。其中一批来自已知官方 builtin 缺少共享类型规则，例如 `log/log2`、`sincos`、`round`、`ddx/ddy`、`all/any`、`transpose` 和大小写变体 `Radians`。这些不应靠 diagnostics message suppress 处理，而应进入 `diagnostics_expression_type.*` 与 `hlsl_builtin_docs.*` 共享入口。
+
+### 目标
+
+消除 common builtin 的 `NSF_INDET_BUILTIN_UNMODELED`，同时保留参数类型无法推断时的 indeterminate metadata。
+
+### 方案
+
+1. 将 common builtin 纳入 `hlsl_builtin_docs.*` 的 type-checked fallback 名单。
+2. 在 `resolveBuiltinCall(...)` 中统一大小写归一化，避免 `Radians(...)` 这类项目写法绕过共享规则。
+3. 在共享 builtin resolver 中补齐：
+   - 同型返回：`log/log2/log10/round/radians/degrees/ddx/ddy/ddx_coarse/ddy_coarse/ddx_fine/ddy_fine/fwidth`
+   - bool 返回：`all/any`
+   - 矩阵转置：`transpose`
+   - call-only：`sincos`
+4. 新增 focused fixture，证明这些 builtin 不再产生 unmodeled / arg-unavailable indeterminate 或 builtin mismatch。
+5. 保持 macro / parser 导致的空参数类型为 indeterminate，不新增 fallback 猜测类型。
+
+### Phase 10 执行记录
+
+状态：已完成 common builtin indeterminate modeling 第一轮。
+
+实现内容：
+
+- `hlsl_builtin_docs.*` 的 fallback / type-checked fallback 名单补充 `log/log2/log10/round/radians/degrees/ddx/ddy/ddx_coarse/ddy_coarse/ddx_fine/ddy_fine/fwidth/all/any/transpose/sincos`。
+- `diagnostics_expression_type.*` 在 `resolveBuiltinCall(...)` 内统一 builtin 名大小写，并新增上述 common builtin 的共享返回类型 / call validation 规则。
+- `sincos(...)` 作为 call-only builtin 只验证参数形状和数值类型，表达式返回仍保持不可用，避免伪造 `void` 或错误返回类型。
+- 新增 focused fixture `test_files/module_diagnostics_hlsl_builtin_indeterminate_modeled.nsf`，覆盖 `log/log2/log10/round/Radians/degrees/ddx/ddy/fwidth/all/any/transpose/sincos`。
+- diagnostics 集成测试新增 `models common builtin intrinsics without indeterminate diagnostics`，等待硬 mismatch 哨兵出现后断言上述 builtin 不再发布 unmodeled / arg-unavailable indeterminate 或 builtin mismatch。
+- 本阶段未处理 macro / parser 造成的 `arg types unavailable`，例如 `abs()`、`max(float, )`、`min(float, ifndef)`、`pow(float, )` 和 object method `SampleBias(..., )`，这些属于下一轮 macro-expression / parser boundary 治理。
+
+公开行为变化：
+
+- common builtin 合法调用不再产生 `Indeterminate builtin call: type rules not implemented`。
+- `Radians(...)` 这类大小写变体进入同一共享规则。
+- 参数类型缺失仍发布 indeterminate，不静默降级或猜测。
+
+验证结果：
+
+- `npm run compile` 通过。
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`73 passing`，`1 pending`。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-10-builtin-indeterminate-smoke-5.{json,md}`；`diagnosticsTotal=700`，`NSF_INDET_BUILTIN_UNMODELED=0`，`indeterminate-analysis=35`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-10-builtin-indeterminate-trend-50.{json,md}`；相对 P9 50-unit：`diagnosticsTotal` `6559 -> 5848`，`filesWithDiagnostics` `31 -> 27`，`likely-plugin-limitation` `2858 -> 2147`，`indeterminate-analysis` `1073 -> 362`，`NSF_INDET_BUILTIN_UNMODELED` `709 -> 0`，`prerequisiteSkippedTotal` `16342 -> 15852`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture 和 phase-10 audit 输出；无运行时路径 / 资源命名变化。
+- 架构或单一事实来源是否变化：是，common builtin 类型规则继续收敛到 `diagnostics_expression_type.*` / `hlsl_builtin_docs.*` 共享入口。
+- 测试策略是否变化：是，新增 common builtin focused fixture 和阶段 audit sample。
+- 文档是否已同步：已更新 `docs/architecture.md`、`diagnostics_expression_type.hpp` 和本执行计划；资源、开发、testing 和对象类型 / 方法契约未变化。
+- 是否改变公开 diagnostics 行为：是，common builtin 合法调用不再发布 unmodeled indeterminate。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-10 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是。
+
+Git 记录：
+
+- 本阶段已本地提交，commit message：`fix: model common builtin diagnostics`；当前提交 hash 以 `git log -1 --oneline` 为准。
+
 ## 阶段执行顺序
 
 推荐顺序：
@@ -1071,8 +1137,9 @@ Git 记录：
 8. Phase 7: 建立 diagnostics 可信度和发布前提契约。
 9. Phase 8: 全量复审和真实源码问题分流。
 10. Phase 9: diagnostics policy 与 workspace macro 分流。
+11. Phase 10: 收敛 common builtin indeterminate modeling。
 
-Phase 2、Phase 3、Phase 4、Phase 7 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文和 diagnostics 发布契约；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。
+Phase 2、Phase 3、Phase 4、Phase 7 和 Phase 10 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约和 builtin 类型规则共享入口；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。
 
 ## 每阶段固定关闭检查
 
