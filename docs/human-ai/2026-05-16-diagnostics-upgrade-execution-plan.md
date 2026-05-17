@@ -547,6 +547,50 @@ Git 记录：
 - `preprocessor-context` 在 50-unit audit 中显著下降，或被明确拆分为真实配置问题。
 - 资源变化已更新 `docs/resources.md`；预处理上下文契约变化已更新 `docs/architecture.md`。
 
+### Phase 4 执行记录
+
+状态：已落地 shadercompiler 编译上下文宏 preset 补齐。
+
+实现内容：
+
+- `scripts/builtins/update_preprocessor_macros.py` 新增 `--compiler-context` 输入，可从 shadercompiler `hlsl_process.py` 提取 `SYSTEM_SUPPORT_MACROS`、`DEVICE_SUPPORT_MACRO`、`API_SUPPORT_MACRO`、`API_SUPPORT_MACRO_APPEND_IN_FUTURE_HIGH` 和 `API_PLATFORM_QUALITY_MACROS` 中的宏名。
+- `server_cpp/resources/language/preprocessor_macros/base.json` 从 138 个条目扩展到 149 个条目，新增 `API_MOBILE_HIGH_QUALITY`、`API_PC_HIGH_QUALITY`、`API_SUPPORT_SSBO`、`API_SUPPORT_SV_INSTANCE_ID`、`API_SUPPORT_TEXFETCH`、`API_SUPPORT_SV_VERTEX_ID`、`API_SUPPORT_FRAGCOORD`、`API_SUPPORT_TEXTURE_GATHER`、`SYSTEM_SUPPORT_DEPTH_BUFFER_AS_TEXTURE`、`GLES_USE_UBO`、`SYSTEM_SUPPORT_SRGB`。
+- 新增编译上下文宏默认 replacement 均为 `0`；这与之前 undefined macro 在条件表达式中按 false 参与求值的活跃分支保持一致，只移除“已知编译上下文宏 undefined”的误报。真实 target / compile mode 值仍由 workspace `nsf.preprocessorMacros` 或 `nsf.defines` 覆盖。
+- `scripts/json/validate_resources.js` 增加关键编译上下文宏 coverage 检查，避免后续生成时再次漏掉 API / system 宏。
+- `test_files/module_diagnostics_preprocessor_builtin_macros.nsf` 和 `src/test/suite/integration/diagnostics.ts` 扩展 focused 断言，验证 server preset 包含这些宏、默认值为 `0`，并且设置到 workspace 后不再产生对应 undefined macro diagnostics。
+- `docs/resources.md` 已记录 `--compiler-context`、默认 preset 来源和编译上下文宏默认值策略；`docs/architecture.md` 已记录预处理宏 preset 的职责边界和 workspace / defines 覆盖关系。
+
+公开行为变化：
+
+- 新 preset 或显式合并后的 workspace 配置中，shadercompiler 编译上下文宏不再产生 `Undefined macro in preprocessor expression` diagnostics。
+- 已有显式 `nsf.preprocessorMacros` workspace 不会自动叠加新的 bundle 默认值；需要用户配置合并这些 key，或删除显式配置后重新 seed，符合“配置表是完整有效 preset”的既有契约。
+
+验证结果：
+
+- `npm run json:validate` 通过。
+- `npm run compile` 通过。
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，67 passing / 1 pending。
+- `npm run test:client:repo` 全量通过。
+- 5-unit smoke audit 使用临时 copy workspace `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace`，将新 preset 合并进显式 `nsf.preprocessorMacros` 后通过；输出 `real-workspace-diagnostics-audit.phase-04-preprocessor-context-smoke-5.{json,md}`。相对 P3 smoke：`preprocessor-context` 469 -> 183，`diagnosticsTotal` 4211 -> 3926，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 使用同一临时 copy workspace 通过；输出 `real-workspace-diagnostics-audit.phase-04-preprocessor-context-trend-50.{json,md}`。相对 P3 trend：`preprocessor-context` 4004 -> 1482，`diagnosticsTotal` 35806 -> 33284，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+审计备注：
+
+- 50-unit 剩余 `preprocessor-context` 样本已不再由 `API_MOBILE_HIGH_QUALITY`、`API_PC_HIGH_QUALITY`、`API_SUPPORT_SV_INSTANCE_ID` 或 `API_SUPPORT_TEXFETCH` 主导；当前样本集中在 `COLOR_CHANGE_*`、`RENDER_VELOCITY` 等 workspace/source 配置宏，后续应按真实项目配置或源码 include context 分流，不进入正式 bundle。
+
+阶段关闭判断：
+
+- 命令是否变化：资源生成脚本新增可选 `--compiler-context` 参数；npm / cmake 验证命令未变化。
+- 路径或命名是否变化：无运行时路径或 bundle 命名变化；新增阶段 audit 报告和临时验证 workspace。
+- 架构或单一事实来源是否变化：是，默认预处理宏 preset 的事实来源扩展为 `builtin_macros.py` + `hlsl_process.py` 编译上下文宏名，仍通过 `language/preprocessor_macros` bundle 和 `language_registry.*` 统一暴露。
+- 测试策略是否变化：是，focused fixture 和资源校验补齐编译上下文宏 coverage；real audit 使用临时 copy workspace 合并新 preset，以避免修改真实 workspace 文件。
+- 文档是否已同步：已更新 `docs/resources.md`、`docs/architecture.md` 和本执行计划；`docs/testing.md` 的验证命令与策略无需变化。
+- 是否改变公开 diagnostics 行为：是，已知编译上下文宏不再产生 undefined macro 误报。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否；仅扩展既有 bundle 内容和生成脚本输入。
+- 是否补齐 focused fixture 或稳定 real audit sample：已扩展 focused fixture，并生成 phase-04 5-unit / 50-unit real audit 报告。
+
 ## Phase 5: 修复 HLSL / NSF parser boundary 和 recovery
 
 ### 背景

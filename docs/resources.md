@@ -36,7 +36,7 @@ server_cpp/resources/
 - `language/keywords`: 关键字名和说明
 - `language/directives`: 预处理指令名、说明和语法
 - `language/semantics`: 系统语义名、说明和典型类型
-- `language/preprocessor_macros`: shadercompiler 风格默认预处理宏 preset，用于首次填充用户可见的 `nsf.preprocessorMacros` 工作区设置
+- `language/preprocessor_macros`: shadercompiler 风格默认预处理宏 preset，用于首次填充用户可见的 `nsf.preprocessorMacros` 工作区设置；包含 `builtin_macros.py` 的 builtin 宏以及 `hlsl_process.py` 编译上下文宏名
 - `methods/object_methods`: 对象方法签名、适用对象族和文档
 - `types/object_types`: 对象类型定义
 - `types/object_families`: 对象族与兼容关系
@@ -74,6 +74,11 @@ server_cpp/resources/
 
 `language/preprocessor_macros` 是随扩展发布的默认 preset。client 首次发现当前工作区没有显式 `nsf.preprocessorMacros` 设置时，会通过 server 共享 registry 读取该 preset，并写入工作区设置。之后这份设置就是普通用户配置；用户删掉某个 key，就表示该宏不再属于有效 preset。
 
+preset 包含两类事实：
+
+- `shadercompiler/data/builtin_macros.py` 中的默认 builtin 宏和质量等级派生宏。
+- `shadercompiler/hlsl_process.py` 中的编译上下文宏名，包括 system / device / API support / platform quality 宏；这些宏在默认 preset 中使用保守值 `0`，真实 target 或 compile mode 值应由 workspace `nsf.preprocessorMacros` 或 `nsf.defines` 覆盖。
+
 server 构建预处理环境时按以下顺序合并：
 
 1. `nsf.preprocessorMacros` 完整有效 preset 表。
@@ -87,7 +92,7 @@ server 构建预处理环境时按以下顺序合并：
 资源相关脚本：
 
 - `scripts/builtins/update_hlsl_intrinsics_manifest.js`: 生成 `server_cpp/resources/builtins/intrinsics/base.json`
-- `scripts/builtins/update_preprocessor_macros.py`: 从 shadercompiler `builtin_macros.py` 生成 `server_cpp/resources/language/preprocessor_macros/base.json`；可传入 `--const-macros` 补齐 builtin 表达式依赖的枚举 / 常量宏
+- `scripts/builtins/update_preprocessor_macros.py`: 从 shadercompiler `builtin_macros.py` 生成 `server_cpp/resources/language/preprocessor_macros/base.json`；可传入 `--const-macros` 补齐 builtin 表达式依赖的枚举 / 常量宏，可传入 `--compiler-context` 指向 `hlsl_process.py` 以补齐编译上下文宏名
 - `scripts/json/validate_resources.js`: 校验所有资源 bundle
 
 构建规则：

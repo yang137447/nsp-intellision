@@ -108,9 +108,31 @@ def collect_dependency_names(maps: Iterable[MutableMapping[str, dict]]) -> Set[s
     return dependencies
 
 
+def parse_named_string_literals(text: str, name: str) -> Set[str]:
+    match = re.search(rf"\b{re.escape(name)}\s*=", text)
+    if not match:
+        return set()
+    object_text = find_balanced_object(text, match.end())
+    return set(re.findall(r"['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]", object_text))
+
+
+def parse_compiler_context_macros(text: str) -> Set[str]:
+    names: Set[str] = set()
+    for object_name in (
+        "SYSTEM_SUPPORT_MACROS",
+        "DEVICE_SUPPORT_MACRO",
+        "API_SUPPORT_MACRO",
+        "API_SUPPORT_MACRO_APPEND_IN_FUTURE_HIGH",
+        "API_PLATFORM_QUALITY_MACROS",
+    ):
+        names.update(parse_named_string_literals(text, object_name))
+    return names
+
+
 def build_preset(
     builtin_macros: Path,
     const_macros: Optional[Path],
+    compiler_context: Optional[Path],
 ) -> OrderedDict[str, str]:
     text = builtin_macros.read_text(encoding="utf-8")
     base, mobile_high, quality_names = parse_builtin_macro_maps(text)
@@ -133,6 +155,11 @@ def build_preset(
             continue
         preset[dependency] = const_values.get(dependency, "0")
 
+    if compiler_context:
+        context_text = compiler_context.read_text(encoding="utf-8")
+        for name in sorted(parse_compiler_context_macros(context_text)):
+            preset.setdefault(name, "0")
+
     return OrderedDict(sorted(preset.items()))
 
 
@@ -146,13 +173,19 @@ def main() -> int:
         help="Optional shaderlib/const_macros.hlsl used for dependent enum constants.",
     )
     parser.add_argument(
+        "--compiler-context",
+        type=Path,
+        default=None,
+        help="Optional shadercompiler hlsl_process.py used for compile-context macro names.",
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=Path("server_cpp/resources/language/preprocessor_macros/base.json"),
     )
     args = parser.parse_args()
 
-    preset = build_preset(args.builtin_macros, args.const_macros)
+    preset = build_preset(args.builtin_macros, args.const_macros, args.compiler_context)
     data = {
         "version": 1,
         "entries": [

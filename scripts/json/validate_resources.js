@@ -339,7 +339,18 @@ function validateSemanticCoverage(semantics) {
 function validatePreprocessorMacroCoverage(macros) {
 	assertOrThrow(Array.isArray(macros.entries), 'preprocessor macro base entries must be array');
 	const macroNames = new Set(macros.entries.map((item) => item.name));
-	for (const requiredMacro of ['SHADER_QUALITY', 'QUALITY_SUPPORT_MIDDLE', 'QUALITY_SUPPORT_HIGH', 'PLAYERS_SELF']) {
+	for (const requiredMacro of [
+		'SHADER_QUALITY',
+		'QUALITY_SUPPORT_MIDDLE',
+		'QUALITY_SUPPORT_HIGH',
+		'PLAYERS_SELF',
+		'API_MOBILE_HIGH_QUALITY',
+		'API_PC_HIGH_QUALITY',
+		'API_SUPPORT_SV_INSTANCE_ID',
+		'API_SUPPORT_TEXFETCH',
+		'API_SUPPORT_SV_VERTEX_ID',
+		'SYSTEM_SUPPORT_DEPTH_BUFFER_AS_TEXTURE'
+	]) {
 		assertOrThrow(macroNames.has(requiredMacro), `language preprocessor macros base must include ${requiredMacro}`);
 	}
 }

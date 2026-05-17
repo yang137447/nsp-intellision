@@ -7,3 +7,13 @@ float4 PreprocessorBuiltinMacroEval(float2 uv : TEXCOORD0) : SV_Target0
     return float4(uv, bad.x, 1.0);
 #endif
 }
+
+float4 PreprocessorCompilerContextMacroEval(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if API_MOBILE_HIGH_QUALITY || API_PC_HIGH_QUALITY || API_SUPPORT_SSBO || API_SUPPORT_SV_INSTANCE_ID || API_SUPPORT_TEXFETCH || API_SUPPORT_SV_VERTEX_ID || API_SUPPORT_FRAGCOORD || API_SUPPORT_TEXTURE_GATHER || SYSTEM_SUPPORT_DEPTH_BUFFER_AS_TEXTURE || GLES_USE_UBO || SYSTEM_SUPPORT_SRGB
+    float2 bad = float4(0.0, 0.0, 0.0, 0.0);
+    return float4(uv, bad.x, 1.0);
+#else
+    return float4(uv, 0.0, 1.0);
+#endif
+}

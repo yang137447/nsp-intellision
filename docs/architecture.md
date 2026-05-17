@@ -176,7 +176,7 @@
 - `language/keywords`: completion、hover、diagnostics 和 semantic tokens
 - `language/directives`: 预处理指令 completion / hover
 - `language/semantics`: `SV_*` 系统语义 hover / 识别
-- `language/preprocessor_macros`: 用于首次填充 `nsf.preprocessorMacros` 工作区设置的默认 preset；`#if` / `#elif` 表达式求值、active branch 判断和预处理宏 diagnostics 消费设置同步后的完整宏表
+- `language/preprocessor_macros`: 用于首次填充 `nsf.preprocessorMacros` 工作区设置的默认 preset；包含 shadercompiler builtin 宏以及 system / device / API support / platform quality 编译上下文宏名，编译上下文宏默认保守值为 `0`，真实 target / compile mode 值由 workspace 配置或 `nsf.defines` 覆盖；`#if` / `#elif` 表达式求值、active branch 判断和预处理宏 diagnostics 消费设置同步后的完整宏表
 - `types/*`: texture / sampler / buffer 家族识别、成员方法匹配和 diagnostics 类型兼容辅助
 - `methods/object_methods`: texture-like / buffer-like 方法签名与文档
 

@@ -216,11 +216,27 @@ export function registerDiagnosticsTests(): void {
 
 	it('uses workspace preprocessor macro presets for #if diagnostics evaluation', async () => {
 		const preset = await fetchPreprocessorMacroPresetForTests();
+		const compilerContextMacros = [
+			'API_MOBILE_HIGH_QUALITY',
+			'API_PC_HIGH_QUALITY',
+			'API_SUPPORT_SSBO',
+			'API_SUPPORT_SV_INSTANCE_ID',
+			'API_SUPPORT_TEXFETCH',
+			'API_SUPPORT_SV_VERTEX_ID',
+			'API_SUPPORT_FRAGCOORD',
+			'API_SUPPORT_TEXTURE_GATHER',
+			'SYSTEM_SUPPORT_DEPTH_BUFFER_AS_TEXTURE',
+			'GLES_USE_UBO',
+			'SYSTEM_SUPPORT_SRGB'
+		];
 		assert.ok(Object.keys(preset).length >= 100, 'Expected a complete builtin preprocessor macro preset.');
 		assert.strictEqual(preset.QUALITY_SUPPORT_MIDDLE, '(SHADER_QUALITY!=QUALITY_LOW)');
 		assert.strictEqual(preset.PLAYERS_SELF, '0');
 		assert.strictEqual(preset.NORMAL_MAP_SUPPORT, '(NORMAL_MAP_ENABLE&&QUALITY_SUPPORT_HIGH)');
 		assert.strictEqual(preset.CLUSTERED_NONE, '0');
+		for (const macro of compilerContextMacros) {
+			assert.strictEqual(preset[macro], '0', `Expected compiler context macro ${macro} in preset.`);
+		}
 		const configuration = vscode.workspace.getConfiguration('nsf');
 		const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
 		const originalMacros = inspectedMacros?.workspaceValue;
@@ -236,6 +252,9 @@ export function registerDiagnosticsTests(): void {
 					return (
 						!messages.includes('Undefined macro in preprocessor expression: QUALITY_SUPPORT_MIDDLE.') &&
 						!messages.includes('Undefined macro in preprocessor expression: PLAYERS_SELF.') &&
+						compilerContextMacros.every(
+							(macro) => !messages.includes(`Undefined macro in preprocessor expression: ${macro}.`)
+						) &&
 						!messages.includes('Assignment type mismatch: float2 = float4.')
 					);
 				},
@@ -249,6 +268,9 @@ export function registerDiagnosticsTests(): void {
 				.join('\n');
 			assert.ok(!settledMessages.includes('Undefined macro in preprocessor expression: QUALITY_SUPPORT_MIDDLE.'));
 			assert.ok(!settledMessages.includes('Undefined macro in preprocessor expression: PLAYERS_SELF.'));
+			for (const macro of compilerContextMacros) {
+				assert.ok(!settledMessages.includes(`Undefined macro in preprocessor expression: ${macro}.`));
+			}
 			assert.ok(!settledMessages.includes('Assignment type mismatch: float2 = float4.'));
 		} finally {
 			await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);

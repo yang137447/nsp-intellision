@@ -18,6 +18,38 @@
       "replacement": "0"
     },
     {
+      "name": "API_MOBILE_HIGH_QUALITY",
+      "replacement": "0"
+    },
+    {
+      "name": "API_PC_HIGH_QUALITY",
+      "replacement": "0"
+    },
+    {
+      "name": "API_SUPPORT_FRAGCOORD",
+      "replacement": "0"
+    },
+    {
+      "name": "API_SUPPORT_SSBO",
+      "replacement": "0"
+    },
+    {
+      "name": "API_SUPPORT_SV_INSTANCE_ID",
+      "replacement": "0"
+    },
+    {
+      "name": "API_SUPPORT_SV_VERTEX_ID",
+      "replacement": "0"
+    },
+    {
+      "name": "API_SUPPORT_TEXFETCH",
+      "replacement": "0"
+    },
+    {
+      "name": "API_SUPPORT_TEXTURE_GATHER",
+      "replacement": "0"
+    },
+    {
       "name": "BILLBOARD_BATCH_ENABLE",
       "replacement": "0"
     },
@@ -95,6 +127,10 @@
     },
     {
       "name": "GENERATE_SHADOW",
+      "replacement": "0"
+    },
+    {
+      "name": "GLES_USE_UBO",
       "replacement": "0"
     },
     {
@@ -531,6 +567,14 @@
     },
     {
       "name": "SYSTEM_PS_SAMPLER_EXCEED_8",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_SUPPORT_DEPTH_BUFFER_AS_TEXTURE",
+      "replacement": "0"
+    },
+    {
+      "name": "SYSTEM_SUPPORT_SRGB",
       "replacement": "0"
     },
     {
