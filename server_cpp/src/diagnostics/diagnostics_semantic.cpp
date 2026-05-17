@@ -1218,7 +1218,7 @@ void collectReturnAndTypeDiagnostics(
             break;
           }
         }
-        if (hasSemi && pendingMultilineLocalDepth == functionBraceDepth) {
+        if (hasSemi && functionBraceDepth >= pendingMultilineLocalDepth) {
           pendingMultilineLocalName.clear();
           pendingMultilineLocalDepth = -1;
           pendingMultilineLocalLine = -1;
@@ -2465,6 +2465,13 @@ void collectReturnAndTypeDiagnostics(
       if (!currentLineIsPendingMultilineLocal) {
         const std::string &trimmed = trimmedCodeLines[lineIndex];
         const std::string nextTrimmed = nextTrimmedCodeLine(lineIndex);
+        const bool insideOpenGroupingBeforeLine =
+            (lineIndex <
+                 static_cast<int>(lineScan.parenDepthBeforeLine.size()) &&
+             lineScan.parenDepthBeforeLine[lineIndex] > 0) ||
+            (lineIndex <
+                 static_cast<int>(lineScan.bracketDepthBeforeLine.size()) &&
+             lineScan.bracketDepthBeforeLine[lineIndex] > 0);
         const bool insideOpenGroupingAfterLine =
             (lineIndex < static_cast<int>(lineScan.parenDepthAfterLine.size()) &&
              lineScan.parenDepthAfterLine[lineIndex] > 0) ||
@@ -2472,7 +2479,8 @@ void collectReturnAndTypeDiagnostics(
                  static_cast<int>(lineScan.bracketDepthAfterLine.size()) &&
              lineScan.bracketDepthAfterLine[lineIndex] > 0);
         if (shouldReportMissingSemicolonShared(
-                trimmed, nextTrimmed, insideOpenGroupingAfterLine)) {
+                trimmed, nextTrimmed, insideOpenGroupingBeforeLine,
+                insideOpenGroupingAfterLine)) {
           size_t endByte = lineText.find_last_not_of(" \t");
           if (endByte == std::string::npos)
             endByte = trimmed.empty() ? 0 : trimmed.size() - 1;

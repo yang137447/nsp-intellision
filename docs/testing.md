@@ -108,6 +108,7 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 - 改 completion auto-trigger coordinator：至少补跑 completion request coordinator 单元测试、completion auto-trigger、completion client metrics、member completion、interactive visibility、real-workspace-replay repo 定向测试和 `pbr-flow-water-full-input` real replay
 - 改预处理宏资源或 active-unit include 预处理上下文：补跑 `npm run json:validate`、`cmake --build .\server_cpp\build` 和 diagnostics repo 集成用例
 - 改 semantic diagnostics 的 local scope、`for` initializer 可见性、duplicate local 或基础 control-flow 规则：至少补跑 diagnostics repo 集成用例、5-unit smoke audit 和 50-unit trend audit
+- 改 missing-semicolon parser boundary、macro-heavy recovery 或 local structural syntax 前提：至少补跑 diagnostics repo 集成用例、5-unit smoke audit 和 50-unit trend audit
 - 改 deferred/current-doc cache、full diagnostics 预热/发布链路、inlay hints full-cache 或慢路径失效：`npm run test:client:repo` 是最小必跑项
 - 改调度优先级、latest-only、cancellation、metrics 或性能命中路径：补跑 `npm run test:client:perf`
 - 发版或大范围重构：跑 `npm run gate:d3` 和 `npm run package:vsix`

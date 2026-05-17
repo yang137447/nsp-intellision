@@ -100,7 +100,7 @@
 
 ### 语义与查询
 
-- `server_parse.*`: 共享行级 declaration/header 解析、`for` initializer declaration 解析、宏定义头解析、注释/字符串剥离后的 shared line scan 和多行 nesting 结果
+- `server_parse.*`: 共享行级 declaration/header 解析、`for` initializer declaration 解析、宏定义头解析、注释/字符串剥离后的 shared line scan、多行 nesting 前后状态，以及 missing-semicolon syntax boundary 判断；多行函数 / control header、NSF metadata / effect block、表达式 continuation 和 macro-only recovery 区域的高置信缺分号判定应在这里统一收敛
 - `conditional_ast.*`: 每文件预处理结构真相
 - `preprocessor_view.*`: active branch、branch signature、配置预处理宏初始化和 include 链宏传播求值
 - `expanded_source.*`: line-preserving active-only 展开与基础 line source map

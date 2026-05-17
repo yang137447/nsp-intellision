@@ -382,12 +382,22 @@ void collectMissingSemicolonDiagnostics(
     }
 
     const std::string &trimmed = trimmedLines[lineIndex];
+    const bool insideOpenGroupingBeforeLine =
+        (lineIndex <
+             static_cast<int>(lineScan.parenDepthBeforeLine.size()) &&
+         lineScan.parenDepthBeforeLine[lineIndex] > 0) ||
+        (lineIndex <
+             static_cast<int>(lineScan.bracketDepthBeforeLine.size()) &&
+         lineScan.bracketDepthBeforeLine[lineIndex] > 0);
     const bool insideOpenGroupingAfterLine =
-        lineIndex < static_cast<int>(lineScan.parenDepthAfterLine.size()) &&
-            lineScan.parenDepthAfterLine[lineIndex] > 0 ||
-        lineIndex < static_cast<int>(lineScan.bracketDepthAfterLine.size()) &&
-            lineScan.bracketDepthAfterLine[lineIndex] > 0;
+        (lineIndex <
+             static_cast<int>(lineScan.parenDepthAfterLine.size()) &&
+         lineScan.parenDepthAfterLine[lineIndex] > 0) ||
+        (lineIndex <
+             static_cast<int>(lineScan.bracketDepthAfterLine.size()) &&
+         lineScan.bracketDepthAfterLine[lineIndex] > 0);
     if (!shouldReportMissingSemicolonShared(trimmed, nextTrimmed,
+                                            insideOpenGroupingBeforeLine,
                                             insideOpenGroupingAfterLine))
       continue;
 

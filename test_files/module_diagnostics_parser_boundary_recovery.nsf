@@ -1,0 +1,62 @@
+struct PixelMaterialParameters
+{
+    float3 world_position;
+};
+
+struct FGBufferData
+{
+    int ShadingModelID;
+};
+
+struct PixelData
+{
+    float4 color;
+};
+
+struct DeferredBasePassOutput
+{
+    float4 MRT0;
+};
+
+#define MAKE_MULTIPLIER(Type, Name, Value) Type Get##Name##Multiplier(PixelData p) { return Value; }
+#define PREPARE_LOCAL_VALUES float localA = 1.0;\
+    float localB = 2.0;
+
+MAKE_MULTIPLIER(float3, SkyLightColor, p.color.xyz)
+
+void ConvertToBasePassOutput(in PixelMaterialParameters materialParameters, in FGBufferData gbuffer, in PixelData p,
+    inout DeferredBasePassOutput output)
+{
+    output.MRT0 = float4(materialParameters.world_position, p.color.x);
+}
+
+float3 BuildSplitReturn(float3 input)
+{
+    return float3(input.x
+        , input.y
+        , input.z);
+}
+
+void ComplexConditionBoundary(in FGBufferData gbuffer, inout PixelData p)
+{
+    if ((gbuffer.ShadingModelID == 1) ||
+        (gbuffer.ShadingModelID == 2))
+    {
+        p.color.x = p.color.x + 1.0;
+    }
+}
+
+float MacroStatementBoundary()
+{
+    PREPARE_LOCAL_VALUES
+    return localA + localB;
+}
+
+float2 ArrayInitializerBoundary(int index)
+{
+    const float2 offsets[2] = {
+        float2(0.0, 0.0),
+        float2(1.0, 1.0)
+    };
+    return offsets[index];
+}

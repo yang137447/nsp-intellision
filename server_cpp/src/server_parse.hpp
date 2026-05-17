@@ -38,7 +38,9 @@ struct ParsedMacroDefinitionInfo {
 
 struct TrimmedCodeLineScanSharedResult {
   std::vector<std::string> trimmedLines;
+  std::vector<int> parenDepthBeforeLine;
   std::vector<int> parenDepthAfterLine;
+  std::vector<int> bracketDepthBeforeLine;
   std::vector<int> bracketDepthAfterLine;
 };
 
@@ -122,12 +124,14 @@ TrimmedCodeLineScanSharedResult buildTrimmedCodeLineScanShared(
 
 // Shared heuristic used by fast/full diagnostics to decide whether one visible
 // code line likely needs a terminating semicolon. It owns syntax-boundary
-// exceptions for NSF metadata/state blocks so diagnostics layers do not repeat
-// effect-style header rules. `insideOpenGroupingAfterLine` should be true when
-// the shared line scan still sees the current line inside a multi-line `(`/`[`
-// grouping after the line finishes.
+// exceptions for NSF metadata/state blocks, multi-line function/control headers,
+// expression continuations, and macro-only recovery regions so diagnostics
+// layers do not repeat parser boundary rules. `insideOpenGroupingBeforeLine` and
+// `insideOpenGroupingAfterLine` come from the shared line scan and describe
+// whether the line starts/finishes inside a multi-line `(`/`[` grouping.
 bool shouldReportMissingSemicolonShared(const std::string &trimmed,
                                         const std::string &nextTrimmed,
+                                        bool insideOpenGroupingBeforeLine,
                                         bool insideOpenGroupingAfterLine);
 
 bool findTypeOfIdentifierInDeclarationLineShared(const std::string &line,

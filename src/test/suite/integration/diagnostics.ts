@@ -1297,6 +1297,23 @@ export function registerDiagnosticsTests(): void {
 		);
 	});
 
+	it('does not misreport missing semicolons on parser boundary recovery contexts', async () => {
+		const document = await openFixture('module_diagnostics_parser_boundary_recovery.nsf');
+
+		await waitForDiagnostics(
+			document,
+			(value) => !value.some((diag) => diag.message.includes('Missing semicolon.')),
+			'parser boundary recovery diagnostics'
+		);
+
+		await waitForClientQuiescent('parser boundary diagnostics settled');
+		const settledDiagnostics = vscode.languages.getDiagnostics(document.uri);
+		assert.ok(
+			!settledDiagnostics.some((diag) => diag.message.includes('Missing semicolon.')),
+			settledDiagnostics.map((diag) => `${diag.range.start.line}:${diag.message}`).join('\n')
+		);
+	});
+
 	it('does not misreport missing semicolons inside multiline constructor expressions', async () => {
 		const document = await openFixture('module_diagnostics_multiline_semicolon_context.nsf');
 

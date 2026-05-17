@@ -628,6 +628,52 @@ Git 记录：
 - `effect-syntax-or-macro`、`syntax-structure` 在 50-unit audit 中下降。
 - parser 或 syntax diagnostics 公开行为变化已记录并验证。
 
+### Phase 5 执行记录
+
+状态：已落地 HLSL / NSF parser boundary 和 missing-semicolon recovery 收敛。
+
+实现内容：
+
+- `server_parse.*` 的 shared line scan 新增 line-before parenthesis / bracket depth，missing-semicolon 共享判断现在同时消费 line-before 和 line-after grouping 状态。
+- `shouldReportMissingSemicolonShared(...)` 统一收敛多行函数签名尾行、跨行 control condition 尾行、表达式 continuation、NSF metadata / effect block header 和 macro-only recovery 区域的缺分号边界判断；immediate syntax diagnostics 与 full semantic diagnostics 共用同一入口。
+- semantic diagnostics 的 pending multiline local declaration recovery 不再要求 semicolon 与声明起点处于完全相同 brace depth，避免数组 / initializer block 在后续 `};` 处被误判为缺分号。
+- 新增 focused fixture `test_files/module_diagnostics_parser_boundary_recovery.nsf`，覆盖多行函数签名、跨行 return/constructor 表达式、跨行 `if` condition、macro-generated function line、object-like statement macro 和数组 initializer。
+- `src/test/suite/integration/diagnostics.ts` 新增 settled diagnostics 断言，保证 immediate 与 full diagnostics 稳定后都不再发布上述 false `Missing semicolon`。
+- `docs/architecture.md` 已记录 `server_parse.*` 对 missing-semicolon syntax boundary 和 recovery 区域的共享职责；`docs/testing.md` 已补充 parser boundary / recovery 的推荐验证矩阵。
+
+公开行为变化：
+
+- 合法多行函数签名尾行、跨行 control condition 尾行、跨行表达式 continuation、macro-only 展开行和多行 initializer 不再发布高置信 `Missing semicolon.`。
+- 单行真实缺分号、return / break / continue / discard 缺分号、postfix update 缺分号仍保留 diagnostics。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，68 passing / 1 pending。
+- 5-unit smoke audit 使用临时 copy workspace `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace` 通过；输出 `real-workspace-diagnostics-audit.phase-05-parser-boundary-smoke-5.{json,md}`。相对 P4 smoke：`effect-syntax-or-macro` 118 -> 30，`syntax-structure` 79 -> 29，`diagnosticsTotal` 3926 -> 3787，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 使用同一临时 copy workspace 通过；输出 `real-workspace-diagnostics-audit.phase-05-parser-boundary-trend-50.{json,md}`。相对 P4 trend：`effect-syntax-or-macro` 983 -> 287，`syntax-structure` 705 -> 261，`diagnosticsTotal` 33284 -> 32144，`undefined-identifier` 保持 944，`semantic-source-rule` 保持 2531，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+审计备注：
+
+- 剩余 `Missing semicolon` 主要集中在更复杂的 multiline return / constructor 表达式和真实缺分号样本；本阶段先收敛已确认的 parser boundary / recovery 高置信误报，不引入 message-level suppress。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture 和阶段 audit 报告；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：是，missing-semicolon parser boundary 与 recovery 可信判断收敛到 `server_parse.*` 共享入口。
+- 测试策略是否变化：是，P5 focused fixture 覆盖 parser boundary / macro-heavy recovery，`docs/testing.md` 增加对应验证矩阵；audit 趋势验证沿用 P0 机制。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md`、`server_parse.hpp` 和本执行计划；资源、开发和对象类型 / 方法契约未变化。
+- 是否改变公开 diagnostics 行为：是，上述合法 parser boundary / recovery 区域不再发布 `Missing semicolon.`。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-05 5-unit / 50-unit real audit 报告。
+
+Git 记录：
+
+- 本阶段尚未本地提交；提交后应在本记录追加 commit hash。
+
 ## Phase 6: 统一 builtin overload 和 object method 匹配
 
 ### 背景

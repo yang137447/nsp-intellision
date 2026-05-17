@@ -80,6 +80,40 @@ bool isContinuationLine(const std::string &trimmed) {
   return ops.find(tail) != std::string::npos || tail == '\\';
 }
 
+bool startsWithContinuationToken(const std::string &trimmed) {
+  if (trimmed.empty())
+    return false;
+  const auto tokens = lexLineTokens(trimmed);
+  if (tokens.empty())
+    return false;
+  const auto &first = tokens.front();
+  if (first.kind != LexToken::Kind::Punct)
+    return false;
+  return first.text == "," || first.text == "." || first.text == "->" ||
+         first.text == "::" || first.text == "?" || first.text == ":" ||
+         first.text == "+" || first.text == "-" || first.text == "*" ||
+         first.text == "/" || first.text == "%" || first.text == "&&" ||
+         first.text == "||" || first.text == "&" || first.text == "|" ||
+         first.text == "^" || first.text == "==" || first.text == "!=" ||
+         first.text == "<" || first.text == ">" || first.text == "<=" ||
+         first.text == ">=";
+}
+
+bool isMacroStyleIdentifier(const std::string &name) {
+  bool sawUpper = false;
+  bool sawSeparator = false;
+  for (char ch : name) {
+    const unsigned char uch = static_cast<unsigned char>(ch);
+    if (std::islower(uch))
+      return false;
+    if (std::isupper(uch))
+      sawUpper = true;
+    if (ch == '_')
+      sawSeparator = true;
+  }
+  return sawUpper && (sawSeparator || name.size() >= 3);
+}
+
 bool startsWithKeywordToken(const std::vector<LexToken> &tokens,
                             const std::string &keyword) {
   for (const auto &token : tokens) {
@@ -216,6 +250,92 @@ bool isMultilineFunctionSignatureTailBeforeLine(
     }
   }
   return sawColon && !sawAssignment && identifiers >= 2;
+}
+
+bool isParameterTailBeforeBlock(const std::vector<LexToken> &tokens,
+                                const std::string &nextTrimmed) {
+  if (tokens.empty() || !nextLineStartsWith(nextTrimmed, "{"))
+    return false;
+  const auto &last = tokens.back();
+  if (last.kind != LexToken::Kind::Punct || last.text != ")")
+    return false;
+
+  int identifiers = 0;
+  int angleDepth = 0;
+  int bracketDepth = 0;
+  for (size_t i = 0; i + 1 < tokens.size(); i++) {
+    const auto &token = tokens[i];
+    if (token.kind == LexToken::Kind::Identifier) {
+      if (!isQualifierToken(token.text))
+        identifiers++;
+      continue;
+    }
+    if (token.kind != LexToken::Kind::Punct)
+      return false;
+    const std::string &text = token.text;
+    if (text == "<") {
+      angleDepth++;
+      continue;
+    }
+    if (text == ">" && angleDepth > 0) {
+      angleDepth--;
+      continue;
+    }
+    if (text == "[") {
+      bracketDepth++;
+      continue;
+    }
+    if (text == "]" && bracketDepth > 0) {
+      bracketDepth--;
+      continue;
+    }
+    if (text == "," || text == ":" || text == "=" || text == "[") {
+      continue;
+    }
+    return false;
+  }
+  return identifiers >= 2;
+}
+
+bool isGroupingTailBeforeBlock(const std::vector<LexToken> &tokens,
+                               const std::string &nextTrimmed,
+                               bool insideOpenGroupingBeforeLine) {
+  if (tokens.empty() || !insideOpenGroupingBeforeLine ||
+      !nextLineStartsWith(nextTrimmed, "{")) {
+    return false;
+  }
+  const auto &last = tokens.back();
+  return last.kind == LexToken::Kind::Punct && last.text == ")";
+}
+
+bool isMacroOnlyLine(const std::vector<LexToken> &tokens) {
+  if (tokens.empty() || tokens.front().kind != LexToken::Kind::Identifier ||
+      !isMacroStyleIdentifier(tokens.front().text)) {
+    return false;
+  }
+  if (tokens.size() == 1)
+    return true;
+  if (tokens.size() < 3 || tokens[1].kind != LexToken::Kind::Punct ||
+      tokens[1].text != "(") {
+    return false;
+  }
+  int parenDepth = 0;
+  for (size_t i = 1; i < tokens.size(); i++) {
+    if (tokens[i].kind != LexToken::Kind::Punct)
+      continue;
+    if (tokens[i].text == "(") {
+      parenDepth++;
+      continue;
+    }
+    if (tokens[i].text == ")") {
+      if (parenDepth <= 0)
+        return false;
+      parenDepth--;
+      if (parenDepth == 0)
+        return i + 1 == tokens.size();
+    }
+  }
+  return false;
 }
 
 } // namespace
@@ -1220,7 +1340,9 @@ TrimmedCodeLineScanSharedResult buildTrimmedCodeLineScanShared(
   const std::vector<std::string> lines = splitLinesShared(text);
   TrimmedCodeLineScanSharedResult result;
   result.trimmedLines.reserve(lines.size());
+  result.parenDepthBeforeLine.reserve(lines.size());
   result.parenDepthAfterLine.reserve(lines.size());
+  result.bracketDepthBeforeLine.reserve(lines.size());
   result.bracketDepthAfterLine.reserve(lines.size());
 
   bool inBlockComment = false;
@@ -1231,6 +1353,8 @@ TrimmedCodeLineScanSharedResult buildTrimmedCodeLineScanShared(
     const std::string trimmed =
         trimRightCopy(trimLeftCopy(sanitized));
     result.trimmedLines.push_back(trimmed);
+    result.parenDepthBeforeLine.push_back(parenDepth);
+    result.bracketDepthBeforeLine.push_back(bracketDepth);
 
     if (shouldAdvanceGroupingState(trimmed, lineIndex, lineActive)) {
       for (char ch : sanitized) {
@@ -1255,6 +1379,7 @@ TrimmedCodeLineScanSharedResult buildTrimmedCodeLineScanShared(
 
 bool shouldReportMissingSemicolonShared(const std::string &trimmed,
                                         const std::string &nextTrimmed,
+                                        bool insideOpenGroupingBeforeLine,
                                         bool insideOpenGroupingAfterLine) {
   if (trimmed.empty() || trimmed[0] == '#')
     return false;
@@ -1263,11 +1388,17 @@ bool shouldReportMissingSemicolonShared(const std::string &trimmed,
     return false;
   if (insideOpenGroupingAfterLine)
     return false;
+  if (startsWithContinuationToken(trimmed) ||
+      startsWithContinuationToken(nextTrimmed)) {
+    return false;
+  }
 
   const auto tokens = lexLineTokens(trimmed);
   if (tokens.empty())
     return false;
   if (isStandaloneAttributeSpecifier(tokens))
+    return false;
+  if (isMacroOnlyLine(tokens))
     return false;
 
   if (startsWithKeywordToken(tokens, "if") ||
@@ -1291,6 +1422,9 @@ bool shouldReportMissingSemicolonShared(const std::string &trimmed,
   if (isMetadataBlockHeaderBeforeLine(trimmed, nextTrimmed) ||
       isStateBlockHeaderBeforeLine(trimmed, nextTrimmed) ||
       isMultilineFunctionSignatureTailBeforeLine(tokens, nextTrimmed) ||
+      isParameterTailBeforeBlock(tokens, nextTrimmed) ||
+      isGroupingTailBeforeBlock(tokens, nextTrimmed,
+                                insideOpenGroupingBeforeLine) ||
       nextTrimmed == "};") {
     return false;
   }
