@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
+struct PreprocessorView;
+
 enum class BuiltinElemKind { Unknown, Bool, Int, UInt, Half, Float, Double };
 
 struct BuiltinTypeInfo {
@@ -52,6 +54,10 @@ struct NumericLiteralParseResult {
 // parseNumericLiteralFromTokens before falling back to per-token handling.
 // Implementation-only ll/ull integer suffixes are accepted as legacy forms so
 // diagnostics can warn and recommend the standard l/ul spelling.
+// Optional PreprocessorView inputs let callers provide active object-like macro
+// replacements for the same source line. This helper may infer those
+// replacements through the same parser, but it does not expand function-like
+// macros or guess a type when replacement context is missing.
 std::string normalizeTypeToken(std::string value);
 
 bool isVectorType(const std::string &type, int &dimensionOut);
@@ -120,7 +126,8 @@ std::string inferExpressionTypeFromTokens(
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
-    std::unordered_map<std::string, std::string> *fileTextCache);
+    std::unordered_map<std::string, std::string> *fileTextCache,
+    const PreprocessorView *preprocessorView = nullptr, int sourceLine = -1);
 
 std::string inferExpressionTypeFromTokensRange(
     const std::vector<LexToken> &tokens, size_t startIndex, size_t endIndex,
@@ -133,4 +140,5 @@ std::string inferExpressionTypeFromTokensRange(
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
-    std::unordered_map<std::string, std::string> *fileTextCache);
+    std::unordered_map<std::string, std::string> *fileTextCache,
+    const PreprocessorView *preprocessorView = nullptr, int sourceLine = -1);

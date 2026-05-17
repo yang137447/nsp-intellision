@@ -23,7 +23,28 @@ ConfiguredPreprocessorMacros gConfiguredPreprocessorMacros;
 struct PreprocMacro {
   bool functionLike = false;
   std::vector<LexToken> replacement;
+  std::string replacementText;
 };
+
+static std::string tokensToReplacementText(const std::vector<LexToken> &tokens) {
+  std::string out;
+  for (const auto &token : tokens) {
+    if (!out.empty())
+      out.push_back(' ');
+    out += token.text;
+  }
+  return out;
+}
+
+static PreprocessorMacroReplacement
+toPublicMacroReplacement(const PreprocMacro &macro) {
+  PreprocessorMacroReplacement out;
+  out.functionLike = macro.functionLike;
+  out.replacement = macro.replacementText;
+  if (out.replacement.empty() && !macro.replacement.empty())
+    out.replacement = tokensToReplacementText(macro.replacement);
+  return out;
+}
 
 static bool parseIntToken(const std::string &text, int &out) {
   if (text.empty())
@@ -43,6 +64,7 @@ static bool parseIntToken(const std::string &text, int &out) {
 static PreprocMacro makeNumericPreprocMacro(int value) {
   const std::string text = std::to_string(value);
   PreprocMacro macro;
+  macro.replacementText = text;
   macro.replacement.push_back(
       LexToken{LexToken::Kind::Identifier, text, 0, text.size()});
   return macro;
@@ -50,6 +72,7 @@ static PreprocMacro makeNumericPreprocMacro(int value) {
 
 static PreprocMacro makeReplacementPreprocMacro(const std::string &replacement) {
   PreprocMacro macro;
+  macro.replacementText = replacement;
   macro.replacement = lexLineTokens(replacement);
   return macro;
 }
@@ -434,6 +457,59 @@ static void initializeLineStateStorage(PreprocessorInterpreterState &state) {
   state.result.branchSigs.resize(state.ast.lines.size());
 }
 
+static void snapshotInitialMacroState(PreprocessorInterpreterState &state) {
+  state.result.initialMacroReplacements.clear();
+  state.result.initialMacroReplacements.reserve(state.macros.size());
+  for (const auto &entry : state.macros) {
+    state.result.initialMacroReplacements.emplace(
+        entry.first, toPublicMacroReplacement(entry.second));
+  }
+  state.result.macroEvents.clear();
+}
+
+static void recordMacroDefine(PreprocessorInterpreterState &state, int line,
+                              const std::string &name,
+                              const PreprocMacro &macro) {
+  PreprocessorMacroEvent event;
+  event.line = line;
+  event.name = name;
+  event.replacement = toPublicMacroReplacement(macro);
+  state.result.macroEvents.push_back(std::move(event));
+}
+
+static void recordMacroUndef(PreprocessorInterpreterState &state, int line,
+                             const std::string &name) {
+  PreprocessorMacroEvent event;
+  event.line = line;
+  event.name = name;
+  event.undefined = true;
+  state.result.macroEvents.push_back(std::move(event));
+}
+
+static bool preprocMacroEquivalent(const PreprocMacro &lhs,
+                                   const PreprocMacro &rhs) {
+  return lhs.functionLike == rhs.functionLike &&
+         toPublicMacroReplacement(lhs).replacement ==
+             toPublicMacroReplacement(rhs).replacement;
+}
+
+static void recordMacroDelta(
+    PreprocessorInterpreterState &state, int line,
+    const std::unordered_map<std::string, PreprocMacro> &before,
+    const std::unordered_map<std::string, PreprocMacro> &after) {
+  for (const auto &entry : after) {
+    auto old = before.find(entry.first);
+    if (old != before.end() && preprocMacroEquivalent(old->second, entry.second))
+      continue;
+    recordMacroDefine(state, line, entry.first, entry.second);
+  }
+  for (const auto &entry : before) {
+    if (after.find(entry.first) != after.end())
+      continue;
+    recordMacroUndef(state, line, entry.first);
+  }
+}
+
 static void normalizeDocumentTextInPlace(std::string &text) {
   std::string normalized;
   normalized.reserve(text.size());
@@ -605,6 +681,7 @@ static void interpretIncludeDirective(PreprocessorInterpreterState &state,
         !includeAst) {
       continue;
     }
+    const auto macrosBeforeInclude = state.macros;
     if (std::find(state.result.activeIncludeUris.begin(),
                   state.result.activeIncludeUris.end(),
                   candidateUri) == state.result.activeIncludeUris.end()) {
@@ -621,6 +698,7 @@ static void interpretIncludeDirective(PreprocessorInterpreterState &state,
     includeState.includeExpansionStack = state.includeExpansionStack;
     includeState.includedCapture = state.includedCapture;
     initializeLineStateStorage(includeState);
+    snapshotInitialMacroState(includeState);
 
     if (includeState.includeExpansionStack)
       includeState.includeExpansionStack->insert(candidateUri);
@@ -634,6 +712,8 @@ static void interpretIncludeDirective(PreprocessorInterpreterState &state,
       state.includedCapture->found = true;
     }
 
+    recordMacroDelta(state, line.line, macrosBeforeInclude,
+                     includeState.macros);
     state.macros = std::move(includeState.macros);
     if (state.includeContext->collectIncludeConditionDiagnostics &&
         !includeState.result.conditionDiagnostics.empty()) {
@@ -692,7 +772,9 @@ static void applyDirectiveSideEffects(PreprocessorInterpreterState &state,
       if (replacementStart < line.tokens.size()) {
         macro.replacement.assign(line.tokens.begin() + replacementStart,
                                  line.tokens.end());
+        macro.replacementText = tokensToReplacementText(macro.replacement);
       }
+      recordMacroDefine(state, line.line, name, macro);
       state.macros[name] = std::move(macro);
     }
     return;
@@ -701,6 +783,7 @@ static void applyDirectiveSideEffects(PreprocessorInterpreterState &state,
   if (line.directiveKind == ConditionalDirectiveKind::Undef) {
     if (line.tokens.size() >= 3 &&
         line.tokens[2].kind == LexToken::Kind::Identifier) {
+      recordMacroUndef(state, line.line, line.tokens[2].text);
       state.macros.erase(line.tokens[2].text);
     }
     return;
@@ -815,12 +898,44 @@ std::string getConfiguredPreprocessorMacrosFingerprint() {
       getConfiguredPreprocessorMacrosSnapshot());
 }
 
+bool lookupActivePreprocessorMacroReplacement(
+    const PreprocessorView &view, int line, const std::string &name,
+    PreprocessorMacroReplacement &replacementOut) {
+  replacementOut = PreprocessorMacroReplacement{};
+  if (name.empty())
+    return false;
+
+  bool defined = false;
+  auto initial = view.initialMacroReplacements.find(name);
+  if (initial != view.initialMacroReplacements.end()) {
+    replacementOut = initial->second;
+    defined = true;
+  }
+
+  for (const auto &event : view.macroEvents) {
+    if (event.line >= line)
+      continue;
+    if (event.name != name)
+      continue;
+    if (event.undefined) {
+      replacementOut = PreprocessorMacroReplacement{};
+      defined = false;
+      continue;
+    }
+    replacementOut = event.replacement;
+    defined = true;
+  }
+
+  return defined;
+}
+
 PreprocessorView
 buildPreprocessorView(const ConditionalAst &ast,
                       const std::unordered_map<std::string, int> &defines) {
   PreprocessorInterpreterState state{ast};
-  initializeLineStateStorage(state);
   seedInitialPreprocessorMacros(state.macros, defines);
+  initializeLineStateStorage(state);
+  snapshotInitialMacroState(state);
 
   interpretNodeList(state, ast.rootNodeIndices);
   return state.result;
@@ -838,8 +953,9 @@ buildPreprocessorView(const std::string &text,
                       const PreprocessorIncludeContext &includeContext) {
   const ConditionalAst ast = buildConditionalAst(text);
   PreprocessorInterpreterState state{ast};
-  initializeLineStateStorage(state);
   seedInitialPreprocessorMacros(state.macros, defines);
+  initializeLineStateStorage(state);
+  snapshotInitialMacroState(state);
 
   std::unordered_map<std::string, ConditionalAst> includeAstCache;
   std::unordered_set<std::string> includeExpansionStack;
@@ -869,8 +985,9 @@ bool buildIncludedDocumentPreprocessorView(
 
   const ConditionalAst ast = buildConditionalAst(rootText);
   PreprocessorInterpreterState state{ast};
-  initializeLineStateStorage(state);
   seedInitialPreprocessorMacros(state.macros, defines);
+  initializeLineStateStorage(state);
+  snapshotInitialMacroState(state);
 
   std::unordered_map<std::string, ConditionalAst> includeAstCache;
   std::unordered_set<std::string> includeExpansionStack;

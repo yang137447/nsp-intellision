@@ -54,6 +54,8 @@ static bool parseStructMembersFromText(
     bool maskBlock = inBlockComment;
     const auto mask = buildCodeMaskForLine(lineText, maskBlock);
     inBlockComment = maskBlock;
+    if (isPreprocessorDirectiveLine(lineText, mask))
+      continue;
     const auto rawTokens = lexLineTokens(lineText);
     std::vector<LexToken> tokens;
     tokens.reserve(rawTokens.size());
@@ -152,6 +154,8 @@ bool hasStructDeclarationInText(const std::string &text,
     bool maskBlock = inBlockComment;
     const auto mask = buildCodeMaskForLine(lineText, maskBlock);
     inBlockComment = maskBlock;
+    if (isPreprocessorDirectiveLine(lineText, mask))
+      continue;
     const auto rawTokens = lexLineTokens(lineText);
     std::vector<LexToken> tokens;
     tokens.reserve(rawTokens.size());
@@ -218,6 +222,8 @@ std::string resolveSymbolTypeInText(const std::string &text,
     bool maskBlock = inBlockComment;
     const auto mask = buildCodeMaskForLine(lineText, maskBlock);
     inBlockComment = maskBlock;
+    if (isPreprocessorDirectiveLine(lineText, mask))
+      continue;
     const auto rawTokens = lexLineTokens(lineText);
     std::vector<LexToken> tokens;
     tokens.reserve(rawTokens.size());

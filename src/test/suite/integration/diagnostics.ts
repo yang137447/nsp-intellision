@@ -1360,6 +1360,35 @@ export function registerDiagnosticsTests(): void {
 		}
 	});
 
+	itWithDiagnosticsMode('balanced', 'keeps macro expression arguments available for builtin and object method diagnostics', async () => {
+		const document = await openFixture('module_diagnostics_macro_argument_availability.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Builtin call type mismatch: abs. Args: ().') &&
+					messages.includes('Builtin call type mismatch: max. Args: (, float).')
+				);
+			},
+			'macro expression argument availability diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(messages.includes('Builtin call type mismatch: abs. Args: ().'), messages);
+		assert.ok(messages.includes('Builtin call type mismatch: max. Args: (, float).'), messages);
+		for (const name of ['abs', 'max', 'min', 'pow']) {
+			assert.ok(!messages.includes(`Indeterminate builtin call: arg types unavailable. Name: ${name}.`), messages);
+		}
+		assert.ok(!messages.includes('Indeterminate builtin call: arg types unavailable. Name: min. Args: (float, ifndef).'), messages);
+		assert.ok(
+			!messages.includes('Indeterminate built-in method call: arg types unavailable. Base: Texture2D. Method: SampleBias.'),
+			messages
+		);
+		assert.ok(!messages.includes('Indeterminate built-in method call: arg types unavailable. Base: texture. Method: SampleBias.'), messages);
+	});
+
 	it('publishes diagnostics for user function call argument mismatches', async () => {
 		const document = await openFixture('module_diagnostics_user_function_call_args.nsf');
 

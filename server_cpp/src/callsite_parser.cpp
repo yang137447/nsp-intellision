@@ -635,6 +635,7 @@ bool collectCallArgumentTokenRanges(
     size_t argStart = j;
     int parenDepth = 0;
     int bracketDepth = 0;
+    int braceDepth = 0;
     while (j < tokens.size()) {
       const auto &t = tokens[j];
       if (t.kind == LexToken::Kind::Punct) {
@@ -648,7 +649,12 @@ bool collectCallArgumentTokenRanges(
           bracketDepth++;
         else if (t.text == "]")
           bracketDepth = bracketDepth > 0 ? bracketDepth - 1 : 0;
-        else if (t.text == "," && parenDepth == 0 && bracketDepth == 0)
+        else if (t.text == "{")
+          braceDepth++;
+        else if (t.text == "}")
+          braceDepth = braceDepth > 0 ? braceDepth - 1 : 0;
+        else if (t.text == "," && parenDepth == 0 && bracketDepth == 0 &&
+                 braceDepth == 0)
           break;
       }
       j++;

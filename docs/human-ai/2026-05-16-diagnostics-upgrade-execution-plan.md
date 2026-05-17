@@ -1123,6 +1123,144 @@ Git 记录：
 
 - 本阶段已本地提交，commit message：`fix: model common builtin diagnostics`；当前提交 hash 以 `git log -1 --oneline` 为准。
 
+## Phase 11 (P11): 收敛 macro-expression / parser boundary argument availability
+
+### 背景
+
+P10 已消除 common builtin 的 `NSF_INDET_BUILTIN_UNMODELED`，但仍明确留下 macro / parser 造成的 `arg types unavailable`，例如 `abs()`、`max(float, )`、`min(float, ifndef)`、`pow(float, )` 和 object method `SampleBias(..., )`。这类问题不能通过 builtin 表继续补洞；根因更可能在 callsite argument splitting、macro / conditional token 边界、parser recovery region 和 object method argument 解析之间。
+
+### 目标
+
+让 diagnostics 能区分三类情况：
+
+- 源码真实缺参数，应保留明确 call argument diagnostics。
+- macro / conditional source 造成当前 token stream 不完整，应通过 diagnostics prerequisites 或结构化 indeterminate reason 记录，不猜测类型。
+- parser / callsite 边界误切导致的参数不可用，应在共享 parser / call query 层修正，而不是在单个 builtin 或 object method rule 中 suppress。
+
+### 方案
+
+1. 从 `phase-10-builtin-indeterminate-trend-50` 和后续 5-unit smoke 中抽取 `arg types unavailable` top samples，按真实缺参、macro 条件空参、parser boundary、object method argument split 四类归因。
+2. 优先检查 `callsite_parser.*`、`diagnostics_expression_type.*`、object method diagnostics 参数收集路径和 `diagnostics_prerequisites.*` 的边界契约。
+3. 如果根因是 parser region unreliable，应把 reason 收敛到 prerequisites / audit metadata；如果根因是 argument splitter 误切，应修共享 callsite parser。
+4. 新增 focused fixture，至少覆盖：
+   - 真实空参数仍发布 error。
+   - macro / conditional 造成的不可判定参数不发布伪 mismatch。
+   - object method `SampleBias` / texture-like call 不因 trailing macro segment 误报。
+   - builtin `abs/max/min/pow` 不再因为合法 macro 包裹表达式落入 unstructured indeterminate。
+5. 跑 diagnostics repo 回归、5-unit smoke 和 50-unit trend audit；只有样本仍不可归因时才追加 full audit。
+
+### 验收标准
+
+- `arg types unavailable` 的主要样本被分为真实源码问题或明确 parser / macro prerequisite reason。
+- 50-unit audit 中 `indeterminate-analysis` 继续下降，且不通过 suppress、fallback、shim 或猜测类型达成。
+- object method 与 builtin call diagnostics 继续消费共享 callsite / type relation / type model 入口。
+- 新增 focused fixture 覆盖真实缺参与 macro/parser 不可判定的正反行为。
+
+### Phase 11 执行记录
+
+状态：已完成 macro-expression / parser boundary argument availability 第一轮。
+
+样本归因：
+
+- `abs(u_vfog_max_distance)`、`max(..., u_exp_fog_start_distance)`、`pow(..., max(..., u_dir_inscattering_exponent))` 的空参数类型来自 object-like macro replacement 未进入 expression typing，而不是 builtin 表缺项。
+- `min(ray_length, u_exp_fog_max_distance_km * UNIT_KM_TO_CM)` 的 `Args: (float, ifndef)` 来自 symbol type fallback 把 `#ifndef UNIT_KM_TO_CM` 误读成普通声明。
+- `SampleBias(..., TEXTURE_BIAS)` 的末尾空参数来自有效 macro 数字 replacement 未通过共享 preprocessor context 传给 object method argument typing。
+- 真实空参数仍按 call type mismatch 发布，不转成 indeterminate。
+
+实现内容：
+
+- `preprocessor_view.*` 新增 active macro replacement 查询契约，记录 initial macro state、源文件 `#define/#undef` 事件和 include 链宏传播后的 delta，供下游按行查询。
+- `diagnostics_expression_type.*` 消费同一 `PreprocessorView`，对 active object-like macro replacement 递归使用共享表达式 parser 推断类型；function-like macro 不展开，缺上下文时仍保持不可判定，不新增猜测类型。
+- `diagnostics_symbol_type.*` 的 current-text symbol fallback 跳过预处理指令行，避免把 `#ifndef/#define` directive token 当作变量声明类型。
+- `callsite_parser.*` 和 expression argument parser 在拆分参数时纳入 `{}` brace depth，避免 initializer / braced segment 内逗号误切。
+- builtin / object method call diagnostics 区分真实空参数 range 和非空参数的类型不可用；真实空参数发布 call type mismatch，非空但类型缺失仍走 indeterminate / prerequisite 路径。
+- 新增 focused fixture `test_files/module_diagnostics_macro_argument_availability.nsf`，覆盖 macro alias、numeric macro、object method `SampleBias` 和真实空参数。
+- diagnostics 集成测试新增 `keeps macro expression arguments available for builtin and object method diagnostics`。
+
+公开行为变化：
+
+- 合法 object-like macro 包裹的 builtin / object method 实参不再发布 `arg types unavailable` indeterminate。
+- `#ifndef` 等预处理指令不再被 symbol fallback 当作类型。
+- 真实空参数继续作为用户可见 call type mismatch，而不是被归类为 indeterminate metadata。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`74 passing`，`1 pending`。
+- `npm run test:client:repo` 通过。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-11-argument-availability-smoke-5.{json,md}`；相对 P10 5-unit：`diagnosticsTotal` `700 -> 635`，`likely-plugin-limitation` `240 -> 175`，`indeterminate-analysis` `35 -> 0`，`expression_type_unavailable` `485 -> 455`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-11-argument-availability-trend-50.{json,md}`；相对 P10 50-unit：`diagnosticsTotal` `5848 -> 5186`，`filesWithDiagnostics` `27 -> 24`，`likely-plugin-limitation` `2147 -> 1485`，`indeterminate-analysis` `362 -> 0`，`expression-type-analysis` `350 -> 50`，`prerequisiteSkippedTotal` `15852 -> 15552`，`expression_type_unavailable` `4394 -> 4094`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture 和 phase-11 audit 输出；无运行时路径 / 资源命名变化。
+- 架构或单一事实来源是否变化：是，active macro replacement 查询收敛到 `preprocessor_view.*`，macro expression typing 收敛到 `diagnostics_expression_type.*`。
+- 测试策略是否变化：是，新增 macro argument availability focused fixture 和阶段 audit sample。
+- 文档是否已同步：已更新 `docs/architecture.md`、`preprocessor_view.hpp`、`diagnostics_expression_type.hpp` 和本执行计划；README、资源、development、testing 和对象类型 / 方法契约未变化。
+- 是否改变公开 diagnostics 行为：是，合法 macro 实参不再发布 arg-unavailable indeterminate，真实空参数保持 call mismatch。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-11 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是。
+
+Git 记录：
+
+- 本阶段已本地提交，commit message：`fix: keep macro arguments available in diagnostics`；当前提交 hash 以 `git log -1 --oneline` 为准。
+
+## Phase 12 (P12): 收敛 literal / macro-like expression typing
+
+### 背景
+
+P8 / P9 full audit 仍显示 `undefined-identifier`、`semantic-source-rule` 和 `expression-type-analysis` 中存在 LSP-owned 剩余项：`true` / `false` 被当成普通 identifier、macro define numeric typing 不稳定、`MaterialFloat4(...)` 这类 macro-like constructor 不能稳定进入 expression type，以及 `normalize(mul(camera_matrix, ...))` 等矩阵 / alias 组合仍可能残留类型不可判定。
+
+### 目标
+
+把 boolean literal、numeric macro value、macro-like constructor / alias 和矩阵表达式的类型入口收敛到共享 expression typing / type desc 层，使后续 diagnostics 不再靠 rule-local 猜测。
+
+### 方案
+
+1. 在 `diagnostics_expression_type.*` / `type_desc.*` 中审查 boolean literal、numeric macro replacement、macro-like scalar / vector / matrix alias 的归一化职责。
+2. 对 `true` / `false` 建立 focused undefined-identifier 回归，确保 boolean literal 不进入普通 symbol undefined 路径。
+3. 对 `MaterialFloat*`、`MaterialHalf*`、matrix alias 和 project macro numeric value 增加 focused fixture，证明 assignment / return / builtin argument 使用同一类型结果。
+4. 对 `mul(...)`、`normalize(...)`、constructor return 和 multiline return expression 增加组合用例，避免 P12 修类型时重新引入 parser boundary 误判。
+5. 更新 architecture / header contract，只记录共享职责变化；不把项目 alias 写成 diagnostics rule 局部表。
+
+### 验收标准
+
+- boolean literal 不再产生 undefined identifier。
+- macro-like numeric / vector / matrix alias 在 assignment、return、builtin argument 中使用同一 expression type。
+- 50-unit audit 中 `undefined-identifier` 和 `expression-type-analysis` 的 LSP-owned 样本继续下降。
+- 如果新增或扩展 public API，头文件职责、输入输出、调用前提和非目标范围同步更新。
+
+## Phase 13 (P13): P11/P12 后 full audit 和剩余问题分流
+
+### 背景
+
+P9 full audit 已把默认 `balanced` diagnostics 从 463556 降到 69902；P10 的 50-unit trend 继续消除了 common builtin unmodeled 问题。P11 / P12 后需要重新判断剩余 diagnostics 是否仍由 LSP 架构缺陷主导，还是已经进入真实源码、项目配置和规则策略确认阶段。
+
+### 目标
+
+执行一轮 post-P12 full audit，形成下一轮是否继续 LSP 架构治理的依据，并把剩余问题按 owner 分流。
+
+### 方案
+
+1. 在 P11 / P12 focused fixture、repo diagnostics 回归、5-unit smoke 和 50-unit trend 均通过后，执行 full audit。
+2. 对 full audit 输出按 category、top canonical message、affected unit / file 和 sample line 重新聚类。
+3. 将剩余样本分为：
+   - LSP 共享层缺陷。
+   - 项目 workspace / source config 缺失。
+   - 真实源码问题。
+   - diagnostics policy 待确认问题。
+4. 若 `likely-plugin-limitation` 仍由单一 LSP 根因主导，新增下一轮 Phase；若不再主导，则把本轮 diagnostics 架构治理收束为源码 / 配置审核清单。
+
+### 验收标准
+
+- full audit 可稳定完成，`fileErrors=0`，`truncatedFiles` / `timedOutFiles` 不比 baseline 增加。
+- `likely-plugin-limitation` 的主导 top groups 有明确 owner，不再是 parser/type/scope 级联误报。
+- 文档记录下一轮是否继续 LSP 架构治理，以及对应优先级、风险和验证入口。
+
 ## 阶段执行顺序
 
 推荐顺序：
@@ -1138,8 +1276,11 @@ Git 记录：
 9. Phase 8: 全量复审和真实源码问题分流。
 10. Phase 9: diagnostics policy 与 workspace macro 分流。
 11. Phase 10: 收敛 common builtin indeterminate modeling。
+12. Phase 11: 收敛 macro-expression / parser boundary argument availability。
+13. Phase 12: 收敛 literal / macro-like expression typing。
+14. Phase 13: P11/P12 后 full audit 和剩余问题分流。
 
-Phase 2、Phase 3、Phase 4、Phase 7 和 Phase 10 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约和 builtin 类型规则共享入口；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。
+Phase 2、Phase 3、Phase 4、Phase 7、Phase 10、Phase 11 和 Phase 12 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约、builtin 类型规则共享入口、macro / parser 参数边界和 macro-like expression typing；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。
 
 ## 每阶段固定关闭检查
 

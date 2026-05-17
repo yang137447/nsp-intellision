@@ -1448,7 +1448,8 @@ void collectReturnAndTypeDiagnostics(
                     tokens, eqIndex + 1, segmentEnd, localsVisibleTypes, uri,
                     text, scanRoots, workspaceFolders, includePaths,
                     scanExtensions, shaderExtensions, defines, structCache,
-                    symbolCache, &fileTextCache));
+                    symbolCache, &fileTextCache, &preprocessorView,
+                    lineIndex));
                 rhsEval.confidence = TypeEvalConfidence::L2;
                 if (rhsEval.type.empty() && isHalfFamilyType(lhsType)) {
                   rhsEval.type = inferNarrowingFallbackRhsTypeFromTokens(
@@ -1540,7 +1541,7 @@ void collectReturnAndTypeDiagnostics(
                     tokens, k + 1, localsVisibleTypes, uri, text, scanRoots,
                     workspaceFolders, includePaths, scanExtensions,
                     shaderExtensions, defines, structCache, symbolCache,
-                    &fileTextCache));
+                    &fileTextCache, &preprocessorView, lineIndex));
                 rhsEval.confidence = TypeEvalConfidence::L2;
                 if (rhsEval.type.empty() && isHalfFamilyType(lhsType)) {
                   rhsEval.type = inferNarrowingFallbackRhsTypeFromTokens(
@@ -1658,7 +1659,8 @@ void collectReturnAndTypeDiagnostics(
         std::string exprType = inferExpressionTypeFromTokens(
             tokens, exprStart, localsVisibleTypes, uri, text, scanRoots,
             workspaceFolders, includePaths, scanExtensions, shaderExtensions,
-            defines, structCache, symbolCache, &fileTextCache);
+            defines, structCache, symbolCache, &fileTextCache,
+            &preprocessorView, lineIndex);
         exprType = normalizeTypeToken(exprType);
         emitTypeRelationDiagnostic(
             lineIndex, static_cast<int>(tokens[i].start),
@@ -1705,7 +1707,8 @@ void collectReturnAndTypeDiagnostics(
         rhsEval.type = normalizeTypeToken(inferExpressionTypeFromTokens(
             tokens, i + 2, localsVisibleTypes, uri, text, scanRoots,
             workspaceFolders, includePaths, scanExtensions, shaderExtensions,
-            defines, structCache, symbolCache, &fileTextCache));
+            defines, structCache, symbolCache, &fileTextCache,
+            &preprocessorView, lineIndex));
         rhsEval.confidence = TypeEvalConfidence::L2;
         if (rhsEval.type.empty() && isHalfFamilyType(lhsType)) {
           rhsEval.type = inferNarrowingFallbackRhsTypeFromTokens(tokens, i + 2,
@@ -1985,13 +1988,20 @@ void collectReturnAndTypeDiagnostics(
           continue;
         }
         std::vector<std::string> argTypes;
+        bool hasEmptyArgument = false;
         for (const auto &range : argRanges) {
+          if (range.first >= range.second) {
+            hasEmptyArgument = true;
+            argTypes.push_back("");
+            continue;
+          }
           argTypes.push_back(
               normalizeTypeToken(inferExpressionTypeFromTokensRange(
                   tokens, range.first, range.second, localsVisibleTypes, uri,
                   text, scanRoots, workspaceFolders, includePaths,
                   scanExtensions, shaderExtensions, defines, structCache,
-                  symbolCache, &fileTextCache)));
+                  symbolCache, &fileTextCache, &preprocessorView,
+                  lineIndex)));
         }
         if (closeParenIndex == std::string::npos) {
           continue;
@@ -2009,6 +2019,15 @@ void collectReturnAndTypeDiagnostics(
 
         std::vector<BuiltinTypeInfo> infos;
         infos.reserve(argTypes.size());
+        if (hasEmptyArgument) {
+          emitHighConfidenceDiagnostic(
+              DiagnosticsRuleKind::CallType, lineIndex,
+              static_cast<int>(tokens[i].start),
+              static_cast<int>(tokens[i].end), 1,
+              "Builtin call type mismatch: " + name +
+                  ". Args: " + formatTypeList(argTypes) + ".");
+          continue;
+        }
         for (const auto &t : argTypes) {
           infos.push_back(parseBuiltinTypeInfo(t));
         }
@@ -2078,13 +2097,20 @@ void collectReturnAndTypeDiagnostics(
           continue;
         }
         std::vector<std::string> argTypes;
+        bool hasEmptyArgument = false;
         for (const auto &range : argRanges) {
+          if (range.first >= range.second) {
+            hasEmptyArgument = true;
+            argTypes.push_back("");
+            continue;
+          }
           argTypes.push_back(
               normalizeTypeToken(inferExpressionTypeFromTokensRange(
                   tokens, range.first, range.second, localsVisibleTypes, uri,
                   text, scanRoots, workspaceFolders, includePaths,
                   scanExtensions, shaderExtensions, defines, structCache,
-                  symbolCache, &fileTextCache)));
+                  symbolCache, &fileTextCache, &preprocessorView,
+                  lineIndex)));
         }
         if (closeParenIndex == std::string::npos)
           continue;
@@ -2133,6 +2159,10 @@ void collectReturnAndTypeDiagnostics(
         HlslBuiltinMethodRule methodRule;
         if (!lookupHlslBuiltinMethodRule(member, baseType, methodRule)) {
           emitUnmodeled();
+          continue;
+        }
+        if (hasEmptyArgument) {
+          emitMismatch();
           continue;
         }
         if (anyArgUnknown()) {
@@ -2257,7 +2287,8 @@ void collectReturnAndTypeDiagnostics(
                   tokens, range.first, range.second, localsVisibleTypes, uri,
                   text, scanRoots, workspaceFolders, includePaths,
                   scanExtensions, shaderExtensions, defines, structCache,
-                  symbolCache, &fileTextCache)));
+                  symbolCache, &fileTextCache, &preprocessorView,
+                  lineIndex)));
         }
         if (closeParenIndex == std::string::npos)
           continue;

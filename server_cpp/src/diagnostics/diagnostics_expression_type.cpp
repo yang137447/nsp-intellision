@@ -40,6 +40,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 static bool isWhitespace(char ch) {
@@ -1655,7 +1656,8 @@ std::string inferExpressionTypeFromTokens(
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
-    std::unordered_map<std::string, std::string> *fileTextCache);
+    std::unordered_map<std::string, std::string> *fileTextCache,
+    const PreprocessorView *preprocessorView, int sourceLine);
 std::string inferExpressionTypeFromTokensRange(
     const std::vector<LexToken> &tokens, size_t startIndex, size_t endIndex,
     const std::unordered_map<std::string, std::string> &locals,
@@ -1667,7 +1669,8 @@ std::string inferExpressionTypeFromTokensRange(
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
-    std::unordered_map<std::string, std::string> *fileTextCache);
+    std::unordered_map<std::string, std::string> *fileTextCache,
+    const PreprocessorView *preprocessorView, int sourceLine);
 
 struct ExprParser {
   const std::vector<LexToken> &tokens;
@@ -1685,6 +1688,9 @@ struct ExprParser {
   StructTypeCache &structCache;
   SymbolTypeCache &symbolCache;
   std::unordered_map<std::string, std::string> *fileTextCache;
+  const PreprocessorView *preprocessorView = nullptr;
+  int sourceLine = -1;
+  std::unordered_set<std::string> macroExpansionStack;
 
   const LexToken *peek() const {
     if (i >= endIndex)
@@ -2055,6 +2061,71 @@ struct ExprParser {
     return builtinTypeInfoToString(rr.ret);
   }
 
+  std::string inferRange(size_t start, size_t end) const {
+    ExprParser parser{tokens,
+                      std::min(end, tokens.size()),
+                      start,
+                      locals,
+                      currentUri,
+                      currentText,
+                      scanRoots,
+                      workspaceFolders,
+                      includePaths,
+                      scanExtensions,
+                      shaderExtensions,
+                      defines,
+                      structCache,
+                      symbolCache,
+                      fileTextCache,
+                      preprocessorView,
+                      sourceLine,
+                      macroExpansionStack};
+    return parser.parseExpression();
+  }
+
+  std::string inferMacroReplacementType(const std::string &name) {
+    if (!preprocessorView || sourceLine < 0 || name.empty())
+      return "";
+    if (macroExpansionStack.find(name) != macroExpansionStack.end())
+      return "";
+
+    PreprocessorMacroReplacement replacement;
+    if (!lookupActivePreprocessorMacroReplacement(*preprocessorView, sourceLine,
+                                                  name, replacement)) {
+      return "";
+    }
+    if (replacement.functionLike || replacement.replacement.empty())
+      return "";
+
+    std::vector<LexToken> replacementTokens =
+        lexLineTokens(replacement.replacement);
+    if (replacementTokens.empty())
+      return "";
+
+    macroExpansionStack.insert(name);
+    ExprParser parser{replacementTokens,
+                      replacementTokens.size(),
+                      0,
+                      locals,
+                      currentUri,
+                      currentText,
+                      scanRoots,
+                      workspaceFolders,
+                      includePaths,
+                      scanExtensions,
+                      shaderExtensions,
+                      defines,
+                      structCache,
+                      symbolCache,
+                      fileTextCache,
+                      preprocessorView,
+                      sourceLine,
+                      macroExpansionStack};
+    std::string type = parser.parseExpression();
+    macroExpansionStack.erase(name);
+    return type;
+  }
+
   std::vector<std::string> parseCallArgumentTypes() {
     std::vector<std::string> args;
     if (!matchPunct("("))
@@ -2066,6 +2137,7 @@ struct ExprParser {
       size_t argStart = i;
       int parenDepth = 0;
       int bracketDepth = 0;
+      int braceDepth = 0;
       while (i < endIndex) {
         const auto &t = tokens[i];
         if (t.kind == LexToken::Kind::Punct) {
@@ -2079,16 +2151,18 @@ struct ExprParser {
             bracketDepth++;
           else if (t.text == "]")
             bracketDepth = bracketDepth > 0 ? bracketDepth - 1 : 0;
-          else if (t.text == "," && parenDepth == 0 && bracketDepth == 0)
+          else if (t.text == "{")
+            braceDepth++;
+          else if (t.text == "}")
+            braceDepth = braceDepth > 0 ? braceDepth - 1 : 0;
+          else if (t.text == "," && parenDepth == 0 && bracketDepth == 0 &&
+                   braceDepth == 0)
             break;
         }
         i++;
       }
       size_t argEnd = i;
-      args.push_back(inferExpressionTypeFromTokensRange(
-          tokens, argStart, argEnd, locals, currentUri, currentText, scanRoots,
-          workspaceFolders, includePaths, scanExtensions, shaderExtensions,
-          defines, structCache, symbolCache, fileTextCache));
+      args.push_back(inferRange(argStart, argEnd));
       if (i < endIndex && tokens[i].kind == LexToken::Kind::Punct &&
           tokens[i].text == ",") {
         i++;
@@ -2159,6 +2233,10 @@ struct ExprParser {
       std::string literal = inferLiteralType(word);
       if (!literal.empty())
         return literal;
+
+      std::string macroType = inferMacroReplacementType(word);
+      if (!macroType.empty())
+        return macroType;
 
       const LexToken *next = peek();
       if (next && next->kind == LexToken::Kind::Punct && next->text == "(") {
@@ -2281,7 +2359,8 @@ std::string inferExpressionTypeFromTokens(
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
-    std::unordered_map<std::string, std::string> *fileTextCache) {
+    std::unordered_map<std::string, std::string> *fileTextCache,
+    const PreprocessorView *preprocessorView, int sourceLine) {
   size_t endIndex = tokens.size();
   int parenDepth = 0;
   int bracketDepth = 0;
@@ -2315,7 +2394,7 @@ std::string inferExpressionTypeFromTokens(
   return inferExpressionTypeFromTokensRange(
       tokens, startIndex, endIndex, locals, currentUri, currentText, scanRoots,
       workspaceFolders, includePaths, scanExtensions, shaderExtensions, defines,
-      structCache, symbolCache, fileTextCache);
+      structCache, symbolCache, fileTextCache, preprocessorView, sourceLine);
 }
 
 std::string inferExpressionTypeFromTokensRange(
@@ -2329,12 +2408,15 @@ std::string inferExpressionTypeFromTokensRange(
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     StructTypeCache &structCache, SymbolTypeCache &symbolCache,
-    std::unordered_map<std::string, std::string> *fileTextCache) {
+    std::unordered_map<std::string, std::string> *fileTextCache,
+    const PreprocessorView *preprocessorView, int sourceLine) {
   endIndex = std::min(endIndex, tokens.size());
+  std::unordered_set<std::string> macroExpansionStack;
   ExprParser parser{tokens,      endIndex,     startIndex,     locals,
                     currentUri,  currentText,  scanRoots,      workspaceFolders,
                     includePaths, scanExtensions, shaderExtensions, defines,
-                    structCache, symbolCache, fileTextCache};
+                    structCache, symbolCache, fileTextCache, preprocessorView,
+                    sourceLine,  macroExpansionStack};
   return parser.parseExpression();
 }
 

@@ -1,0 +1,26 @@
+Texture2D MacroArgTexture;
+SamplerState MacroArgSampler;
+
+float4 u_new_fog_info;
+float4 u_new_fog_info3;
+float4 u_new_vfog_info;
+
+#define UNIT_KM_TO_CM 100000.0f
+#define TEXTURE_BIAS -1
+#define u_exp_fog_start_distance u_new_fog_info.w
+#define u_exp_fog_max_distance_km u_new_fog_info3.x
+#define u_dir_inscattering_exponent u_new_fog_info3.w
+#define u_vfog_max_distance u_new_vfog_info.y
+
+void test_macro_argument_availability(float ray_length, float inv_cos_angle,
+                                      float3 ray_dir, float3 light_dir,
+                                      float2 uv)
+{
+    float start_distance = max(abs(u_vfog_max_distance) * inv_cos_angle, u_exp_fog_start_distance);
+    ray_length = min(ray_length, u_exp_fog_max_distance_km * UNIT_KM_TO_CM);
+    half dir_inscattering_factor = half(pow(saturate(dot(ray_dir, light_dir)), max(0.5h, u_dir_inscattering_exponent)));
+    float4 sampled = MacroArgTexture.SampleBias(MacroArgSampler, uv, TEXTURE_BIAS);
+
+    float bad_abs = abs();
+    float bad_max = max(, ray_length);
+}
