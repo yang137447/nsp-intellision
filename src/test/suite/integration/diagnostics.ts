@@ -55,6 +55,18 @@ function diagnosticOnLine(
 	return diagnostics.find((diag) => diag.range.start.line === line && diag.message === message);
 }
 
+function debugDiagnosticMessages(response: any): string {
+	const diagnostics = Array.isArray(response?.diagnostics) ? response.diagnostics : [];
+	return diagnostics
+		.map((diag) => (typeof diag?.message === 'string' ? diag.message : ''))
+		.join('\n');
+}
+
+function prerequisiteSkipCount(response: any, key: string): number {
+	const value = response?.prerequisiteSkips?.[key];
+	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 async function fetchPreprocessorMacroPresetForTests(): Promise<Record<string, string>> {
 	await waitForClientQuiescent('client ready before preprocessor macro preset request');
 	const response = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
@@ -738,6 +750,59 @@ export function registerDiagnosticsTests(): void {
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(messages.includes('Undefined identifier: UnknownVar.'));
 		assert.ok(messages.includes('Undefined identifier: UnknownVar2.'));
+	});
+
+	it('skips high-confidence semantic diagnostics when parser region prerequisites are unreliable', async () => {
+		const document = await openFixture('module_diagnostics_prerequisites_parser_region.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.') &&
+					!messages.includes('Undefined identifier: P7UnknownInsideOpenParen.')
+				);
+			},
+			'diagnostics prerequisite parser-region gating'
+		);
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(!messages.includes('Undefined identifier: P7UnknownInsideOpenParen.'));
+
+		const response = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
+			method: 'nsf/_debugBuildDiagnostics',
+			params: { uri: document.uri.toString(), expensiveRules: true }
+		});
+		assert.ok(
+			debugDiagnosticMessages(response).includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.')
+		);
+		assert.ok(!debugDiagnosticMessages(response).includes('Undefined identifier: P7UnknownInsideOpenParen.'));
+		assert.ok(
+			prerequisiteSkipCount(response, 'parser_region_unreliable') > 0,
+			'Expected parser_region_unreliable skip metadata from debug diagnostics.'
+		);
+	});
+
+	it('skips high-confidence semantic diagnostics for orphan include files without active unit context', async () => {
+		const unrelatedUnit = await openFixture('module_diagnostics.nsf');
+		const document = await openFixture('module_diagnostics_prerequisites_orphan_include.hlsl');
+
+		const response = await vscode.commands.executeCommand<any>('nsf._sendServerRequest', {
+			method: 'nsf/_debugBuildDiagnostics',
+			params: {
+				uri: document.uri.toString(),
+				activeUnitUri: unrelatedUnit.uri.toString(),
+				expensiveRules: true
+			}
+		});
+		const messages = debugDiagnosticMessages(response);
+		assert.ok(!messages.includes('Undefined identifier: P7OrphanUnknown.'));
+		assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float3. Use an explicit cast or swizzle if this is intentional.'));
+		assert.ok(
+			prerequisiteSkipCount(response, 'include_closure_not_ready') > 0 ||
+				prerequisiteSkipCount(response, 'preprocessor_context_unreliable') > 0,
+			'Expected include-closure or preprocessor-context skip metadata for orphan include diagnostics.'
+		);
 	});
 
 	it('does not mark second variable undefined in single-line multi declarations', async () => {

@@ -97,9 +97,10 @@ buildDiagnosticsWithOptions(const std::string &uri, const std::string &text,
   if (result.diagnostics.a.size() >= maxDiagnostics) {
     result.truncated = true;
   }
-  const auto preprocessorView = buildDiagnosticsPreprocessorView(
+  const auto preprocessorContext = buildDiagnosticsPreprocessorContext(
       uri, text, workspaceFolders, includePaths, shaderExtensions, defines,
       options);
+  const auto &preprocessorView = preprocessorContext.view;
   if (!result.truncated) {
     collectPreprocessorDiagnostics(text, result.diagnostics);
     if (result.diagnostics.a.size() >= maxDiagnostics) {
@@ -120,11 +121,12 @@ buildDiagnosticsWithOptions(const std::string &uri, const std::string &text,
   if (!result.truncated && options.enableExpensiveRules && !budgetExpired()) {
     collectReturnAndTypeDiagnostics(
         uri, text, workspaceFolders, includePaths, shaderExtensions, defines,
-        preprocessorView, result.diagnostics, options.timeBudgetMs,
+        preprocessorView, preprocessorContext.prerequisites, result.diagnostics,
+        options.timeBudgetMs,
         maxDiagnostics,
         result.timedOut, options.indeterminateEnabled,
         options.indeterminateSeverity, indeterminateMaxItems,
-        indeterminateCount);
+        indeterminateCount, result.prerequisiteSkips);
     if (result.diagnostics.a.size() >= maxDiagnostics) {
       result.truncated = true;
     }

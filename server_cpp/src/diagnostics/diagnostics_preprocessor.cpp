@@ -4,17 +4,40 @@
 #include "preprocessor_view.hpp"
 #include "uri_utils.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
-PreprocessorView buildDiagnosticsPreprocessorView(
+namespace {
+
+std::string lowercaseCopy(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](char ch) {
+    return static_cast<char>(
+        std::tolower(static_cast<unsigned char>(ch)));
+  });
+  return value;
+}
+
+bool uriHasExtension(const std::string &uri, const std::string &extension) {
+  const std::string path = lowercaseCopy(uriToPath(uri));
+  const std::string ext = lowercaseCopy(extension);
+  return path.size() >= ext.size() &&
+         path.compare(path.size() - ext.size(), ext.size(), ext) == 0;
+}
+
+} // namespace
+
+DiagnosticsPreprocessorBuildResult buildDiagnosticsPreprocessorContext(
     const std::string &uri, const std::string &text,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
     const DiagnosticsBuildOptions &options) {
+  DiagnosticsPreprocessorBuildResult result;
   PreprocessorIncludeContext includeContext;
   includeContext.currentUri = uri;
   includeContext.workspaceFolders = workspaceFolders;
@@ -37,7 +60,16 @@ PreprocessorView buildDiagnosticsPreprocessorView(
     return !path.empty() && diagnosticsReadFileToString(path, textOut);
   };
 
-  if (!options.activeUnitUri.empty() && options.activeUnitUri != uri) {
+  const bool targetIsUnit = uriHasExtension(uri, ".nsf") ||
+                            (!options.activeUnitUri.empty() &&
+                             uriEquivalent(options.activeUnitUri, uri));
+  if (!targetIsUnit && options.activeUnitUri.empty()) {
+    result.prerequisites.activeUnitReady = false;
+    result.prerequisites.includeClosureReady = false;
+    result.prerequisites.preprocessorContextReliable = false;
+  }
+
+  if (!options.activeUnitUri.empty() && !uriEquivalent(options.activeUnitUri, uri)) {
     std::string activeUnitText = options.activeUnitText;
     if (activeUnitText.empty()) {
       const std::string activeUnitPath = uriToPath(options.activeUnitUri);
@@ -51,12 +83,35 @@ PreprocessorView buildDiagnosticsPreprocessorView(
       if (buildIncludedDocumentPreprocessorView(activeUnitText, defines,
                                                 rootContext, uri,
                                                 includedView)) {
-        return includedView;
+        result.view = std::move(includedView);
+        return result;
       }
+      if (!targetIsUnit) {
+        result.prerequisites.includeClosureReady = false;
+        result.prerequisites.preprocessorContextReliable = false;
+      }
+    } else if (!targetIsUnit) {
+      result.prerequisites.activeUnitReady = false;
+      result.prerequisites.includeClosureReady = false;
+      result.prerequisites.preprocessorContextReliable = false;
     }
   }
 
-  return buildPreprocessorView(text, defines, includeContext);
+  result.view = buildPreprocessorView(text, defines, includeContext);
+  return result;
+}
+
+PreprocessorView buildDiagnosticsPreprocessorView(
+    const std::string &uri, const std::string &text,
+    const std::vector<std::string> &workspaceFolders,
+    const std::vector<std::string> &includePaths,
+    const std::vector<std::string> &shaderExtensions,
+    const std::unordered_map<std::string, int> &defines,
+    const DiagnosticsBuildOptions &options) {
+  return buildDiagnosticsPreprocessorContext(
+             uri, text, workspaceFolders, includePaths, shaderExtensions,
+             defines, options)
+      .view;
 }
 
 bool findIncludePathSpan(const std::string &lineText, size_t includePos,

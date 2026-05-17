@@ -40,6 +40,27 @@ void readUriOrPathParam(const Json *params, const char *uriName,
   }
 }
 
+Json buildPrerequisiteSkipsJson(
+    const DiagnosticsPrerequisiteSkipStats &stats) {
+  Json result = makeObject();
+  result.o["total"] = makeNumber(static_cast<double>(stats.total));
+  result.o["active_unit_not_ready"] =
+      makeNumber(static_cast<double>(stats.activeUnitNotReady));
+  result.o["include_closure_not_ready"] =
+      makeNumber(static_cast<double>(stats.includeClosureNotReady));
+  result.o["preprocessor_context_unreliable"] =
+      makeNumber(static_cast<double>(stats.preprocessorContextUnreliable));
+  result.o["parser_region_unreliable"] =
+      makeNumber(static_cast<double>(stats.parserRegionUnreliable));
+  result.o["semantic_snapshot_unavailable"] =
+      makeNumber(static_cast<double>(stats.semanticSnapshotUnavailable));
+  result.o["local_scope_unreliable"] =
+      makeNumber(static_cast<double>(stats.localScopeUnreliable));
+  result.o["expression_type_unavailable"] =
+      makeNumber(static_cast<double>(stats.expressionTypeUnavailable));
+  return result;
+}
+
 } // namespace
 
 Json buildDiagnosticsAuditIncludeClosureDebugResponse(const Json *params) {
@@ -145,6 +166,8 @@ Json buildDiagnosticsAuditDiagnosticsDebugResponse(
     result.o["timedOut"] = makeBool(buildResult.timedOut);
     result.o["indeterminateTotal"] =
         makeNumber(static_cast<double>(buildResult.indeterminateTotal));
+    result.o["prerequisiteSkips"] =
+        buildPrerequisiteSkipsJson(buildResult.prerequisiteSkips);
     result.o["elapsedMs"] = makeNumber(buildResult.elapsedMs);
   } else {
     result.o["diagnostics"] = makeArray();

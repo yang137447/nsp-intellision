@@ -1,0 +1,13 @@
+float3 P7ReliableTruncation(float4 wide)
+{
+    float3 narrowed = wide;
+    return narrowed;
+}
+
+float4 P7ParserRegionSkip(float4 source)
+{
+    float4 built = float4(
+        P7UnknownInsideOpenParen
+    );
+    return source;
+}

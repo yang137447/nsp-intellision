@@ -70,8 +70,20 @@ type DebugBuildDiagnosticsResponse = {
 	heavyRulesSkipped?: boolean;
 	timedOut?: boolean;
 	indeterminateTotal?: number;
+	prerequisiteSkips?: DiagnosticsPrerequisiteSkips;
 	elapsedMs?: number;
 	diagnostics?: unknown[];
+};
+
+type DiagnosticsPrerequisiteSkips = {
+	total?: number;
+	active_unit_not_ready?: number;
+	include_closure_not_ready?: number;
+	preprocessor_context_unreliable?: number;
+	parser_region_unreliable?: number;
+	semantic_snapshot_unavailable?: number;
+	local_scope_unreliable?: number;
+	expression_type_unavailable?: number;
 };
 
 type UnitSummary = {
@@ -100,6 +112,8 @@ type UnitFileStat = {
 	timedOut: boolean;
 	heavyRulesSkipped: boolean;
 	indeterminateTotal: number;
+	prerequisiteSkippedTotal: number;
+	prerequisiteSkips: DiagnosticsPrerequisiteSkips;
 	elapsedMs: number;
 };
 
@@ -174,6 +188,35 @@ function sanitizeReportLabel(value: string): string | undefined {
 
 function numericValue(value: unknown): number {
 	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function prerequisiteSkipNumber(
+	value: DiagnosticsPrerequisiteSkips | undefined,
+	key: keyof DiagnosticsPrerequisiteSkips
+): number {
+	return Math.max(0, Math.trunc(numericValue(value?.[key])));
+}
+
+function aggregatePrerequisiteSkips(fileStats: UnitFileStat[]): DiagnosticsPrerequisiteSkips {
+	const keys: Array<keyof DiagnosticsPrerequisiteSkips> = [
+		'active_unit_not_ready',
+		'include_closure_not_ready',
+		'preprocessor_context_unreliable',
+		'parser_region_unreliable',
+		'semantic_snapshot_unavailable',
+		'local_scope_unreliable',
+		'expression_type_unavailable'
+	];
+	const out: DiagnosticsPrerequisiteSkips = {
+		total: fileStats.reduce((sum, item) => sum + item.prerequisiteSkippedTotal, 0)
+	};
+	for (const key of keys) {
+		out[key] = fileStats.reduce(
+			(sum, item) => sum + prerequisiteSkipNumber(item.prerequisiteSkips, key),
+			0
+		);
+	}
+	return out;
 }
 
 function trendMetric(key: string, baseline: number, current: number): AuditTrendMetric {
@@ -282,6 +325,7 @@ function buildTrendComparison(report: any, baseline: any, baselinePath: string):
 		'diagnosticsTotal',
 		'truncatedFiles',
 		'timedOutFiles',
+		'prerequisiteSkippedTotal',
 		'fileErrors'
 	];
 	const summary = summaryKeys.map((key) =>
@@ -1071,6 +1115,16 @@ function buildMarkdownReport(report: any): string {
 		lines.push(`- Truncated file builds: ${report.summary.truncatedFiles}`);
 		lines.push(`- Timed-out file builds: ${report.summary.timedOutFiles}`);
 	}
+	if (report.summary.prerequisiteSkippedTotal !== undefined) {
+		lines.push(`- Prerequisite-skipped semantic rules: ${report.summary.prerequisiteSkippedTotal}`);
+		const skippedByReason = report.summary.prerequisiteSkippedByReason ?? {};
+		const nonZeroReasons = Object.keys(skippedByReason)
+			.filter((key) => key !== 'total' && numericValue(skippedByReason[key]) > 0)
+			.map((key) => `${key}=${numericValue(skippedByReason[key])}`);
+		if (nonZeroReasons.length > 0) {
+			lines.push(`- Prerequisite skip reasons: ${nonZeroReasons.join(', ')}`);
+		}
+	}
 	const trend = report.trendComparison as AuditTrendComparison | undefined;
 	if (trend) {
 		lines.push('');
@@ -1292,6 +1346,11 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 							timedOut: Boolean(response?.timedOut),
 							heavyRulesSkipped: Boolean(response?.heavyRulesSkipped),
 							indeterminateTotal: Math.max(0, Math.trunc(response?.indeterminateTotal ?? 0)),
+							prerequisiteSkippedTotal: prerequisiteSkipNumber(
+								response?.prerequisiteSkips,
+								'total'
+							),
+							prerequisiteSkips: response?.prerequisiteSkips ?? {},
 							elapsedMs: Math.max(0, response?.elapsedMs ?? 0)
 						});
 						if (!response?.loaded) {
@@ -1375,6 +1434,7 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 		}
 
 		const unitsWithDiagnostics = new Set(diagnostics.map((item) => normalizedPathKey(item.unit))).size;
+		const prerequisiteSkippedByReason = aggregatePrerequisiteSkips(fileStats);
 		const report = {
 			generatedAt: new Date().toISOString(),
 			runLabel: reportLabel,
@@ -1410,6 +1470,8 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 				truncatedFiles: fileStats.filter((item) => item.truncated).length,
 				timedOutFiles: fileStats.filter((item) => item.timedOut).length,
 				heavyRulesSkippedFiles: fileStats.filter((item) => item.heavyRulesSkipped).length,
+				prerequisiteSkippedTotal: prerequisiteSkippedByReason.total ?? 0,
+				prerequisiteSkippedByReason,
 				fileErrors: fileErrors.length
 			},
 			counts,

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "diagnostics_prerequisites.hpp"
 #include "json.hpp"
 
 #include <cstdint>
@@ -7,6 +8,19 @@
 #include <unordered_map>
 #include <vector>
 
+// Diagnostics build facade contract.
+//
+// Responsibilities:
+// - assemble syntax, preprocessor, semantic, include, and final publish-ready
+//   diagnostics for one document
+// - carry active-unit context used to evaluate included files with the same
+//   preprocessor environment as their root NSF unit
+// - report build metadata, including indeterminate diagnostics and skipped
+//   semantic rules whose prerequisites were not met
+//
+// Non-goals:
+// - this facade does not publish diagnostics to LSP clients
+// - it does not invent fallback semantic context when prerequisites are missing
 struct DiagnosticsBuildOptions {
   bool enableExpensiveRules = true;
   int timeBudgetMs = 1200;
@@ -30,6 +44,11 @@ struct DiagnosticsBuildResult {
   uint64_t indeterminateReasonRhsTypeEmpty = 0;
   uint64_t indeterminateReasonBudgetTimeout = 0;
   uint64_t indeterminateReasonHeavyRulesSkipped = 0;
+  // Counts high-confidence semantic rule attempts skipped because active-unit,
+  // include-closure, preprocessor, parser, scope, snapshot, or expression-type
+  // prerequisites were unavailable. Skips are debug/audit metadata, not
+  // user-visible diagnostics.
+  DiagnosticsPrerequisiteSkipStats prerequisiteSkips;
   double elapsedMs = 0.0;
 };
 

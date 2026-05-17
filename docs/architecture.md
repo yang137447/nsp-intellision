@@ -114,6 +114,7 @@
 - `hover_markdown.*` / `hover_rendering.*`: hover 内容渲染；对象方法规则查询会从 `methods/object_methods` 读取签名模板，并通过 `type_model.*` 展开 `{floatCoord}` / `{intCoordPlus1}` 等参数形状，供 hover、signature help 和 diagnostics 共享消费
 - `completion_rendering.*`: completion item 拼装
 - `diagnostics/*`: diagnostics facade、semantic rules、expression type、symbol type、emit、preprocessor、syntax 和 indeterminate 分层；semantic diagnostics 的 local symbol、duplicate local declaration、`for` initializer 可见性和基础 block-flow 诊断基于函数内 lexical scope stack，duplicate local 只在同一 lexical scope 且 active preprocessor branch 重叠时发布；object method call diagnostics 必须消费 `hover_markdown.*` 展开的资源参数和 `type_relation.*`，不得在 rule 内本地推导 array texture 坐标或复制 sampler / coord 兼容规则
+- `diagnostics_prerequisites.*`: semantic diagnostics 高置信发布前提契约；统一表达 active unit ready、include closure ready、preprocessor context reliable、parser region reliable、semantic snapshot available、local scope reliable 和 expression type available。semantic source、expression type、call type 和 undefined identifier 规则必须通过该共享入口判断前提；当前提不满足时跳过高置信 diagnostics，只在 debug / audit metadata 中累计 skipped reason，不新增 fallback、shim 或旧逻辑兜底。
 - `diagnostics_expression_type.*`: diagnostics 共享表达式类型 helper；负责类型 token 归一化、builtin call 类型规则、numeric literal token-span 解析和表达式结果类型推断。builtin call 的元素类型合并和 mixed signedness 判断应通过 `type_relation.*` 的 usual arithmetic conversion 产生合法转换 warning，不能把 `int` / `uint` 混用伪装成 builtin mismatch。numeric literal 解析必须在该共享入口按官方 HLSL numeric literal 语法处理，因为当前 lexer 会把 decimal point 和 exponent sign 切为 punctuation token，semantic diagnostics 不应在规则层复制后缀判断；合法 exponent、leading/trailing dot、octal / hex integer、`h/H/f/F/l/L` 浮点 suffix 和 `u/U/l/L` 整数 suffix 组合都应在这里统一判定。implementation-only `ll/ull` 整数 suffix 作为历史写法只应由共享入口产生 warning 并推荐 `l/ul`，真正不符合语法的 suffix 继续作为 error。
 - `type_desc.*`: diagnostics / overload 共享轻量类型形状解析；负责把 HLSL scalar / vector / matrix / object token 和常见 macro-like numeric alias（如 `MaterialFloat3`、`MaterialHalf4x4`）归一为 `TypeDesc`。它不负责完整 typedef 展开、用户 struct 建模或对象方法坐标维度，这些仍由 semantic snapshot、symbol query 和 `type_model.*` 负责。
 - `type_relation.*`: diagnostics / overload 共享 HLSL 隐式转换模型；以官方 standard conversion sequence、usual arithmetic conversions 和 overload conversion rank 为基础，结构化返回 compatible / incompatible、conversion kind、cost 和 risky implicit conversion warning。assignment、return、user function argument、builtin argument、object method argument 和 binary operator diagnostics 不应再各自复制 half/float、scalar splat、component-wise conversion、truncation、signedness 或 boolean conversion 判断。合法但有风险的隐式转换发布独立 warning；找不到官方转换序列时才发布 type mismatch error。
@@ -156,6 +157,7 @@
 - `server_cpp/src/document_runtime.hpp`: analysis key、active unit 和 snapshot 复用前提
 - `server_cpp/src/interactive_semantic_runtime.hpp`: current-doc interactive 查询顺序
 - `server_cpp/src/deferred_doc_runtime.hpp`: deferred latest-only 合并和 stale work drop 规则
+- `server_cpp/src/diagnostics_prerequisites.hpp`: semantic diagnostics rule prerequisite 和 skipped-reason 统计契约
 
 ## 单一事实来源
 

@@ -798,6 +798,58 @@ Git 记录：
 - 不存在 request 层为绕过上下文缺失新增的兼容路径。
 - `docs/architecture.md` 和 `docs/testing.md` 已描述新的 diagnostics 前提和验证策略。
 
+### Phase 7 执行记录
+
+状态：已落地 semantic diagnostics prerequisites 发布契约。
+
+实现内容：
+
+- 新增 `diagnostics_prerequisites.*`，统一表达 semantic diagnostics 高置信发布前提：active unit ready、include closure ready、preprocessor context reliable、parser region reliable、semantic snapshot available、local scope reliable 和 expression type available。
+- `diagnostics_preprocessor.*` 现在返回 preprocessor view 与 prerequisites metadata；当 `.hlsl` 目标不能被证明属于当前 active `.nsf` unit include closure 时，semantic rules 会把 include / preprocessor context 视为不可靠，只保留 local syntax / preprocessor 检查路径。
+- `diagnostics_semantic.*` 的 semantic source、expression type、call type 和 undefined identifier 高置信 diagnostics 改为先通过共享 prerequisites gate；当前提不满足时不发布高置信 diagnostics，并在 `DiagnosticsBuildResult.prerequisiteSkips` 中记录 skipped reason。
+- real diagnostics audit debug response 和报告已输出 `prerequisiteSkippedTotal` / `prerequisiteSkippedByReason`，阶段趋势可以区分 diagnostics 下降是规则修复还是前提不足导致的跳过。
+- 新增 focused fixture：
+  - `test_files/module_diagnostics_prerequisites_parser_region.nsf`：验证 open grouping parser region 内不再发布 undefined identifier 级联，同时可靠行仍发布 truncation warning。
+  - `test_files/module_diagnostics_prerequisites_orphan_include.hlsl`：验证不属于 active unit include closure 的 orphan include 不发布高置信 semantic diagnostics，并输出 include / preprocessor prerequisites skipped metadata。
+- `docs/architecture.md`、`docs/testing.md`、`diagnostics_prerequisites.hpp`、`diagnostics.hpp`、`diagnostics_preprocessor.hpp` 和 `diagnostics_semantic.hpp` 已同步记录 prerequisites 与 skipped metadata 契约。
+
+公开行为变化：
+
+- 对 parser region 不可靠的行，semantic source、expression type、call type 和 undefined identifier 规则不再发布高置信 diagnostics；syntax / preprocessor diagnostics 仍按原路径发布。
+- 对没有可靠 active unit include context 的 `.hlsl`，不再用单文件 fallback preprocessor context 发布高置信 semantic diagnostics；debug / audit metadata 会记录 skipped reason。
+- expression type 不可用时，assignment / return / binary / call 这类高置信 mismatch 不再静默忽略为无来源差异，而是计入 prerequisite skipped metadata；既有明确 indeterminate diagnostics 路径保留。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，71 passing / 1 pending；覆盖 parser-region prerequisites、orphan include prerequisites、既有 undefined / scope / return / builtin / object method diagnostics 回归。
+- 首次 `npm run test:client:repo` 全量在 `client.real-workspace-replay-recorder` 的步骤数量断言处失败：`4 !== 3`；该测试与 P7 C++ diagnostics 路径无交集。随后 `$env:NSF_TEST_FILE_FILTER='client.real-workspace-replay-recorder'; npm run test:client:repo` 通过，确认该失败为测试时序 / 状态波动；再次 `npm run test:client:repo` 全量通过。
+- 5-unit smoke audit 使用临时 copy workspace `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace` 通过；输出 `real-workspace-diagnostics-audit.phase-07-diagnostics-prerequisites-smoke-5.{json,md}`。相对 P6 smoke：`diagnosticsTotal` 3702 -> 3592，`semantic-source-rule` 327 -> 238，`undefined-identifier` 保持 116，`expression-type-analysis` 保持 35，`call-type-analysis` 保持 24，`prerequisiteSkippedTotal=1725`，其中 `parser_region_unreliable=1190`、`expression_type_unavailable=535`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 使用同一临时 copy workspace 通过；输出 `real-workspace-diagnostics-audit.phase-07-diagnostics-prerequisites-trend-50.{json,md}`。相对 P6 trend：`diagnosticsTotal` 31319 -> 30302，`semantic-source-rule` 2531 -> 1858，`undefined-identifier` 保持 944，`expression-type-analysis` 保持 350，`call-type-analysis` 保持 204，`prerequisiteSkippedTotal=16342`，其中 `parser_region_unreliable=11458`、`expression_type_unavailable=4884`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 未重跑 full 813-unit audit；P7 以 focused fixture、repo full regression、5-unit smoke 和 50-unit trend 验证发布契约，full audit 留给 Phase 8 全量复审。
+
+审计备注：
+
+- P7 后 `likely-plugin-limitation` 在 50-unit 样本中保持 P6 的 1785，说明本阶段没有靠 message-level suppress 改写分类；下降主要来自 parser/scope 前提不足区域跳过部分 `semantic-source-rule` 级联。
+- `prerequisiteSkippedTotal` 是 debug / audit metadata，不是用户可见 diagnostics；分析趋势时应与 category delta 一起看，避免把“前提不足导致跳过”和“规则真正建模成功”混为一类。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture、`diagnostics_prerequisites.*` 和阶段 audit 报告；无资源路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：是，semantic diagnostics 高置信发布前提收敛到 `diagnostics_prerequisites.*` 共享入口，preprocessor/include context 可靠性由 diagnostics facade 传递。
+- 测试策略是否变化：是，audit 报告新增 prerequisites skipped metadata，`docs/testing.md` 增加 P7 验证矩阵和趋势核对口径。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md`、相关头文件说明和本执行计划；资源、开发和对象类型 / 方法契约未变化。
+- 是否改变公开 diagnostics 行为：是，前提不满足时不再发布高置信 semantic diagnostics。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-07 5-unit / 50-unit real audit 报告。
+
+Git 记录：
+
+- 本阶段已本地提交，commit message：`fix: gate diagnostics on prerequisites`；当前提交 hash 以 `git log -1 --oneline` 为准。
+
 ## Phase 8: 全量复审和真实源码问题分流
 
 ### 背景

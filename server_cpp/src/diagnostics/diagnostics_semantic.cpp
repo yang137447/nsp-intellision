@@ -51,10 +51,12 @@ void collectReturnAndTypeDiagnostics(
     const std::vector<std::string> &includePaths,
     const std::vector<std::string> &shaderExtensions,
     const std::unordered_map<std::string, int> &defines,
-    const PreprocessorView &preprocessorView, Json &diags,
+    const PreprocessorView &preprocessorView,
+    const DiagnosticsPrerequisiteState &basePrerequisites, Json &diags,
     int timeBudgetMs, size_t maxDiagnostics, bool &timedOut,
     bool indeterminateEnabled, int indeterminateSeverity,
-    size_t indeterminateMaxItems, size_t &indeterminateCount) {
+    size_t indeterminateMaxItems, size_t &indeterminateCount,
+    DiagnosticsPrerequisiteSkipStats &prerequisiteSkips) {
   const auto diagnosticsStart = std::chrono::steady_clock::now();
   const auto diagnosticsBudget =
       std::chrono::milliseconds(std::max(30, timeBudgetMs));
@@ -142,6 +144,56 @@ void collectReturnAndTypeDiagnostics(
             text, line, startByte, endByte, indeterminateSeverity, "nsf",
             message, code, reasonCode));
         indeterminateCount++;
+      };
+  auto parserRegionReliableForLine = [&](int line) {
+    if (line < 0)
+      return true;
+    const size_t index = static_cast<size_t>(line);
+    const bool insideOpenGroupingBefore =
+        index < lineScan.parenDepthBeforeLine.size() &&
+        lineScan.parenDepthBeforeLine[index] > 0;
+    const bool insideOpenGroupingAfter =
+        index < lineScan.parenDepthAfterLine.size() &&
+        lineScan.parenDepthAfterLine[index] > 0;
+    const bool insideOpenBracketBefore =
+        index < lineScan.bracketDepthBeforeLine.size() &&
+        lineScan.bracketDepthBeforeLine[index] > 0;
+    const bool insideOpenBracketAfter =
+        index < lineScan.bracketDepthAfterLine.size() &&
+        lineScan.bracketDepthAfterLine[index] > 0;
+    return !insideOpenGroupingBefore && !insideOpenGroupingAfter &&
+           !insideOpenBracketBefore && !insideOpenBracketAfter;
+  };
+  auto prerequisitesForLine = [&](int line, bool expressionTypeAvailable) {
+    DiagnosticsPrerequisiteState state = basePrerequisites;
+    state.expressionTypeAvailable = expressionTypeAvailable;
+    if (!parserRegionReliableForLine(line)) {
+      state.parserRegionReliable = false;
+      state.localScopeReliable = false;
+    }
+    return state;
+  };
+  auto canPublishRule = [&](DiagnosticsRuleKind rule, int line,
+                            bool expressionTypeAvailable = true) {
+    const DiagnosticsPrerequisiteState state =
+        prerequisitesForLine(line, expressionTypeAvailable);
+    DiagnosticsPrerequisiteKind missing = DiagnosticsPrerequisiteKind::None;
+    if (diagnosticsRulePrerequisitesSatisfied(rule, state, missing))
+      return true;
+    recordDiagnosticsPrerequisiteSkip(prerequisiteSkips, missing);
+    return false;
+  };
+  auto emitHighConfidenceDiagnostic =
+      [&](DiagnosticsRuleKind rule, int line, int startByte, int endByte,
+          int severity, const std::string &message,
+          bool expressionTypeAvailable = true) {
+        if (diags.a.size() >= maxDiagnostics)
+          return;
+        if (!canPublishRule(rule, line, expressionTypeAvailable))
+          return;
+        diags.a.push_back(
+            makeDiagnostic(text, line, startByte, endByte, severity, "nsf",
+                           message));
       };
   auto nextTrimmedCodeLine = [&](int currentLine) -> std::string {
     for (int nextLine = currentLine + 1;
@@ -330,7 +382,11 @@ void collectReturnAndTypeDiagnostics(
       [&](int line, int startByte, int endByte, const std::string &expected,
           const std::string &actual, const std::string &mismatchMessage,
           const TypeRelationOptions &options = TypeRelationOptions{}) {
-        if (expected.empty() || actual.empty())
+        if (expected.empty() || actual.empty()) {
+          canPublishRule(DiagnosticsRuleKind::ExpressionType, line, false);
+          return;
+        }
+        if (!canPublishRule(DiagnosticsRuleKind::ExpressionType, line, true))
           return;
         TypeRelationResult relation =
             relationForTypesWithOptions(expected, actual, options);
@@ -347,7 +403,9 @@ void collectReturnAndTypeDiagnostics(
       };
 
   auto emitRelationWarning = [&](int line, int startByte, int endByte,
-                                 const TypeRelationResult &relation) {
+                                  const TypeRelationResult &relation) {
+    if (!canPublishRule(DiagnosticsRuleKind::ExpressionType, line, true))
+      return;
     std::string warning = typeRelationWarningMessage(relation);
     if (!warning.empty()) {
       diags.a.push_back(
@@ -820,12 +878,13 @@ void collectReturnAndTypeDiagnostics(
           }
           signatureKey.push_back(')');
           if (!globalFunctionSignatures.insert(signatureKey).second) {
-            diags.a.push_back(makeDiagnostic(
-                text, pendingFunctionLine, pendingFunctionStart,
+            emitHighConfidenceDiagnostic(
+                DiagnosticsRuleKind::SemanticSource, pendingFunctionLine,
+                pendingFunctionStart,
                 pendingFunctionStart +
                     static_cast<int>(pendingFunctionName.size()),
-                2, "nsf",
-                "Duplicate global declaration: " + pendingFunctionName + "."));
+                2,
+                "Duplicate global declaration: " + pendingFunctionName + ".");
           }
           inFunction = true;
           functionReturnType = pendingReturnType;
@@ -883,15 +942,17 @@ void collectReturnAndTypeDiagnostics(
           if (functionBraceDepth == 0) {
             if (normalizeTypeToken(functionReturnType) != "void" &&
                 !sawReturn) {
-              diags.a.push_back(makeDiagnostic(
-                  text, functionNameLine, functionNameStart, functionNameEnd, 1,
-                  "nsf", "Missing return statement."));
+              emitHighConfidenceDiagnostic(DiagnosticsRuleKind::SemanticSource,
+                                           functionNameLine, functionNameStart,
+                                           functionNameEnd, 1,
+                                           "Missing return statement.");
             }
             if (normalizeTypeToken(functionReturnType) != "void" && sawReturn &&
                 sawPotentialMissingReturn) {
-              diags.a.push_back(makeDiagnostic(
-                  text, functionNameLine, functionNameStart, functionNameEnd, 2,
-                  "nsf", "Potential missing return on some paths."));
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, functionNameLine,
+                  functionNameStart, functionNameEnd, 2,
+                  "Potential missing return on some paths.");
             }
             inFunction = false;
             functionReturnType.clear();
@@ -964,9 +1025,9 @@ void collectReturnAndTypeDiagnostics(
                 start = static_cast<int>(sigTokens[segmentEnd - 1].start);
                 end = static_cast<int>(sigTokens[segmentEnd - 1].end);
               }
-              diags.a.push_back(makeDiagnostic(
-                  text, diagLine, start, end, 2, "nsf",
-                  "Duplicate parameter declaration: " + paramName + "."));
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, diagLine, start, end, 2,
+                  "Duplicate parameter declaration: " + paramName + ".");
             } else {
               pendingParams.emplace(paramName, paramType);
               pendingParamTypesOrdered.push_back(paramType);
@@ -1055,10 +1116,10 @@ void collectReturnAndTypeDiagnostics(
       if (tokens.size() == 1 && tokens[0].kind == LexToken::Kind::Punct &&
           tokens[0].text == "<") {
         if (!globalSymbols.insert(pendingUiVarName).second) {
-          diags.a.push_back(makeDiagnostic(
-              text, pendingUiVarLine, pendingUiVarStart, pendingUiVarEnd, 2,
-              "nsf",
-              "Duplicate global declaration: " + pendingUiVarName + "."));
+          emitHighConfidenceDiagnostic(
+              DiagnosticsRuleKind::SemanticSource, pendingUiVarLine,
+              pendingUiVarStart, pendingUiVarEnd, 2,
+              "Duplicate global declaration: " + pendingUiVarName + ".");
         }
         inUiMetaBlock = true;
         lineIndex++;
@@ -1118,11 +1179,11 @@ void collectReturnAndTypeDiagnostics(
               continue;
             }
             if (!globalSymbols.insert(name).second) {
-              diags.a.push_back(makeDiagnostic(
-                  text, lineIndex,
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, lineIndex,
                   static_cast<int>(tokens[typeIndex + 1].start),
-                  static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
-                  "Duplicate global declaration: " + name + "."));
+                  static_cast<int>(tokens[typeIndex + 1].end), 2,
+                  "Duplicate global declaration: " + name + ".");
             }
           }
         }
@@ -1243,9 +1304,11 @@ void collectReturnAndTypeDiagnostics(
           if (token.kind == LexToken::Kind::Punct &&
               (token.text == ";" || token.text == "}"))
             continue;
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(token.start),
-              static_cast<int>(token.end), 2, "nsf", "Unreachable code."));
+          emitHighConfidenceDiagnostic(DiagnosticsRuleKind::SemanticSource,
+                                       lineIndex,
+                                       static_cast<int>(token.start),
+                                       static_cast<int>(token.end), 2,
+                                       "Unreachable code.");
           unreachableActive = false;
           break;
         }
@@ -1276,15 +1339,15 @@ void collectReturnAndTypeDiagnostics(
         bool localsChanged = false;
         for (const auto &decl : forInitializerDecls) {
           if (paramNames.find(decl.name) != paramNames.end()) {
-            diags.a.push_back(makeDiagnostic(
-                text, lineIndex, static_cast<int>(decl.start),
-                static_cast<int>(decl.end), 2, "nsf",
-                "Local shadows parameter: " + decl.name + "."));
+            emitHighConfidenceDiagnostic(
+                DiagnosticsRuleKind::SemanticSource, lineIndex,
+                static_cast<int>(decl.start), static_cast<int>(decl.end), 2,
+                "Local shadows parameter: " + decl.name + ".");
           } else if (hasDuplicateInCurrentScope(decl.name, currentSig)) {
-            diags.a.push_back(makeDiagnostic(
-                text, lineIndex, static_cast<int>(decl.start),
-                static_cast<int>(decl.end), 2, "nsf",
-                "Duplicate local declaration: " + decl.name + "."));
+            emitHighConfidenceDiagnostic(
+                DiagnosticsRuleKind::SemanticSource, lineIndex,
+                static_cast<int>(decl.start), static_cast<int>(decl.end), 2,
+                "Duplicate local declaration: " + decl.name + ".");
           }
           declareLocalInCurrentScope(decl.name, decl.type, currentSig);
           localsChanged = true;
@@ -1333,13 +1396,13 @@ void collectReturnAndTypeDiagnostics(
             int nameStart = nameToken ? static_cast<int>(nameToken->start) : 0;
             int nameEnd = nameToken ? static_cast<int>(nameToken->end) : 0;
             if (paramNames.find(name) != paramNames.end()) {
-              diags.a.push_back(
-                  makeDiagnostic(text, lineIndex, nameStart, nameEnd, 2, "nsf",
-                                 "Local shadows parameter: " + name + "."));
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, lineIndex, nameStart,
+                  nameEnd, 2, "Local shadows parameter: " + name + ".");
             } else if (hasDuplicateInCurrentScope(name, currentSig)) {
-                diags.a.push_back(makeDiagnostic(
-                    text, lineIndex, nameStart, nameEnd, 2, "nsf",
-                    "Duplicate local declaration: " + name + "."));
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, lineIndex, nameStart,
+                  nameEnd, 2, "Duplicate local declaration: " + name + ".");
             }
             declareLocalInCurrentScope(name, localType, currentSig);
             localsChanged = true;
@@ -1450,17 +1513,17 @@ void collectReturnAndTypeDiagnostics(
           if (hasSemi) {
             const std::string name = tokens[typeIndex + 1].text;
             if (paramNames.find(name) != paramNames.end()) {
-              diags.a.push_back(makeDiagnostic(
-                  text, lineIndex,
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, lineIndex,
                   static_cast<int>(tokens[typeIndex + 1].start),
-                  static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
-                  "Local shadows parameter: " + name + "."));
+                  static_cast<int>(tokens[typeIndex + 1].end), 2,
+                  "Local shadows parameter: " + name + ".");
             } else if (hasDuplicateInCurrentScope(name, currentSig)) {
-                diags.a.push_back(makeDiagnostic(
-                    text, lineIndex,
-                    static_cast<int>(tokens[typeIndex + 1].start),
-                    static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
-                    "Duplicate local declaration: " + name + "."));
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, lineIndex,
+                  static_cast<int>(tokens[typeIndex + 1].start),
+                  static_cast<int>(tokens[typeIndex + 1].end), 2,
+                  "Duplicate local declaration: " + name + ".");
             }
             declareLocalInCurrentScope(name, tokens[typeIndex].text, currentSig);
             rebuildVisibleLocals(currentSig);
@@ -1509,17 +1572,17 @@ void collectReturnAndTypeDiagnostics(
           } else if (hasEq) {
             const std::string name = tokens[typeIndex + 1].text;
             if (paramNames.find(name) != paramNames.end()) {
-              diags.a.push_back(makeDiagnostic(
-                  text, lineIndex,
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, lineIndex,
                   static_cast<int>(tokens[typeIndex + 1].start),
-                  static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
-                  "Local shadows parameter: " + name + "."));
+                  static_cast<int>(tokens[typeIndex + 1].end), 2,
+                  "Local shadows parameter: " + name + ".");
             } else if (hasDuplicateInCurrentScope(name, currentSig)) {
-                diags.a.push_back(makeDiagnostic(
-                    text, lineIndex,
-                    static_cast<int>(tokens[typeIndex + 1].start),
-                    static_cast<int>(tokens[typeIndex + 1].end), 2, "nsf",
-                    "Duplicate local declaration: " + name + "."));
+              emitHighConfidenceDiagnostic(
+                  DiagnosticsRuleKind::SemanticSource, lineIndex,
+                  static_cast<int>(tokens[typeIndex + 1].start),
+                  static_cast<int>(tokens[typeIndex + 1].end), 2,
+                  "Duplicate local declaration: " + name + ".");
             }
             declareLocalInCurrentScope(name, tokens[typeIndex].text, currentSig);
             rebuildVisibleLocals(currentSig);
@@ -1560,10 +1623,11 @@ void collectReturnAndTypeDiagnostics(
             normalizeTypeToken(functionReturnType);
         if (normalizedReturnType == "void") {
           if (hasValue) {
-            diags.a.push_back(makeDiagnostic(
-                text, lineIndex, static_cast<int>(tokens[i].start),
-                static_cast<int>(tokens[i].end), 1, "nsf",
-                "Return value in void function."));
+            emitHighConfidenceDiagnostic(
+                DiagnosticsRuleKind::SemanticSource, lineIndex,
+                static_cast<int>(tokens[i].start),
+                static_cast<int>(tokens[i].end), 1,
+                "Return value in void function.");
           }
           bool hasSemi = false;
           for (const auto &t : tokens) {
@@ -1582,10 +1646,11 @@ void collectReturnAndTypeDiagnostics(
         }
 
         if (!hasValue) {
-          diags.a.push_back(makeDiagnostic(text, lineIndex,
-                                           static_cast<int>(tokens[i].start),
-                                           static_cast<int>(tokens[i].end), 1,
-                                           "nsf", "Missing return value."));
+          emitHighConfidenceDiagnostic(DiagnosticsRuleKind::SemanticSource,
+                                       lineIndex,
+                                       static_cast<int>(tokens[i].start),
+                                       static_cast<int>(tokens[i].end), 1,
+                                       "Missing return value.");
           continue;
         }
 
@@ -1784,11 +1849,12 @@ void collectReturnAndTypeDiagnostics(
           TypeRelationResult rightBool =
               relationForTypes("bool", rightType);
           if (!leftBool.viable || !rightBool.viable) {
-            diags.a.push_back(makeDiagnostic(
-                text, lineIndex, static_cast<int>(tokens[i + 1].start),
-                static_cast<int>(tokens[i + 1].end), 1, "nsf",
+            emitHighConfidenceDiagnostic(
+                DiagnosticsRuleKind::ExpressionType, lineIndex,
+                static_cast<int>(tokens[i + 1].start),
+                static_cast<int>(tokens[i + 1].end), 1,
                 "Binary operator type mismatch: " + leftType + " " + op +
-                    " " + rightType + "."));
+                    " " + rightType + ".");
             continue;
           }
           emitRelationWarning(lineIndex,
@@ -1831,11 +1897,12 @@ void collectReturnAndTypeDiagnostics(
             ok = leftMat && rightMat;
           }
           if (!ok) {
-            diags.a.push_back(makeDiagnostic(
-                text, lineIndex, static_cast<int>(tokens[i + 1].start),
-                static_cast<int>(tokens[i + 1].end), 1, "nsf",
+            emitHighConfidenceDiagnostic(
+                DiagnosticsRuleKind::ExpressionType, lineIndex,
+                static_cast<int>(tokens[i + 1].start),
+                static_cast<int>(tokens[i + 1].end), 1,
                 "Binary operator type mismatch: " + leftType + " " + op + " " +
-                    rightType + "."));
+                    rightType + ".");
             continue;
           }
           TypeBinaryConversionResult conversion =
@@ -1860,11 +1927,12 @@ void collectReturnAndTypeDiagnostics(
               evaluateUsualArithmeticConversion(parseTypeDesc(leftType),
                                                 parseTypeDesc(rightType));
           if (!conversion.viable) {
-            diags.a.push_back(makeDiagnostic(
-                text, lineIndex, static_cast<int>(tokens[i + 1].start),
-                static_cast<int>(tokens[i + 1].end), 1, "nsf",
+            emitHighConfidenceDiagnostic(
+                DiagnosticsRuleKind::ExpressionType, lineIndex,
+                static_cast<int>(tokens[i + 1].start),
+                static_cast<int>(tokens[i + 1].end), 1,
                 "Binary operator type mismatch: " + leftType + " " + op + " " +
-                    rightType + "."));
+                    rightType + ".");
             continue;
           }
           emitRelationWarning(lineIndex, static_cast<int>(tokens[i + 1].start),
@@ -1953,11 +2021,12 @@ void collectReturnAndTypeDiagnostics(
               "Indeterminate builtin call: arg types unavailable. Name: " +
                   name + ". Args: " + formatTypeList(argTypes) + ".");
         } else if (!rr.ok) {
-          diags.a.push_back(
-              makeDiagnostic(text, lineIndex, static_cast<int>(tokens[i].start),
-                             static_cast<int>(tokens[i].end), 1, "nsf",
-                             "Builtin call type mismatch: " + name +
-                                 ". Args: " + formatTypeList(argTypes) + "."));
+          emitHighConfidenceDiagnostic(
+              DiagnosticsRuleKind::CallType, lineIndex,
+              static_cast<int>(tokens[i].start),
+              static_cast<int>(tokens[i].end), 1,
+              "Builtin call type mismatch: " + name +
+                  ". Args: " + formatTypeList(argTypes) + ".");
         } else {
           for (const auto &relation : rr.conversions) {
             emitRelationWarning(lineIndex, static_cast<int>(tokens[i].start),
@@ -2052,11 +2121,12 @@ void collectReturnAndTypeDiagnostics(
         };
 
         auto emitMismatch = [&]() {
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(tokens[i + 2].start),
-              static_cast<int>(tokens[i + 2].end), 1, "nsf",
+          emitHighConfidenceDiagnostic(
+              DiagnosticsRuleKind::CallType, lineIndex,
+              static_cast<int>(tokens[i + 2].start),
+              static_cast<int>(tokens[i + 2].end), 1,
               "Built-in method call type mismatch: " + member + ". Base: " +
-                  baseType + ". Args: " + formatTypeList(argTypes) + "."));
+                  baseType + ". Args: " + formatTypeList(argTypes) + ".");
         };
 
         HlslBuiltinMethodRule methodRule;
@@ -2324,9 +2394,10 @@ void collectReturnAndTypeDiagnostics(
               formatTypeList(buildDisplayTypes(best.paramTypes)) +
               ". Got: " + formatTypeList(buildDisplayTypes(argTypes)) +
               ". Defined at: " + formatLocationShort(best.loc) + ".";
-          diags.a.push_back(makeDiagnostic(
-              text, lineIndex, static_cast<int>(tokens[i].start),
-              static_cast<int>(tokens[i].end), 1, "nsf", message));
+          emitHighConfidenceDiagnostic(
+              DiagnosticsRuleKind::CallType, lineIndex,
+              static_cast<int>(tokens[i].start),
+              static_cast<int>(tokens[i].end), 1, message);
           continue;
         }
 
@@ -2348,9 +2419,10 @@ void collectReturnAndTypeDiagnostics(
                               " but got " + std::to_string(argTypes.size()) +
                               ". Defined at: " + formatLocationShort(best.loc) +
                               ".";
-        diags.a.push_back(
-            makeDiagnostic(text, lineIndex, static_cast<int>(tokens[i].start),
-                           static_cast<int>(tokens[i].end), 1, "nsf", message));
+        emitHighConfidenceDiagnostic(
+            DiagnosticsRuleKind::CallType, lineIndex,
+            static_cast<int>(tokens[i].start),
+            static_cast<int>(tokens[i].end), 1, message);
       }
 
       int attributeDepth = 0;
@@ -2423,10 +2495,11 @@ void collectReturnAndTypeDiagnostics(
           continue;
         if (isExternallyResolvable(word))
           continue;
-        diags.a.push_back(
-            makeDiagnostic(text, lineIndex, static_cast<int>(tokens[i].start),
-                           static_cast<int>(tokens[i].end), 2, "nsf",
-                           "Undefined identifier: " + word + "."));
+        emitHighConfidenceDiagnostic(
+            DiagnosticsRuleKind::UndefinedIdentifier, lineIndex,
+            static_cast<int>(tokens[i].start),
+            static_cast<int>(tokens[i].end), 2,
+            "Undefined identifier: " + word + ".");
       }
     }
 
