@@ -978,6 +978,49 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Built-in method call type mismatch: Load.'));
 	});
 
+	it('matches built-in object method arguments through shared object semantics', async () => {
+		const document = await openFixture('module_diagnostics_builtin_object_method_matching.nsf');
+		const truncationMessage =
+			'Implicit truncation conversion: float3 -> float2. Use an explicit cast or swizzle if this is intentional.';
+		const booleanMessage =
+			'Implicit boolean conversion: bool -> float. Use an explicit cast if this is intentional.';
+		const sampleMismatch = 'Built-in method call type mismatch: Sample. Base: Texture2DArray. Args: (SamplerState, float2).';
+		const loadMismatch = 'Built-in method call type mismatch: Load. Base: Texture2DArray. Args: (int3).';
+		const cmpSamplerMismatch =
+			'Built-in method call type mismatch: SampleCmp. Base: Texture2D. Args: (SamplerState, float2, float).';
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes(truncationMessage) &&
+					messages.includes(booleanMessage) &&
+					messages.includes(sampleMismatch) &&
+					messages.includes(loadMismatch) &&
+					messages.includes(cmpSamplerMismatch)
+				);
+			},
+			'built-in object method diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(messages.includes(truncationMessage), messages);
+		assert.ok(messages.includes(booleanMessage), messages);
+		assert.ok(messages.includes(sampleMismatch), messages);
+		assert.ok(messages.includes(loadMismatch), messages);
+		assert.ok(messages.includes(cmpSamplerMismatch), messages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 okSample'), sampleMismatch));
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 truncCoord'), truncationMessage));
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 okArraySample'), sampleMismatch));
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 badArraySample'), sampleMismatch));
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 okLoad'), loadMismatch));
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 badLoad'), loadMismatch));
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 boolLevel'), booleanMessage));
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 cmpOk'), cmpSamplerMismatch));
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'float4 cmpBadSampler'), cmpSamplerMismatch));
+	});
+
 	it('does not report diagnostics for complex member-call base expressions', async () => {
 		const document = await openFixture('module_signature_help_member_call_complex.nsf');
 		const diagnostics = await waitFor(
@@ -1157,7 +1200,9 @@ export function registerDiagnosticsTests(): void {
 
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(messages.includes('Implicit truncation conversion: float3 -> float2. Use an explicit cast or swizzle if this is intentional.'));
+		assert.ok(messages.includes('Implicit signedness conversion: int -> uint. Use an explicit cast if this is intentional.'));
 		assert.ok(messages.includes('Implicit signedness conversion: uint -> int. Use an explicit cast if this is intentional.'));
+		assert.ok(!messages.includes('Builtin call type mismatch: mul.'));
 	});
 
 	it('publishes diagnostics for user function call argument mismatches', async () => {

@@ -712,6 +712,57 @@ Git 记录：
 - `Builtin call mixed integer signedness` 被明确分类并有测试覆盖。
 - 对象类型 / 方法共享契约变化已更新 `docs/type-method-interface-contract.md`。
 
+### Phase 6 执行记录
+
+状态：已落地 builtin overload mixed signedness 和 object method 参数匹配收敛。
+
+实现内容：
+
+- `hover_markdown.*` 的 `lookupHlslBuiltinMethodRule(...)` 现在暴露由 `methods/object_methods` 签名模板展开后的参数声明；`{floatCoord}` / `{intCoordPlus1}` 等占位符通过 `type_model.*` 的 sample / load coord 维度查询解析。
+- object method diagnostics 不再在 rule 内本地维护 sampler-like、float coord、int coord 或 array texture 坐标判断；现在先通过 `type_model.*` 确认 base object family，再用 object method 资源展开参数，并交给 `overload_resolver.*` / `type_relation.*` 判定实参兼容与 warning。
+- `diagnostics_expression_type.*` 的 builtin 元素类型合并改为消费 `type_relation.*` 的 usual arithmetic conversion；`mul` 等形状规则仍保留自身矩阵 / 向量形状判定，但元素 signedness 不再产生 builtin mismatch。
+- real diagnostics audit classifier 将 `Implicit truncation/boolean/floating-integral/signedness/narrowing conversion` 归入 `type-conversion-risk` / `needs-manual-review`，避免合法但有风险的转换 warning 继续混在 `other`。
+- 新增 focused fixture `test_files/module_diagnostics_builtin_object_method_matching.nsf`，覆盖 `Sample`、`SampleLevel`、`Load`、`SampleCmp`、Texture2DArray 坐标、array load 坐标、sampler comparison mismatch 和 object method 参数 conversion warning。
+- 扩展 `module_diagnostics_hlsl_builtin_overload_args.nsf` 与 repo integration 断言，覆盖 `mul(int, uint)` 不再报 `Builtin call type mismatch`，而是发布 signedness warning。
+- `docs/architecture.md`、`docs/type-method-interface-contract.md` 和 `docs/testing.md` 已同步记录 object method 参数共享入口、builtin mixed signedness 语义和 audit 分类口径。
+
+公开行为变化：
+
+- 合法 builtin mixed signedness 调用不再发布 `Builtin call mixed integer signedness` 或 `Builtin call type mismatch`；非 literal `int` / `uint` 隐式转换改为 `Implicit signedness conversion` warning。
+- 合法 object method 参数隐式转换不再发布 `Built-in method call type mismatch`；按 `type_relation.*` 发布 truncation / boolean / floating-integral / signedness / narrowing warning。
+- Texture array `Sample` / `Load` 坐标维度由 `type_model.*` 展开的资源参数决定；无法形成合法 conversion sequence 时才保留 `Built-in method call type mismatch`。
+- `label: expr` / `label: Type name` 本阶段未新增支持，仍遵守当前偏差边界。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，69 passing / 1 pending。
+- `npm run test:client:repo` 全量通过。
+- 5-unit smoke audit 使用临时 copy workspace `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace` 通过；输出 `real-workspace-diagnostics-audit.phase-06-builtin-method-matching-smoke-5.{json,md}`。相对 P5 smoke：`diagnosticsTotal` 3787 -> 3702，`likely-plugin-limitation` 360 -> 205，`call-type-analysis` 179 -> 24，`Built-in method call type mismatch` 110 -> 0，`Builtin call type mismatch` 50 -> 5，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 使用同一临时 copy workspace 通过；输出 `real-workspace-diagnostics-audit.phase-06-builtin-method-matching-trend-50.{json,md}`。相对 P5 trend：`diagnosticsTotal` 32144 -> 31319，`likely-plugin-limitation` 3312 -> 1785，`call-type-analysis` 1731 -> 204，`Built-in method call type mismatch` 1077 -> 0，`Builtin call type mismatch` 493 -> 43，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+审计备注：
+
+- P6 后 `type-conversion-risk` 成为主要 category，这是显式分类变化：P5 中大量合法 implicit conversion warning 仍落在 `other`，P6 将其统一归类为需要人工审核的风险转换；新增的 object method / builtin 合法转换也会进入该类。
+- 50-unit 剩余 `Builtin call type mismatch` 主要集中在 `normalize(mul(camera_matrix, ...))` 一类仍待进一步建模的矩阵 / macro-like 类型场景；`Built-in method call type mismatch` 已在 50-unit 样本中清零。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture 和阶段 audit 报告；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：是，object method diagnostics 的参数形状收敛到 `methods/object_methods` + `hover_markdown.*` + `type_model.*`，builtin mixed signedness 收敛到 `type_relation.*`。
+- 测试策略是否变化：是，audit classifier 新增 `type-conversion-risk`，并补充 builtin / object method diagnostics 推荐验证矩阵。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/type-method-interface-contract.md`、`docs/testing.md`、`hover_markdown.hpp` 和本执行计划；资源、开发文档未变化。
+- 是否改变公开 diagnostics 行为：是，builtin / object method 的合法隐式转换从 mismatch 改为 warning。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-06 5-unit / 50-unit real audit 报告。
+
+Git 记录：
+
+- 本阶段尚未本地提交。
+
 ## Phase 7: 建立 diagnostics 可信度和发布前提契约
 
 ### 背景

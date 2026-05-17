@@ -146,28 +146,6 @@ static bool isBuiltinNumericElem(BuiltinElemKind k) {
          k == BuiltinElemKind::Double;
 }
 
-static BuiltinElemKind promoteBuiltinNumericElem(BuiltinElemKind a,
-                                                 BuiltinElemKind b,
-                                                 bool &signednessMixOut) {
-  signednessMixOut = false;
-  if (a == BuiltinElemKind::Unknown || b == BuiltinElemKind::Unknown)
-    return BuiltinElemKind::Unknown;
-  if (!isBuiltinNumericElem(a) || !isBuiltinNumericElem(b))
-    return BuiltinElemKind::Unknown;
-  if (a == BuiltinElemKind::Double || b == BuiltinElemKind::Double)
-    return BuiltinElemKind::Double;
-  if (a == BuiltinElemKind::Float || b == BuiltinElemKind::Float)
-    return BuiltinElemKind::Float;
-  if (a == BuiltinElemKind::Half || b == BuiltinElemKind::Half)
-    return BuiltinElemKind::Half;
-  if ((a == BuiltinElemKind::Int && b == BuiltinElemKind::UInt) ||
-      (a == BuiltinElemKind::UInt && b == BuiltinElemKind::Int)) {
-    signednessMixOut = true;
-    return BuiltinElemKind::Unknown;
-  }
-  return a;
-}
-
 static bool isBuiltinUnarySameType(const std::string &name) {
   return name == "normalize" || name == "saturate" || name == "abs" ||
          name == "sin" || name == "cos" || name == "tan" || name == "asin" ||
@@ -190,22 +168,6 @@ resolveBuiltinCall(const std::string &name,
     }
   }
 
-  auto unifyElem = [&](BuiltinElemKind &outElem) -> bool {
-    outElem = args[0].elem;
-    for (size_t i = 1; i < args.size(); i++) {
-      bool mix = false;
-      BuiltinElemKind promoted =
-          promoteBuiltinNumericElem(outElem, args[i].elem, mix);
-      if (mix) {
-        r.warnMixedSignedness = true;
-        return false;
-      }
-      if (promoted == BuiltinElemKind::Unknown)
-        return false;
-      outElem = promoted;
-    }
-    return true;
-  };
   auto exactShapeEq = [&](const BuiltinTypeInfo &a,
                           const BuiltinTypeInfo &b) -> bool {
     if (a.shape != b.shape)
@@ -222,6 +184,13 @@ resolveBuiltinCall(const std::string &name,
       return true;
     return exactShapeEq(a, ref);
   };
+  auto scalarInfoForElem = [](BuiltinElemKind elem) {
+    BuiltinTypeInfo out;
+    out.shape = BuiltinTypeInfo::ShapeKind::Scalar;
+    out.elem = elem;
+    out.dim = 1;
+    return out;
+  };
   auto usualConversion = [&](const BuiltinTypeInfo &a,
                              const BuiltinTypeInfo &b,
                              BuiltinTypeInfo &out) -> bool {
@@ -236,6 +205,18 @@ resolveBuiltinCall(const std::string &name,
     r.conversions.push_back(conversion.leftConversion);
     r.conversions.push_back(conversion.rightConversion);
     return true;
+  };
+  auto unifyElem = [&](BuiltinElemKind &outElem) -> bool {
+    BuiltinTypeInfo current = scalarInfoForElem(args[0].elem);
+    for (size_t i = 1; i < args.size(); i++) {
+      BuiltinTypeInfo next = scalarInfoForElem(args[i].elem);
+      BuiltinTypeInfo converted;
+      if (!usualConversion(current, next, converted))
+        return false;
+      current = converted;
+    }
+    outElem = current.elem;
+    return outElem != BuiltinElemKind::Unknown;
   };
 
   if (name == "length" || name == "distance") {
@@ -585,12 +566,11 @@ resolveBuiltinCall(const std::string &name,
     const auto &b = args[1];
     if (!isBuiltinNumericElem(a.elem) || !isBuiltinNumericElem(b.elem))
       return r;
-    bool mix = false;
-    BuiltinElemKind outElem = promoteBuiltinNumericElem(a.elem, b.elem, mix);
-    if (mix) {
-      r.warnMixedSignedness = true;
+    BuiltinTypeInfo converted;
+    if (!usualConversion(scalarInfoForElem(a.elem), scalarInfoForElem(b.elem),
+                         converted))
       return r;
-    }
+    BuiltinElemKind outElem = converted.elem;
     if (outElem == BuiltinElemKind::Unknown)
       return r;
 
@@ -2011,8 +1991,6 @@ struct ExprParser {
     }
     BuiltinResolveResult rr = resolveBuiltinCall(name, infos);
     if (!rr.ok)
-      return "";
-    if (rr.warnMixedSignedness)
       return "";
     return builtinTypeInfoToString(rr.ret);
   }

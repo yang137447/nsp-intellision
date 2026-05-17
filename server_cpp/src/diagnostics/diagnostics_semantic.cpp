@@ -1996,7 +1996,8 @@ void collectReturnAndTypeDiagnostics(
                 baseName, localsVisibleTypes, text, symbolCache));
         if (baseType.empty())
           continue;
-        if (!isTypeModelTextureLike(baseType))
+        std::string baseFamily;
+        if (!getTypeModelObjectFamily(baseType, baseFamily))
           continue;
 
         const std::string member = tokens[i + 2].text;
@@ -2017,44 +2018,6 @@ void collectReturnAndTypeDiagnostics(
         }
         if (closeParenIndex == std::string::npos)
           continue;
-
-        int sampleDim = getTypeModelSampleCoordDim(baseType);
-        if (sampleDim < 1)
-          sampleDim = 2;
-        int loadDim = getTypeModelLoadCoordDim(baseType);
-        if (loadDim < 1)
-          loadDim = sampleDim + 1;
-
-        auto isSamplerLike = [&](const std::string &t) -> bool {
-          TypeDesc desc = parseTypeDesc(t);
-          if (desc.kind == TypeDescKind::Object &&
-              (desc.objectKind == ObjectTypeKind::Sampler ||
-               desc.objectKind == ObjectTypeKind::SamplerState))
-            return true;
-          return isTypeModelSamplerLike(t);
-        };
-
-        auto isFloatFamilyCoord = [&](const std::string &t, int d) -> bool {
-          TypeDesc desc = parseTypeDesc(t);
-          if (d <= 1) {
-            return desc.kind == TypeDescKind::Scalar &&
-                   (desc.base == "float" || desc.base == "half" ||
-                    desc.base == "double");
-          }
-          return desc.kind == TypeDescKind::Vector && desc.rows == d &&
-                 (desc.base == "float" || desc.base == "half" ||
-                  desc.base == "double");
-        };
-
-        auto isIntFamilyCoord = [&](const std::string &t, int d) -> bool {
-          TypeDesc desc = parseTypeDesc(t);
-          if (d <= 1) {
-            return desc.kind == TypeDescKind::Scalar &&
-                   (desc.base == "int" || desc.base == "uint");
-          }
-          return desc.kind == TypeDescKind::Vector && desc.rows == d &&
-                 (desc.base == "int" || desc.base == "uint");
-        };
 
         auto anyArgUnknown = [&]() -> bool {
           for (const auto &t : argTypes) {
@@ -2110,51 +2073,70 @@ void collectReturnAndTypeDiagnostics(
           emitMismatch();
           continue;
         }
-
-        if (member == "Sample" || member == "SampleLevel" ||
-            member == "SampleBias" || member == "SampleGrad" ||
-            member == "SampleCmp" || member == "SampleCmpLevelZero" ||
-            member == "Gather" || member == "GatherRed" ||
-            member == "GatherGreen" || member == "GatherBlue" ||
-            member == "GatherAlpha") {
-          if (!isSamplerLike(argTypes[0]) ||
-              !isFloatFamilyCoord(argTypes[1], sampleDim)) {
-            emitMismatch();
-            continue;
-          }
-          if (member == "SampleLevel" || member == "SampleBias") {
-            if (!isFloatFamilyCoord(argTypes[2], 1)) {
-              emitMismatch();
-              continue;
-            }
-          } else if (member == "SampleGrad") {
-            if (!isFloatFamilyCoord(argTypes[2], sampleDim) ||
-                !isFloatFamilyCoord(argTypes[3], sampleDim)) {
-              emitMismatch();
-              continue;
-            }
-          } else if (member == "SampleCmp" || member == "SampleCmpLevelZero") {
-            if (!isFloatFamilyCoord(argTypes[2], 1)) {
-              emitMismatch();
-              continue;
-            }
-          }
-          continue;
-        }
-
-        if (member == "Load") {
-          if (!isIntFamilyCoord(argTypes[0], loadDim)) {
-            emitMismatch();
-            continue;
-          }
-          continue;
-        }
-
         if (member == "GetDimensions") {
           continue;
         }
 
-        emitUnmodeled();
+        if (methodRule.parameterTypes.empty()) {
+          emitUnmodeled();
+          continue;
+        }
+
+        std::vector<CandidateSignature> methodCandidates;
+        methodCandidates.reserve(methodRule.parameterTypes.size());
+        for (const auto &paramTypes : methodRule.parameterTypes) {
+          if (paramTypes.empty())
+            continue;
+          const size_t comparedCount =
+              std::min(argTypes.size(), paramTypes.size());
+          CandidateSignature candidate;
+          candidate.name = member;
+          candidate.displayLabel = member;
+          candidate.displayParams.assign(paramTypes.begin(),
+                                         paramTypes.begin() + comparedCount);
+          candidate.params.reserve(comparedCount);
+          for (size_t argIndex = 0; argIndex < comparedCount; argIndex++) {
+            ParamDesc param;
+            param.type = parseTypeDesc(paramTypes[argIndex]);
+            candidate.params.push_back(std::move(param));
+          }
+          methodCandidates.push_back(std::move(candidate));
+        }
+        if (methodCandidates.empty()) {
+          emitUnmodeled();
+          continue;
+        }
+
+        size_t comparedArgCount = argTypes.size();
+        for (const auto &candidate : methodCandidates) {
+          comparedArgCount =
+              std::min(comparedArgCount, candidate.params.size());
+        }
+        std::vector<TypeDesc> methodArgTypes;
+        methodArgTypes.reserve(comparedArgCount);
+        for (size_t argIndex = 0; argIndex < comparedArgCount; argIndex++)
+          methodArgTypes.push_back(parseTypeDesc(argTypes[argIndex]));
+
+        ResolveCallContext methodResolveContext;
+        methodResolveContext.enableVisibilityFiltering = false;
+        ResolveCallResult methodResolveResult =
+            resolveCallCandidates(methodCandidates, methodArgTypes,
+                                  methodResolveContext);
+        if (methodResolveResult.status == ResolveCallStatus::Resolved ||
+            methodResolveResult.status == ResolveCallStatus::Ambiguous) {
+          if (!methodResolveResult.rankedCandidates.empty()) {
+            for (const auto &relation :
+                 methodResolveResult.rankedCandidates.front().perArgRelations) {
+              emitRelationWarning(lineIndex,
+                                  static_cast<int>(tokens[i + 2].start),
+                                  static_cast<int>(tokens[i + 2].end),
+                                  relation);
+            }
+          }
+          continue;
+        }
+
+        emitMismatch();
       }
 
       int userCallAttributeDepth = 0;

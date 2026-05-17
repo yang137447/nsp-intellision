@@ -63,6 +63,7 @@
   - 每次 audit 都会写入 timestamp 归档和 `real-workspace-diagnostics-audit.latest.{json,md}`；设置 `NSF_REAL_DIAGNOSTICS_REPORT_LABEL` 时会额外写入 `real-workspace-diagnostics-audit.<label>.{json,md}`，阶段验证推荐使用 `phase-XX-<topic>-smoke-5` / `phase-XX-<topic>-trend-50` / `phase-XX-<topic>-full` 这类稳定 label
   - 报告会自动生成 baseline trend，比较 summary、triage、category 和 top canonical messages；5-unit 优先对比 `phase-00-baseline-smoke-5`，50-unit 优先对比 `phase-00-baseline-trend-50`，full audit 对比 `baseline-2026-05-16`，缺少同范围 baseline 时回退到 2026-05-16 full baseline；可用 `NSF_REAL_DIAGNOSTICS_BASELINE_JSON` 指向其他 baseline，或设为 `none` 禁用比较
   - 趋势判断应优先核对 `diagnosticsTotal`、triage/category delta、top message delta、affected units/files，以及 `truncatedFiles`、`timedOutFiles`、`fileErrors` 是否增加；如果 truncated / timeout 增加，阶段报告必须单独说明原因
+  - 合法但有风险的隐式转换 warning 会归入 `type-conversion-risk` / `needs-manual-review`，包括 truncation、boolean、floating-integral、signedness 和 narrowing；分析 builtin / object method 阶段时应区分 mismatch 下降与风险 warning 上升
   - 默认不随 real suite 执行；需要显式设置：
 
 ```powershell
@@ -110,6 +111,7 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 - 改 semantic diagnostics 的 local scope、`for` initializer 可见性、duplicate local 或基础 control-flow 规则：至少补跑 diagnostics repo 集成用例、5-unit smoke audit 和 50-unit trend audit
 - 改 missing-semicolon parser boundary、macro-heavy recovery 或 local structural syntax 前提：至少补跑 diagnostics repo 集成用例、5-unit smoke audit 和 50-unit trend audit
 - 改 deferred/current-doc cache、full diagnostics 预热/发布链路、inlay hints full-cache 或慢路径失效：`npm run test:client:repo` 是最小必跑项
+- 改 builtin overload 或 object method diagnostics 参数匹配：至少补跑 diagnostics repo 集成用例、5-unit smoke audit 和 50-unit trend audit，并核对 `call-type-analysis` 与 `type-conversion-risk` 的迁移关系
 - 改调度优先级、latest-only、cancellation、metrics 或性能命中路径：补跑 `npm run test:client:perf`
 - 发版或大范围重构：跑 `npm run gate:d3` 和 `npm run package:vsix`
 

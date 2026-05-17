@@ -28,6 +28,10 @@ struct HlslBuiltinMethodRule {
   int minArgs = 0;
   int maxArgs = 0;
   std::string returnType;
+  // Expanded parameter declarations from methods/object_methods signatures.
+  // Placeholders such as {floatCoord} and {intCoordPlus1} are resolved through
+  // type_model.* before diagnostics or signature consumers inspect them.
+  std::vector<std::vector<std::string>> parameterTypes;
 };
 
 bool lookupHlslBuiltinMethodRule(const std::string &method,

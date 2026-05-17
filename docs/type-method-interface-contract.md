@@ -98,11 +98,13 @@
 
 - 加载对象方法资源。
 - 根据共享对象语义展开占位符，生成 hover / signature help 文案。
+- 对 diagnostics 暴露同一份已展开参数声明，使对象方法参数兼容检查消费资源模板和 `type_model.*` 结果，而不是重新解释 `coordDim` / `isArray`。
 
 约束：
 
 - 占位符展开必须依赖共享查询层给出的规范化对象语义。
 - 不允许在 hover / signature help 内部把未知 texture 静默默认为 `2D`，除非该默认是共享契约明确允许的行为。
+- diagnostics 消费对象方法参数形状时，只能使用 `hover_markdown.*` 展开的参数声明和 `type_relation.*` 兼容结果；不得本地维护 sampler-like、floatCoord、intCoord 或 array slice 规则。
 
 ## Consumer 契约
 
@@ -113,6 +115,7 @@ consumer 包括 hover、signature help、member completion、inlay hints 和 dia
 - 对象方法可用性与参数形状判定必须共享同一套规则。
 - 新增对象方法语义时，先下沉到共享层，再由各 consumer 消费。
 - consumer 只需要参数形状时，不得直接解释 `coordDim` / `isArray`。
+- 合法但有风险的对象方法参数隐式转换应作为 `type_relation.*` warning 发布；找不到合法转换序列时才发布对象方法 type mismatch。
 
 ## 参数标签契约
 

@@ -1,0 +1,18 @@
+Texture2D gTex;
+Texture2DArray gTexArray;
+SamplerState gSampler;
+SamplerComparisonState gCmpSampler;
+
+void P6ObjectMethodMatching(float2 uv, float3 uvw, int3 loc3, int4 loc4)
+{
+    bool lodBool = false;
+    float4 okSample = gTex.Sample(gSampler, uv);
+    float4 truncCoord = gTex.Sample(gSampler, uvw);
+    float4 okArraySample = gTexArray.Sample(gSampler, uvw);
+    float4 badArraySample = gTexArray.Sample(gSampler, uv);
+    float4 okLoad = gTexArray.Load(loc4);
+    float4 badLoad = gTexArray.Load(loc3);
+    float4 boolLevel = gTexArray.SampleLevel(gSampler, uvw, lodBool);
+    float4 cmpOk = gTex.SampleCmp(gCmpSampler, uv, 0.5);
+    float4 cmpBadSampler = gTex.SampleCmp(gSampler, uv, 0.5);
+}

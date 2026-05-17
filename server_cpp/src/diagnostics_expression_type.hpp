@@ -21,7 +21,6 @@ struct BuiltinTypeInfo {
 
 struct BuiltinResolveResult {
   bool ok = false;
-  bool warnMixedSignedness = false;
   bool indeterminate = false;
   BuiltinTypeInfo ret;
   std::vector<TypeRelationResult> conversions;

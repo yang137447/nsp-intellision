@@ -764,6 +764,13 @@ function classifyDiagnostic(
 		message.startsWith('Return type mismatch:')) {
 		return { category: 'expression-type-analysis', triage: 'likely-plugin-limitation' };
 	}
+	if (message.startsWith('Implicit truncation conversion:') ||
+		message.startsWith('Implicit boolean conversion:') ||
+		message.startsWith('Implicit floating-integral conversion:') ||
+		message.startsWith('Implicit signedness conversion:') ||
+		message.startsWith('Implicit narrowing conversion:')) {
+		return { category: 'type-conversion-risk', triage: 'needs-manual-review' };
+	}
 	if (message === 'Missing semicolon.') {
 		const trimmed = lineText.trim();
 		const nextTrimmed = nextLineText.trim();
@@ -842,6 +849,21 @@ function canonicalizeMessage(message: string): string {
 	}
 	if (message.startsWith('Return type mismatch:')) {
 		return 'Return type mismatch: <expected> vs <actual>.';
+	}
+	if (message.startsWith('Implicit truncation conversion:')) {
+		return 'Implicit truncation conversion: <from> -> <to>.';
+	}
+	if (message.startsWith('Implicit boolean conversion:')) {
+		return 'Implicit boolean conversion: <from> -> <to>.';
+	}
+	if (message.startsWith('Implicit floating-integral conversion:')) {
+		return 'Implicit floating-integral conversion: <from> -> <to>.';
+	}
+	if (message.startsWith('Implicit signedness conversion:')) {
+		return 'Implicit signedness conversion: <from> -> <to>.';
+	}
+	if (message.startsWith('Implicit narrowing conversion:')) {
+		return 'Implicit narrowing conversion: <from> -> <to>.';
 	}
 	if (message.startsWith('Duplicate global declaration:')) {
 		return 'Duplicate global declaration: <symbol>.';

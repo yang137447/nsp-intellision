@@ -366,6 +366,7 @@ bool formatHlslBuiltinMethodMarkdown(const std::string &method,
 bool lookupHlslBuiltinMethodRule(const std::string &method,
                                  const std::string &baseType,
                                  HlslBuiltinMethodRule &outRule) {
+  outRule = HlslBuiltinMethodRule{};
   ensureMethodRegistryLoaded();
   MethodEntry entry;
   if (!lookupMethodEntry(method, baseType, entry))
@@ -373,6 +374,36 @@ bool lookupHlslBuiltinMethodRule(const std::string &method,
   outRule.minArgs = entry.minArgs;
   outRule.maxArgs = entry.maxArgs;
   outRule.returnType = entry.returnType;
+  const int sampleDim = getTypeModelSampleCoordDim(baseType);
+  const int loadDim = getTypeModelLoadCoordDim(baseType);
+  auto templateCanExpand = [&](const std::string &paramTemplate) {
+    if ((paramTemplate.find("{floatCoord}") != std::string::npos ||
+         paramTemplate.find("{intCoord}") != std::string::npos) &&
+        sampleDim < 1) {
+      return false;
+    }
+    if (paramTemplate.find("{intCoordPlus1}") != std::string::npos &&
+        loadDim < 1) {
+      return false;
+    }
+    return true;
+  };
+  outRule.parameterTypes.reserve(entry.signatures.size());
+  for (const auto &signature : entry.signatures) {
+    std::vector<std::string> params;
+    params.reserve(signature.parameterTemplates.size());
+    bool canExpand = true;
+    for (const auto &paramTemplate : signature.parameterTemplates) {
+      if (!templateCanExpand(paramTemplate)) {
+        canExpand = false;
+        break;
+      }
+      params.push_back(applyTemplate(paramTemplate, baseType, sampleDim,
+                                     loadDim));
+    }
+    if (canExpand && !params.empty())
+      outRule.parameterTypes.push_back(std::move(params));
+  }
   return true;
 }
 
