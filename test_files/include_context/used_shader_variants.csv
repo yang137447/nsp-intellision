@@ -1,0 +1,2 @@
+shader\deferred\multi_context_variant_profile_csv.fx::TShader,CSV_STABLE_PROFILE=3,CSV_CONFLICTING_MODE=0
+shader\deferred\multi_context_variant_profile_csv.fx::TShader,CSV_STABLE_PROFILE=3,CSV_CONFLICTING_MODE=1

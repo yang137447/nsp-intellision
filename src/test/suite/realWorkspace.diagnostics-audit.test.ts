@@ -49,6 +49,41 @@ type GroupSummary = {
 	samples: AuditDiagnostic[];
 };
 
+type UndefinedMacroOwner =
+	| 'compiler-context-platform-quality'
+	| 'enum-like-stable-constant'
+	| 'selector-profile-macro'
+	| 'source-generated-config';
+
+type UndefinedMacroOwnerHint = {
+	owner: UndefinedMacroOwner;
+	sourceBoundary: string;
+	defaultValue: string;
+	risk: string;
+	reason: string;
+};
+
+type UndefinedMacroHistogramEntry = UndefinedMacroOwnerHint & {
+	macro: string;
+	count: number;
+	affectedUnitCount: number;
+	affectedFileCount: number;
+	samples: AuditDiagnostic[];
+};
+
+type UndefinedMacroOwnerSummary = {
+	owner: UndefinedMacroOwner;
+	macros: number;
+	diagnostics: number;
+};
+
+type UndefinedMacroHistogram = {
+	totalDiagnostics: number;
+	macroCount: number;
+	byOwner: UndefinedMacroOwnerSummary[];
+	entries: UndefinedMacroHistogramEntry[];
+};
+
 type UnitClosureResponse = {
 	unitUri?: string;
 	unitPath?: string;
@@ -939,6 +974,188 @@ function canonicalizeMessage(message: string): string {
 	return message;
 }
 
+function undefinedMacroNameFromMessage(message: string): string | undefined {
+	const match = /^Undefined macro in preprocessor expression:\s*([A-Za-z_][A-Za-z0-9_]*)\.$/.exec(
+		message.trim()
+	);
+	return match?.[1];
+}
+
+const selectorProfileUndefinedMacros = new Set<string>([
+	'CHANGE_INOUTDOOR',
+	'COLOR_CHANGE_MODE',
+	'DYNAMIC_GI_TYPE',
+	'EMISSIVE_MODE',
+	'FOLIAGE_MODE',
+	'HAIR_COLOR_MODE',
+	'SHADINGMODELID',
+	'SMAA_QUALITY',
+	'SPARKLE_ENABLE',
+	'TERRAIN_TECH_TYPE'
+]);
+
+const sourceGeneratedUndefinedMacros = new Set<string>([
+	'NEOX_COMPUTE_SHADER',
+	'NEOX_PARAM_DECLARE_DOMAIN',
+	'PS_INPUT_HAS_INSTANCE_ID',
+	'VAT_PER_INSTANCE_INPUT'
+]);
+
+function isEnumLikeStableConstantMacro(upper: string): boolean {
+	return (
+		/^SHADINGMODELID_[A-Z0-9_]+$/.test(upper) ||
+		/^DYNAMIC_GI_(?!TYPE$)[A-Z0-9_]+$/.test(upper) ||
+		/^COLOR_CHANGE_(?!MODE$|ENABLE$)[A-Z0-9_]+$/.test(upper) ||
+		/^CHANNEL_COLOR_CHANGE(?:_[A-Z0-9_]+)?$/.test(upper) ||
+		/^EMISSIVE_(?!MODE$|ENABLE$|ENBALE$|FLOW_ENABLE$)[A-Z0-9_]+$/.test(upper) ||
+		/^FOLIAGE_(?:GRASS|TREE)_(?:BRANCH|LEAF)$/.test(upper) ||
+		/^SPARKLE_MODE_[A-Z0-9_]+$/.test(upper) ||
+		/^SMAA_PRESET_[A-Z0-9_]+$/.test(upper) ||
+		/^HAIR_COLOR_(?!MODE$|ENABLE$)[A-Z0-9_]+$/.test(upper) ||
+		/^CHANGE_INOUTDOOR_(?:INDOOR|OUTDOOR|INDOORCUBE)$/.test(upper)
+	);
+}
+
+function classifyUndefinedMacroOwner(macro: string): UndefinedMacroOwnerHint {
+	const upper = macro.toUpperCase();
+	if (
+		/^(API_|SYSTEM_|GLES_|SHADER_API_|PLATFORM_|DEVICE_)/.test(upper) ||
+		/^(NEOX_(?:D3D|GLES|GLSL|HLSL|METAL|VULKAN|FLOATRT)|MTL_)/.test(upper) ||
+		/^GL\d*_PROFILE$/.test(upper) ||
+		/^IS_ADRENO_\d+XX$/.test(upper) ||
+		upper === 'SHADER_QUALITY' ||
+		upper.startsWith('QUALITY_')
+	) {
+		return {
+			owner: 'compiler-context-platform-quality',
+			sourceBoundary: 'shadercompiler context or platform/quality preset candidate',
+			defaultValue: 'not assigned by audit',
+			risk:
+				'Only promote after confirming the macro is a stable shadercompiler context input; a wrong global default changes active branches for every unit.',
+			reason: 'Name matches platform, API, system, or quality context macro conventions.'
+		};
+	}
+	if (selectorProfileUndefinedMacros.has(upper)) {
+		return {
+			owner: 'selector-profile-macro',
+			sourceBoundary: 'active unit compile profile, parameter include, nsf.preprocessorMacros, or nsf.defines',
+			defaultValue: 'not assigned by audit',
+			risk:
+				'Do not assign a global default; selector/profile macros choose material variants and must come from the real unit context.',
+			reason: 'Name is a selector/profile macro that chooses among stable constants or feature branches.'
+		};
+	}
+	if (isEnumLikeStableConstantMacro(upper)) {
+		return {
+			owner: 'enum-like-stable-constant',
+			sourceBoundary: 'source constant definition or generated shader parameter include review',
+			defaultValue: 'stable value candidate; not assigned by audit',
+			risk:
+				'Only promote after confirming the source definition and value; the audit reports ownership but does not add defaults.',
+			reason: 'Name matches enum-like constant conventions used as selector comparison values.'
+		};
+	}
+	if (sourceGeneratedUndefinedMacros.has(upper)) {
+		return {
+			owner: 'source-generated-config',
+			sourceBoundary: 'source include, generated header, shader stage injection, or workspace configuration review',
+			defaultValue: 'not assigned by audit',
+			risk:
+				'Keep the diagnostic until generated/source ownership is known; suppressing it could hide a real missing definition.',
+			reason: 'Name matches known source/generated configuration macro conventions.'
+		};
+	}
+	if (
+		/^(ADAPTIVE_|AHD_|ALPHA_|BATCH_|BILLBOARD_|BLEND_|CASCADE_|CHANNEL_|CLUSTERED_|COLOR_|CONTACT_|CUSTOMIZED_|DECAL_|DETAIL_|DYNAMIC_|EMISSIV|ENABLE_|ENV_|FALLOFF_|FEATURE_|FOLIAGE_|FORCE_|FOREST_|FRUSTUM_|GENERATE_|GPU_|GRASS_|HAIR_|HAS_|INSTANCE_|LIGHT_|LOD_|MATERIAL_|MEADOW_|METALLIC_|NORMAL_|PBR_|PEARL_|PENUMBRA_|POINT_|POST_|PROBE_|REFLECT_|REFLECTION_|RENDER_|SCREEN_|SHADOW_|SKIN_|SPARKLE_|SPOT_|SSS_|SUPPORT_|TERRAIN_|TEXTURE_|TWO_SIDE_|USE_|UV_|VLM_|WATER_|WITH_)/.test(upper) ||
+		/_(ENABLE|MODE|TYPE|SUPPORT|QUALITY|SHADOW|LIGHT|COLOR|MAP|TEXTURE|FOG|DEBUG)$/.test(upper)
+	) {
+		return {
+			owner: 'selector-profile-macro',
+			sourceBoundary: 'active unit compile profile, nsf.preprocessorMacros, or nsf.defines',
+			defaultValue: 'not assigned by audit',
+			risk:
+				'Do not add as a global resource default without a real unit compile profile; feature macros are often variant-specific.',
+			reason: 'Name matches material, feature, pipeline, or unit-local variant macro conventions.'
+		};
+	}
+	return {
+		owner: 'source-generated-config',
+		sourceBoundary: 'source include, generated header, shader stage injection, or workspace configuration review',
+		defaultValue: 'not assigned by audit',
+		risk:
+			'Keep the diagnostic until source/config ownership is known; suppressing it could hide a real missing definition.',
+		reason: 'Name does not match stable constant, compiler context, or known feature-profile conventions.'
+	};
+}
+
+function buildUndefinedMacroHistogram(diagnostics: AuditDiagnostic[]): UndefinedMacroHistogram {
+	const byMacro = new Map<
+		string,
+		{
+			count: number;
+			units: Set<string>;
+			files: Set<string>;
+			samples: AuditDiagnostic[];
+		}
+	>();
+	for (const diagnostic of diagnostics) {
+		const macro = undefinedMacroNameFromMessage(diagnostic.message);
+		if (!macro) {
+			continue;
+		}
+		let entry = byMacro.get(macro);
+		if (!entry) {
+			entry = {
+				count: 0,
+				units: new Set<string>(),
+				files: new Set<string>(),
+				samples: []
+			};
+			byMacro.set(macro, entry);
+		}
+		entry.count++;
+		entry.units.add(normalizedPathKey(diagnostic.unit));
+		entry.files.add(normalizedPathKey(diagnostic.file));
+		if (entry.samples.length < 5) {
+			entry.samples.push(diagnostic);
+		}
+	}
+	const entries = Array.from(byMacro.entries())
+		.map(([macro, entry]) => ({
+			macro,
+			count: entry.count,
+			affectedUnitCount: entry.units.size,
+			affectedFileCount: entry.files.size,
+			samples: entry.samples,
+			...classifyUndefinedMacroOwner(macro)
+		}))
+		.sort(
+			(lhs, rhs) =>
+				rhs.count - lhs.count ||
+				rhs.affectedUnitCount - lhs.affectedUnitCount ||
+				lhs.macro.localeCompare(rhs.macro)
+		);
+	const byOwnerMap = new Map<UndefinedMacroOwner, UndefinedMacroOwnerSummary>();
+	for (const entry of entries) {
+		const summary = byOwnerMap.get(entry.owner) ?? {
+			owner: entry.owner,
+			macros: 0,
+			diagnostics: 0
+		};
+		summary.macros++;
+		summary.diagnostics += entry.count;
+		byOwnerMap.set(entry.owner, summary);
+	}
+	return {
+		totalDiagnostics: entries.reduce((sum, entry) => sum + entry.count, 0),
+		macroCount: entries.length,
+		byOwner: Array.from(byOwnerMap.values()).sort(
+			(lhs, rhs) => rhs.diagnostics - lhs.diagnostics || lhs.owner.localeCompare(rhs.owner)
+		),
+		entries
+	};
+}
+
 function truncate(value: string, maxLength: number): string {
 	const compact = value.replace(/\s+/g, ' ').trim();
 	if (compact.length <= maxLength) {
@@ -1177,6 +1394,39 @@ function buildMarkdownReport(report: any): string {
 	lines.push('| --- | ---: |');
 	for (const entry of topEntries(report.counts.byCategory, 30)) {
 		lines.push(`| ${markdownCell(entry.key)} | ${entry.count} |`);
+	}
+	const undefinedMacros = report.undefinedMacros as UndefinedMacroHistogram | undefined;
+	if (undefinedMacros && undefinedMacros.totalDiagnostics > 0) {
+		lines.push('');
+		lines.push('## Undefined Macro Histogram');
+		lines.push('');
+		lines.push(`- Undefined macro diagnostics: ${undefinedMacros.totalDiagnostics}`);
+		lines.push(`- Unique undefined macros: ${undefinedMacros.macroCount}`);
+		lines.push('');
+		lines.push('### Owner Summary');
+		lines.push('');
+		lines.push('| Owner | Macros | Diagnostics |');
+		lines.push('| --- | ---: | ---: |');
+		for (const entry of undefinedMacros.byOwner) {
+			lines.push(`| ${markdownCell(entry.owner)} | ${entry.macros} | ${entry.diagnostics} |`);
+		}
+		lines.push('');
+		lines.push('### Top Undefined Macros');
+		lines.push('');
+		lines.push('| Diagnostics | Units | Files | Macro | Owner | Default | Source / Risk | Sample |');
+		lines.push('| ---: | ---: | ---: | --- | --- | --- | --- | --- |');
+		for (const entry of undefinedMacros.entries.slice(0, 80)) {
+			const sample = entry.samples[0];
+			const sampleText = sample
+				? `${sample.unitRelativePath} -> ${sample.relativePath}:${sample.line}:${sample.character} ${sample.lineText}`
+				: '';
+			lines.push(
+				`| ${entry.count} | ${entry.affectedUnitCount} | ${entry.affectedFileCount} | ` +
+				`${markdownCell(entry.macro)} | ${markdownCell(entry.owner)} | ` +
+				`${markdownCell(entry.defaultValue)} | ` +
+				`${markdownCell(`${entry.sourceBoundary}; ${entry.risk}`)} | ${markdownCell(sampleText)} |`
+			);
+		}
 	}
 	lines.push('');
 	lines.push('## Top Message Groups');
@@ -1475,6 +1725,7 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 				fileErrors: fileErrors.length
 			},
 			counts,
+			undefinedMacros: buildUndefinedMacroHistogram(diagnostics),
 			groups: groupDiagnostics(diagnostics),
 			units: buildUnitSummaries(diagnostics, fileStats),
 			fileStats,

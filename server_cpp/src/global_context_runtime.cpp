@@ -12,6 +12,7 @@
 #include <cctype>
 #include <mutex>
 #include <sstream>
+#include <unordered_set>
 
 namespace {
 
@@ -115,11 +116,104 @@ buildRuntimeContextFingerprints(const GlobalContextRuntimeOptions &options,
   return fingerprints;
 }
 
+bool tryParseIntegralHint(const std::string &text, int &out) {
+  if (text.empty())
+    return false;
+  try {
+    size_t consumed = 0;
+    const int parsed = std::stoi(text, &consumed, 0);
+    if (consumed != text.size())
+      return false;
+    out = parsed;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool isSimpleIdentifier(const std::string &text) {
+  if (text.empty())
+    return false;
+  const unsigned char first = static_cast<unsigned char>(text[0]);
+  if (!(std::isalpha(first) || first == '_'))
+    return false;
+  for (size_t i = 1; i < text.size(); ++i) {
+    const unsigned char ch = static_cast<unsigned char>(text[i]);
+    if (!(std::isalnum(ch) || ch == '_'))
+      return false;
+  }
+  return true;
+}
+
+bool resolveConfiguredMacroNumericValue(
+    const std::string &name, const ConfiguredPreprocessorMacros &configured,
+    const std::unordered_map<std::string, int> &defines,
+    std::unordered_map<std::string, int> &memo,
+    std::unordered_set<std::string> &resolving, int &out) {
+  auto memoIt = memo.find(name);
+  if (memoIt != memo.end()) {
+    out = memoIt->second;
+    return true;
+  }
+  auto defineIt = defines.find(name);
+  if (defineIt != defines.end()) {
+    out = defineIt->second;
+    memo[name] = out;
+    return true;
+  }
+  auto configuredIt = configured.find(name);
+  if (configuredIt == configured.end())
+    return false;
+
+  if (!resolving.insert(name).second)
+    return false;
+
+  int parsed = 0;
+  const std::string replacement = configuredIt->second;
+  if (tryParseIntegralHint(replacement, parsed)) {
+    out = parsed;
+    memo[name] = out;
+    resolving.erase(name);
+    return true;
+  }
+  if (isSimpleIdentifier(replacement) &&
+      resolveConfiguredMacroNumericValue(replacement, configured, defines, memo,
+                                         resolving, parsed)) {
+    out = parsed;
+    memo[name] = out;
+    resolving.erase(name);
+    return true;
+  }
+
+  resolving.erase(name);
+  return false;
+}
+
+std::unordered_map<std::string, int> buildUnitProfileSelectionHints(
+    const GlobalContextRuntimeOptions &options) {
+  std::unordered_map<std::string, int> hints = options.defines;
+  const ConfiguredPreprocessorMacros configured = getConfiguredPreprocessorMacros();
+  std::unordered_map<std::string, int> memo;
+  memo.reserve(configured.size());
+  for (const auto &entry : configured) {
+    int value = 0;
+    std::unordered_set<std::string> resolving;
+    if (!resolveConfiguredMacroNumericValue(entry.first, configured,
+                                            options.defines, memo, resolving,
+                                            value))
+      continue;
+    hints[entry.first] = value;
+  }
+  return hints;
+}
+
 RuntimeDefineContext buildRuntimeDefineContext(
     const GlobalContextRuntimeOptions &options, const std::string &activeUnitPath) {
   RuntimeDefineContext context;
+  const std::unordered_map<std::string, int> selectionHints =
+      buildUnitProfileSelectionHints(options);
   resolveUnitMacroProfileSnapshot(activeUnitPath, options.workspaceFolders,
-                                  options.includePaths,
+                                  options.includePaths, selectionHints,
                                   context.profileSnapshot);
   context.effectiveDefines = context.profileSnapshot.defines;
   for (const auto &entry : options.defines)
@@ -224,6 +318,17 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
   snapshot.profileDefines = defineContext.profileSnapshot.defines;
   snapshot.profileShaderKey = defineContext.profileSnapshot.shaderKey;
   snapshot.profileSourcePath = defineContext.profileSnapshot.sourcePath;
+  snapshot.profileSourceKind = defineContext.profileSnapshot.sourceKind;
+  snapshot.profileTotalRowCount =
+      defineContext.profileSnapshot.profileTotalRowCount;
+  snapshot.profileSelectedRowCount =
+      defineContext.profileSnapshot.profileSelectedRowCount;
+  snapshot.profileSelectedRowSignature =
+      defineContext.profileSnapshot.profileSelectedRowSignature;
+  snapshot.profileSelectionHintSourcePath =
+      defineContext.profileSnapshot.profileSelectionHintSourcePath;
+  snapshot.profileUnresolvedMacroNames =
+      defineContext.profileSnapshot.unresolvedMacroNames;
   snapshot.defines = defineContext.effectiveDefines;
   snapshot.workspaceFoldersFingerprint =
       contextFingerprints.workspaceFoldersFingerprint;

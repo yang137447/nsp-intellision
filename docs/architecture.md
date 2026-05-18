@@ -60,7 +60,7 @@
 - server lifecycle、restart 和 `onReady` 装配
 - 配置同步，包括 include 路径、defines、diagnostics、inlay hints、semantic tokens 和 metrics
 - 预处理宏 preset 首次填充与配置同步；client 从 server 共享 registry 读取默认 preset，写入工作区 `nsf.preprocessorMacros` 后再作为普通用户配置传给 server
-- active unit compile profile 宏解析由 `unit_macro_profile_provider.*` 负责；它从 workspace/include roots 下发现 shadercompiler 导出的 `gimlocalvariants.json`，按 active unit basename 映射 shader key，并且只注入所有 local variants 都一致的数值宏，不为冲突 selector/profile 值猜默认
+- active unit compile profile 宏解析由 `unit_macro_profile_provider.*` 负责；它从 workspace/include roots 下发现 shadercompiler 导出的 `gimlocalvariants.json` 和 `used_shader_variants.csv`，按 active unit basename 映射 shader key，并且只注入跨 local variants / used-variant rows 都保持一致的显式数值宏，不为冲突 selector/profile 值猜默认；冲突或缺失的 variant 宏只作为 unresolved metadata 暴露给 debug/audit，不进入 effective defines。`nsf.defines` 和 `nsf.preprocessorMacros`（包括可解析为整数的符号链）会作为显式 selection hints 参与 row 过滤；同时 provider 会从 `active_unit_variant_selection.csv` 读取按 unit stem 聚合后的选择提示作为 baseline，再由 workspace 显式 hints 覆盖同名键，但仅在 profile source 已出现该宏且存在匹配值行时才收敛。debug runtime 会暴露 profile 总行数、筛选后行数、单行命中 signature 以及 selection hint source path，便于区分“已选中具体 row”与“仍是多行 unresolved”
 - 状态栏、trace 输出、诊断和索引状态展示
 - 测试模式下的固定启动和内部命令
 - 编辑器壳层挂接，如语言注册、language configuration 和 snippets
@@ -166,7 +166,7 @@
 - HLSL builtin 函数：`hlsl_builtin_docs.*` + `server_cpp/resources/builtins/intrinsics/`
 - HLSL 关键字、预处理指令、系统语义、默认预处理宏填充 preset：`language_registry.*` + `server_cpp/resources/language/`
 - 有效用户预处理宏 preset：`nsf.preprocessorMacros` + `preprocessor_view.*`
-- active unit compile profile 宏：`unit_macro_profile_provider.*` + `global_context_runtime.*`
+- active unit compile profile 宏：`unit_macro_profile_provider.*` + `global_context_runtime.*` + shadercompiler 导出的 `gimlocalvariants.json` / `used_shader_variants.csv` / `active_unit_variant_selection.csv`
 - HLSL 对象类型 / 对象族：`type_model.*` + `server_cpp/resources/types/`
 - HLSL 对象方法：`hover_markdown.*` + `server_cpp/resources/methods/object_methods/`
 - 资源 bundle 规则：`resource_registry.*` + `docs/resources.md`

@@ -39,6 +39,12 @@ struct ActiveUnitSnapshot {
   std::unordered_map<std::string, int> profileDefines;
   std::string profileShaderKey;
   std::string profileSourcePath;
+  std::string profileSourceKind;
+  int profileTotalRowCount = 0;
+  int profileSelectedRowCount = 0;
+  std::string profileSelectedRowSignature;
+  std::string profileSelectionHintSourcePath;
+  std::vector<std::string> profileUnresolvedMacroNames;
   std::unordered_map<std::string, int> defines;
   std::string workspaceFoldersFingerprint;
   std::string definesFingerprint;

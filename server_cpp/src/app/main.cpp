@@ -2203,6 +2203,21 @@ int main(int argc, char **argv) {
             makeString(globalActive.profileShaderKey);
         item.o["activeUnitProfileSourcePath"] =
             makeString(globalActive.profileSourcePath);
+        item.o["activeUnitProfileSourceKind"] =
+            makeString(globalActive.profileSourceKind);
+        item.o["activeUnitProfileTotalRowCount"] =
+            makeNumber(static_cast<double>(globalActive.profileTotalRowCount));
+        item.o["activeUnitProfileSelectedRowCount"] = makeNumber(
+            static_cast<double>(globalActive.profileSelectedRowCount));
+        item.o["activeUnitProfileSelectedRowSignature"] =
+            makeString(globalActive.profileSelectedRowSignature);
+        item.o["activeUnitProfileSelectionHintSourcePath"] =
+            makeString(globalActive.profileSelectionHintSourcePath);
+        Json unresolvedProfileMacros = makeArray();
+        for (const auto &macro : globalActive.profileUnresolvedMacroNames)
+          unresolvedProfileMacros.a.push_back(makeString(macro));
+        item.o["activeUnitProfileUnresolvedMacros"] =
+            std::move(unresolvedProfileMacros);
         item.o["interactiveVisibilityFingerprint"] =
             makeString(globalVisibility.fullFingerprint);
         item.o["globalContextSnapshotId"] =

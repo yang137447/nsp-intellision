@@ -691,5 +691,269 @@ export function registerDeferredDocUnitMacroProfileAnalysisContextTests(): void 
 				}
 			});
 		});
+
+		it('injects only unanimous CSV variant macros into the shared analysis context', async () => {
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
+				const csvUnit = await openFixture('include_context/units/multi_context_variant_profile_csv.nsf');
+
+				try {
+					await waitForIndexingIdle('indexing idle before CSV unit macro profile analysis context');
+					await vscode.commands.executeCommand('nsf._setActiveUnitForTests', csvUnit.uri.toString());
+					await waitForActiveUnitAndVisibilityReadyForTests(
+						csvUnit.uri.toString(),
+						path.join('include_context', 'units', 'multi_context_variant_profile_csv.nsf'),
+						'active unit ready for CSV unit macro profile document'
+					);
+					const hoverPosition = positionOf(csvUnit, 'value =', 1, 1);
+					await waitForHoverText(
+						csvUnit,
+						hoverPosition,
+						(text) => text.includes('Type: VariantProfileCsvResolvedType'),
+						'hover for CSV unit macro profile resolved branch'
+					);
+					const entries = await waitFor(
+						() => getDocumentRuntimeDebug([csvUnit.uri.toString()]),
+						(value) => {
+							const entry = value[0];
+							return Boolean(
+								entry?.analysisFullFingerprint &&
+								(entry.activeUnitProfileDefines as Record<string, number> | undefined)?.CSV_STABLE_PROFILE === 3 &&
+								entry.activeUnitProfileSourcePath?.endsWith('used_shader_variants.csv') &&
+								entry.activeUnitProfileSourceKind === 'used_shader_variants' &&
+								entry.activeUnitProfileTotalRowCount === 2 &&
+								entry.activeUnitProfileSelectedRowCount === 2 &&
+								Array.isArray(entry.activeUnitProfileUnresolvedMacros) &&
+								entry.activeUnitProfileUnresolvedMacros.includes('CSV_CONFLICTING_MODE')
+							);
+						},
+						'CSV unit macro profile runtime debug'
+					);
+					const entry = entries[0];
+					assert.strictEqual(
+						(entry.activeUnitProfileDefines as Record<string, number> | undefined)?.CSV_STABLE_PROFILE,
+						3
+					);
+					assert.strictEqual(
+						(entry.activeUnitProfileDefines as Record<string, number> | undefined)?.CSV_CONFLICTING_MODE,
+						undefined
+					);
+					assert.ok(
+						entry.activeUnitProfileSourcePath?.endsWith('used_shader_variants.csv'),
+						`Expected used_shader_variants.csv source path, got ${entry.activeUnitProfileSourcePath ?? '<missing>'}.`
+					);
+					assert.strictEqual(entry.activeUnitProfileSourceKind, 'used_shader_variants');
+					assert.strictEqual(entry.activeUnitProfileTotalRowCount, 2);
+					assert.strictEqual(entry.activeUnitProfileSelectedRowCount, 2);
+					assert.ok(
+						entry.activeUnitProfileUnresolvedMacros?.includes('CSV_CONFLICTING_MODE'),
+						`Expected CSV_CONFLICTING_MODE unresolved macro, got ${JSON.stringify(entry.activeUnitProfileUnresolvedMacros ?? [])}.`
+					);
+				} finally {
+					await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+					await waitForClientQuiescent('CSV unit macro profile cleanup settled');
+					await openFixture('module_suite.nsf');
+				}
+			});
+		});
+
+		it('resolves CSV variant macros by explicit workspace selection hints without guessing defaults', async () => {
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
+				const configuration = vscode.workspace.getConfiguration('nsf');
+				const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
+				const originalMacros = inspectedMacros?.workspaceValue;
+				const updatedMacros: Record<string, unknown> = {
+					...(originalMacros ?? {}),
+					CSV_CONFLICTING_MODE: 1
+				};
+				await configuration.update('preprocessorMacros', updatedMacros, vscode.ConfigurationTarget.Workspace);
+				await waitForClientQuiescent('workspace preprocessor macros update settled for CSV variant selection');
+
+				const csvUnit = await openFixture('include_context/units/multi_context_variant_profile_csv.nsf');
+				try {
+					await waitForIndexingIdle('indexing idle before CSV variant selection hint test');
+					await vscode.commands.executeCommand('nsf._setActiveUnitForTests', csvUnit.uri.toString());
+					await waitForActiveUnitAndVisibilityReadyForTests(
+						csvUnit.uri.toString(),
+						path.join('include_context', 'units', 'multi_context_variant_profile_csv.nsf'),
+						'active unit ready for CSV variant selection hint test'
+					);
+					const entries = await waitFor(
+						() => getDocumentRuntimeDebug([csvUnit.uri.toString()]),
+						(value) => {
+							const entry = value[0];
+							const defines = entry?.activeUnitProfileDefines as Record<string, number> | undefined;
+							return Boolean(
+								entry?.analysisFullFingerprint &&
+								entry.activeUnitProfileSourceKind === 'used_shader_variants' &&
+								defines?.CSV_STABLE_PROFILE === 3 &&
+								defines?.CSV_CONFLICTING_MODE === 1 &&
+								entry.activeUnitProfileTotalRowCount === 2 &&
+								entry.activeUnitProfileSelectedRowCount === 1 &&
+								entry.activeUnitProfileSelectedRowSignature?.includes('CSV_CONFLICTING_MODE=1') &&
+								Array.isArray(entry.activeUnitProfileUnresolvedMacros) &&
+								!entry.activeUnitProfileUnresolvedMacros.includes('CSV_CONFLICTING_MODE')
+							);
+						},
+						'CSV variant selection hint runtime debug'
+					);
+					const entry = entries[0];
+					assert.strictEqual(
+						(entry.activeUnitProfileDefines as Record<string, number> | undefined)?.CSV_CONFLICTING_MODE,
+						1
+					);
+					assert.ok(
+						!(entry.activeUnitProfileUnresolvedMacros ?? []).includes('CSV_CONFLICTING_MODE'),
+						`Expected CSV_CONFLICTING_MODE to be resolved by explicit selection hints, got ${JSON.stringify(entry.activeUnitProfileUnresolvedMacros ?? [])}.`
+					);
+					assert.strictEqual(entry.activeUnitProfileTotalRowCount, 2);
+					assert.strictEqual(entry.activeUnitProfileSelectedRowCount, 1);
+					assert.ok(
+						(entry.activeUnitProfileSelectedRowSignature ?? '').includes('CSV_CONFLICTING_MODE=1'),
+						`Expected selected row signature to include CSV_CONFLICTING_MODE=1, got ${entry.activeUnitProfileSelectedRowSignature ?? '<missing>'}.`
+					);
+				} finally {
+					await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+					await waitForClientQuiescent('CSV variant selection hint cleanup settled');
+					await openFixture('module_suite.nsf');
+					await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);
+					await waitForClientQuiescent('workspace preprocessor macros restore settled for CSV variant selection');
+				}
+			});
+		});
+
+		it('resolves symbolic workspace macro hints for CSV variant selection', async () => {
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
+				const configuration = vscode.workspace.getConfiguration('nsf');
+				const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
+				const originalMacros = inspectedMacros?.workspaceValue;
+				const updatedMacros: Record<string, unknown> = {
+					...(originalMacros ?? {}),
+					CSV_CONFLICTING_MODE: 'CSV_MODE_SELECTED',
+					CSV_MODE_SELECTED: 1
+				};
+				await configuration.update('preprocessorMacros', updatedMacros, vscode.ConfigurationTarget.Workspace);
+				await waitForClientQuiescent('symbolic workspace preprocessor macros update settled');
+
+				const csvUnit = await openFixture('include_context/units/multi_context_variant_profile_csv.nsf');
+				try {
+					await waitForIndexingIdle('indexing idle before symbolic CSV variant selection test');
+					await vscode.commands.executeCommand('nsf._setActiveUnitForTests', csvUnit.uri.toString());
+					await waitForActiveUnitAndVisibilityReadyForTests(
+						csvUnit.uri.toString(),
+						path.join('include_context', 'units', 'multi_context_variant_profile_csv.nsf'),
+						'active unit ready for symbolic CSV variant selection test'
+					);
+					const entries = await waitFor(
+						() => getDocumentRuntimeDebug([csvUnit.uri.toString()]),
+						(value) => {
+							const entry = value[0];
+							const defines = entry?.activeUnitProfileDefines as Record<string, number> | undefined;
+							return Boolean(
+								entry?.analysisFullFingerprint &&
+								defines?.CSV_CONFLICTING_MODE === 1 &&
+								entry.activeUnitProfileTotalRowCount === 2 &&
+								entry.activeUnitProfileSelectedRowCount === 1 &&
+								entry.activeUnitProfileSelectedRowSignature?.includes('CSV_CONFLICTING_MODE=1') &&
+								Array.isArray(entry.activeUnitProfileUnresolvedMacros) &&
+								!entry.activeUnitProfileUnresolvedMacros.includes('CSV_CONFLICTING_MODE')
+							);
+						},
+						'symbolic CSV variant selection runtime debug'
+					);
+					const entry = entries[0];
+					assert.strictEqual(
+						(entry.activeUnitProfileDefines as Record<string, number> | undefined)?.CSV_CONFLICTING_MODE,
+						1
+					);
+					assert.ok(
+						!(entry.activeUnitProfileUnresolvedMacros ?? []).includes('CSV_CONFLICTING_MODE'),
+						`Expected symbolic selection hint to resolve CSV_CONFLICTING_MODE, got ${JSON.stringify(entry.activeUnitProfileUnresolvedMacros ?? [])}.`
+					);
+					assert.strictEqual(entry.activeUnitProfileTotalRowCount, 2);
+					assert.strictEqual(entry.activeUnitProfileSelectedRowCount, 1);
+					assert.ok(
+						(entry.activeUnitProfileSelectedRowSignature ?? '').includes('CSV_CONFLICTING_MODE=1'),
+						`Expected selected row signature to include CSV_CONFLICTING_MODE=1, got ${entry.activeUnitProfileSelectedRowSignature ?? '<missing>'}.`
+					);
+				} finally {
+					await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+					await waitForClientQuiescent('symbolic CSV variant selection cleanup settled');
+					await openFixture('module_suite.nsf');
+					await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);
+					await waitForClientQuiescent('symbolic workspace preprocessor macros restore settled');
+				}
+			});
+		});
+
+		it('resolves CSV variant macros from active-unit selection source without workspace hints', async () => {
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
+				const configuration = vscode.workspace.getConfiguration('nsf');
+				const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
+				const originalMacros = inspectedMacros?.workspaceValue;
+				const sanitizedMacros = { ...(originalMacros ?? {}) };
+				delete sanitizedMacros.CSV_CONFLICTING_MODE;
+				delete sanitizedMacros.CSV_MODE_SELECTED;
+				await configuration.update('preprocessorMacros', sanitizedMacros, vscode.ConfigurationTarget.Workspace);
+				await waitForClientQuiescent('workspace preprocessor macros sanitized for active-unit selection source test');
+
+				const selectionSourcePath = path.join(
+					getWorkspaceRoot(),
+					'test_files',
+					'include_context',
+					'active_unit_variant_selection.csv'
+				);
+				const sourceExisted = fs.existsSync(selectionSourcePath);
+				const originalSource = sourceExisted ? fs.readFileSync(selectionSourcePath, 'utf8') : undefined;
+				fs.writeFileSync(
+					selectionSourcePath,
+					'multi_context_variant_profile_csv,CSV_CONFLICTING_MODE=0\n',
+					'utf8'
+				);
+
+				const csvUnit = await openFixture('include_context/units/multi_context_variant_profile_csv.nsf');
+				try {
+					await waitForIndexingIdle('indexing idle before active-unit selection source test');
+					await vscode.commands.executeCommand('nsf._setActiveUnitForTests', csvUnit.uri.toString());
+					await waitForActiveUnitAndVisibilityReadyForTests(
+						csvUnit.uri.toString(),
+						path.join('include_context', 'units', 'multi_context_variant_profile_csv.nsf'),
+						'active unit ready for active-unit selection source test'
+					);
+					const entries = await waitFor(
+						() => getDocumentRuntimeDebug([csvUnit.uri.toString()]),
+						(value) => Boolean(value[0]?.analysisFullFingerprint),
+						'active-unit selection source runtime debug'
+					);
+					const entry = entries[0];
+					const defines = entry?.activeUnitProfileDefines as Record<string, number> | undefined;
+					assert.strictEqual(defines?.CSV_CONFLICTING_MODE, 0);
+					assert.strictEqual(entry.activeUnitProfileTotalRowCount, 2);
+					assert.strictEqual(entry.activeUnitProfileSelectedRowCount, 1);
+					assert.ok(
+						(entry.activeUnitProfileSelectedRowSignature ?? '').includes('CSV_CONFLICTING_MODE=0'),
+						`Expected selected row signature to include CSV_CONFLICTING_MODE=0, got ${entry.activeUnitProfileSelectedRowSignature ?? '<missing>'}.`
+					);
+					assert.ok(
+						entry.activeUnitProfileSelectionHintSourcePath?.endsWith('active_unit_variant_selection.csv'),
+						`Expected selection hint source path to end with active_unit_variant_selection.csv, got ${entry.activeUnitProfileSelectionHintSourcePath ?? '<missing>'}.`
+					);
+					assert.ok(
+						!(entry.activeUnitProfileUnresolvedMacros ?? []).includes('CSV_CONFLICTING_MODE'),
+						`Expected CSV_CONFLICTING_MODE to be resolved by active-unit selection source, got ${JSON.stringify(entry.activeUnitProfileUnresolvedMacros ?? [])}.`
+					);
+				} finally {
+					await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+					await waitForClientQuiescent('active-unit selection source cleanup settled');
+					await openFixture('module_suite.nsf');
+					if (sourceExisted) {
+						fs.writeFileSync(selectionSourcePath, originalSource ?? '', 'utf8');
+					} else if (fs.existsSync(selectionSourcePath)) {
+						fs.unlinkSync(selectionSourcePath);
+					}
+					await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);
+					await waitForClientQuiescent('workspace preprocessor macros restore settled for active-unit selection source test');
+				}
+			});
+		});
 	});
 }

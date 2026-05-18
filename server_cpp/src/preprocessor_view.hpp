@@ -63,6 +63,8 @@ struct PreprocessorIncludeContext {
 void setConfiguredPreprocessorMacros(
     const ConfiguredPreprocessorMacros &macros);
 
+ConfiguredPreprocessorMacros getConfiguredPreprocessorMacros();
+
 std::string getConfiguredPreprocessorMacrosFingerprint();
 
 // Looks up the macro replacement active before `line`.

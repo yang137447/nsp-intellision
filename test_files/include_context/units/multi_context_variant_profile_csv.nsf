@@ -1,0 +1,11 @@
+#include "../shared/multi_context_variant_profile_csv_shared.hlsl"
+
+float4 MultiContextVariantProfileCsvEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if CSV_STABLE_PROFILE == 3
+    VariantProfileCsvResolvedType value = MakeVariantProfileCsvValue();
+#else
+    VariantProfileCsvFallbackType value = MakeVariantProfileCsvValue();
+#endif
+    return float4(value.variant_value + uv.x, 0.0, 0.0, 1.0);
+}

@@ -82,7 +82,7 @@ preset 包含两类事实：
 server 构建预处理环境时按以下顺序合并：
 
 1. `nsf.preprocessorMacros` 完整有效 preset 表。
-2. active unit compile profile 提供的显式数值宏；当前只接收 `gimlocalvariants.json` 中对该 shader key 所有 local variants 都一致的宏值，不会为冲突 selector/profile 宏猜默认。
+2. active unit compile profile 提供的显式数值宏；当前会先尝试 `gimlocalvariants.json` 中对该 shader key 所有 local variants 都一致的宏值，再回退到 `used_shader_variants.csv` 中对该 unit stem 所有 used-variant rows 都一致的宏值。如果存在 `active_unit_variant_selection.csv`，会先按 unit stem 聚合 row 选择提示，再由 workspace `nsf.preprocessorMacros` / `nsf.defines` 中可解析为整数的显式值覆盖同名 hint；仍然只在 profile source 已出现该宏且存在匹配值行时收敛，不猜默认。
 3. `nsf.defines` 数字宏。
 4. active unit / include / 当前文件里的 `#define` 和 `#undef`。
 

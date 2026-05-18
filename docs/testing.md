@@ -33,6 +33,8 @@
   - 是默认最可信的集成回归入口
 - `npm run test:client:repo:m4`
   - 定向运行 shared analysis context repo 验收
+  - 当前覆盖 `analysis-context-shared-key`、`analysis-context-active-unit`、`analysis-context-defines`、`analysis-context-include`、`analysis-context-unit-profile` 和 `analysis-context-workspace`
+- `analysis-context-unit-profile` 当前同时覆盖 `gimlocalvariants.json` 命中、`used_shader_variants.csv` fallback 命中、`active_unit_variant_selection.csv` 按 unit stem 的 row 选择提示命中，以及“冲突 profile 宏不猜默认；仅作为 unresolved profile metadata 暴露”的边界；并覆盖 workspace 显式宏（`nsf.defines` / `nsf.preprocessorMacros`，含符号链解析为数值）作为 selection hint 覆盖/收敛 profile row 的路径，断言 profile 总行数 / 筛选后行数 / 单行命中 signature / selection hint source path 元数据
   - 适用于 `AnalysisSnapshotKey`、`ActiveUnitSnapshot`、defines、include closure 和 workspace summary 失效传播变更
 - `npm run test:client:all`
   - 运行 repo 模式 + real workspace 模式
@@ -62,6 +64,7 @@
   - 扫描范围优先使用 `nsf.intellisionPath` 配置的 shader 根；未配置时才退回 workspace folders，避免把编译临时产物和工具目录误当源码统计
   - 每次 audit 都会写入 timestamp 归档和 `real-workspace-diagnostics-audit.latest.{json,md}`；设置 `NSF_REAL_DIAGNOSTICS_REPORT_LABEL` 时会额外写入 `real-workspace-diagnostics-audit.<label>.{json,md}`，阶段验证推荐使用 `phase-XX-<topic>-smoke-5` / `phase-XX-<topic>-trend-50` / `phase-XX-<topic>-full` 这类稳定 label
   - 报告会自动生成 baseline trend，比较 summary、triage、category 和 top canonical messages；5-unit 优先对比 `phase-00-baseline-smoke-5`，50-unit 优先对比 `phase-00-baseline-trend-50`，full audit 对比 `baseline-2026-05-16`，缺少同范围 baseline 时回退到 2026-05-16 full baseline；可用 `NSF_REAL_DIAGNOSTICS_BASELINE_JSON` 指向其他 baseline，或设为 `none` 禁用比较
+  - 报告会把 `Undefined macro in preprocessor expression` 拆成 `undefinedMacros` histogram，记录 macro name、diagnostic count、affected unit / file count、sample line、sample active unit，以及 enum-like stable constant、selector/profile、compiler context 和 source/generated config 的 owner hint；owner hint 只用于审计分流，不会改变 diagnostics 行为或自动补默认宏。分析宏缺口时必须区分 `SHADINGMODELID_DEFAULT_LIT` 这类稳定常量和 `SHADINGMODELID` 这类 profile selector：前者可在确认来源和值后进入稳定常量候选，后者仍应来自真实 compile profile 或 workspace 配置；如果同名 enum-like 候选在不同参数 include 中存在冲突值，只记录为待确认候选，不得直接补全局默认值
   - 报告 summary / fileStats 会记录 semantic rule prerequisites skipped metadata，包括 active unit、include closure、preprocessor context、parser region、semantic snapshot、local scope 和 expression type 相关 skipped reason；这些计数表示高置信 semantic diagnostics 因上下文前提不足被跳过，不是用户可见 diagnostics
   - 趋势判断应优先核对 `diagnosticsTotal`、triage/category delta、top message delta、affected units/files，以及 `truncatedFiles`、`timedOutFiles`、`fileErrors` 是否增加；如果 truncated / timeout 增加，阶段报告必须单独说明原因
   - 合法但有风险的隐式转换 warning 会归入 `type-conversion-risk` / `needs-manual-review`，包括 truncation、boolean、floating-integral、signedness 和 narrowing；这些 warning 默认不在 `balanced` mode 发布，只有 `full` mode 用于源码审核或专项治理时才应出现在 audit 中。分析 builtin / object method 阶段时应区分 mismatch 下降与风险 warning 上升
@@ -108,7 +111,7 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 - 改 C++ server：至少跑 `cmake --build .\server_cpp\build`
 - 改 completion、hover、signature help、diagnostics、semantic tokens 或 client/server 协议交互：补跑 `npm run test:client:repo`
 - 改 completion auto-trigger coordinator：至少补跑 completion request coordinator 单元测试、completion auto-trigger、completion client metrics、member completion、interactive visibility、real-workspace-replay repo 定向测试和 `pbr-flow-water-full-input` real replay
-- 改预处理宏资源或 active-unit include 预处理上下文：补跑 `npm run json:validate`、`cmake --build .\server_cpp\build` 和 diagnostics repo 集成用例
+- 改预处理宏资源、active-unit compile profile 宏提供链路或 active-unit include 预处理上下文：补跑 `npm run json:validate`（仅资源改动时）、`cmake --build .\server_cpp\build`、`npm run test:client:repo:m4` 和 diagnostics repo 集成用例
 - 改 semantic diagnostics 的 local scope、`for` initializer 可见性、duplicate local 或基础 control-flow 规则：至少补跑 diagnostics repo 集成用例、5-unit smoke audit 和 50-unit trend audit
 - 改 missing-semicolon parser boundary、macro-heavy recovery 或 local structural syntax 前提：至少补跑 diagnostics repo 集成用例、5-unit smoke audit 和 50-unit trend audit
 - 改 deferred/current-doc cache、full diagnostics 预热/发布链路、inlay hints full-cache 或慢路径失效：`npm run test:client:repo` 是最小必跑项

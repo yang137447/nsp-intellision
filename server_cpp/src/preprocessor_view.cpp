@@ -893,6 +893,10 @@ void setConfiguredPreprocessorMacros(
   gConfiguredPreprocessorMacros = macros;
 }
 
+ConfiguredPreprocessorMacros getConfiguredPreprocessorMacros() {
+  return getConfiguredPreprocessorMacrosSnapshot();
+}
+
 std::string getConfiguredPreprocessorMacrosFingerprint() {
   return fingerprintConfiguredPreprocessorMacros(
       getConfiguredPreprocessorMacrosSnapshot());

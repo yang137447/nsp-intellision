@@ -261,6 +261,12 @@ export type DocumentRuntimeDebugEntry = {
 	activeUnitProfileDefines?: Record<string, number>;
 	activeUnitProfileShaderKey?: string;
 	activeUnitProfileSourcePath?: string;
+	activeUnitProfileSourceKind?: string;
+	activeUnitProfileTotalRowCount?: number;
+	activeUnitProfileSelectedRowCount?: number;
+	activeUnitProfileSelectedRowSignature?: string;
+	activeUnitProfileSelectionHintSourcePath?: string;
+	activeUnitProfileUnresolvedMacros?: string[];
 	activeUnitWorkspaceSummaryVersion?: number;
 	hasCurrentDocSemanticSnapshot?: boolean;
 	hasLastGoodCurrentDocSemanticSnapshot?: boolean;
