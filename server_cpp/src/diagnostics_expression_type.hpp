@@ -55,10 +55,16 @@ struct NumericLiteralParseResult {
 // Implementation-only ll/ull integer suffixes are accepted as legacy forms so
 // diagnostics can warn and recommend the standard l/ul spelling.
 // Optional PreprocessorView inputs let callers provide active object-like macro
-// replacements for the same source line. This helper may infer those
-// replacements through the same parser, but it does not expand function-like
-// macros or guess a type when replacement context is missing.
+// replacements for the same source line. This helper may infer expression
+// replacements through the same parser, normalize declaration-side type tokens
+// through active macro replacements, and treat macro-like constructor calls as
+// their active replacement type. It does not expand function-like macros or
+// guess beyond the shared type_desc shape when replacement context is missing.
 std::string normalizeTypeToken(std::string value);
+
+std::string normalizeTypeTokenWithPreprocessor(
+    std::string value, const PreprocessorView *preprocessorView,
+    int sourceLine);
 
 bool isVectorType(const std::string &type, int &dimensionOut);
 

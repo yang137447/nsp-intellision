@@ -1389,6 +1389,33 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Indeterminate built-in method call: arg types unavailable. Base: texture. Method: SampleBias.'), messages);
 	});
 
+	itWithDiagnosticsMode('full', 'keeps literal and macro-like expression typing shared', async () => {
+		const document = await openFixture('module_diagnostics_literal_macro_like_expression_typing.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => diagnosticMessages(value).includes('Assignment type mismatch: float3 = float2.'),
+			'literal and macro-like expression typing diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(messages.includes('Assignment type mismatch: float3 = float2.'), messages);
+		for (const message of [
+			'Undefined identifier: true.',
+			'Undefined identifier: false.',
+			'Return type mismatch: expected half4',
+			'Assignment type mismatch: half4 =',
+			'Assignment type mismatch: half3 =',
+			'Implicit truncation conversion: half4 -> half3. Use an explicit cast or swizzle if this is intentional.',
+			'Implicit truncation conversion: float4 -> half3. Use an explicit cast or swizzle if this is intentional.',
+			'Builtin call type mismatch: mul.',
+			'Builtin call type mismatch: normalize.',
+			'Function call argument mismatch: P12AcceptFloat3.'
+		]) {
+			assert.ok(!messages.includes(message), messages);
+		}
+	});
+
 	it('publishes diagnostics for user function call argument mismatches', async () => {
 		const document = await openFixture('module_diagnostics_user_function_call_args.nsf');
 

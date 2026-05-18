@@ -1,0 +1,44 @@
+#define HighPrecesionFloatSupport 0
+
+#if HighPrecesionFloatSupport
+#define MaterialFloat float
+#define MaterialFloat2 float2
+#define MaterialFloat3 float3
+#define MaterialFloat4 float4
+#define MaterialFloat3x3 float3x3
+#else
+#define MaterialFloat half
+#define MaterialFloat2 half2
+#define MaterialFloat3 half3
+#define MaterialFloat4 half4
+#define MaterialFloat3x3 half3x3
+#endif
+
+#define P12_HALF_SCALE 2.0h
+#define P12_HALF_OFFSET 0.25h
+
+float3 P12AcceptFloat3(float3 value)
+{
+    return value;
+}
+
+half4 P12BuildMaterialColor(half2 uv)
+{
+    bool enabled = true;
+    bool disabled = false;
+    MaterialFloat3x3 basis = MaterialFloat3x3(
+        MaterialFloat3(1.0h, 0.0h, 0.0h),
+        MaterialFloat3(0.0h, 1.0h, 0.0h),
+        MaterialFloat3(0.0h, 0.0h, 1.0h));
+    MaterialFloat3 normal = normalize(mul(basis, MaterialFloat3(uv, P12_HALF_SCALE)));
+    MaterialFloat3 accepted = P12AcceptFloat3(normal);
+    MaterialFloat4 color = MaterialFloat4(accepted, enabled ? 1.0h : 0.0h);
+    MaterialFloat3 rgb = MaterialFloat4(color.xyz, P12_HALF_OFFSET).xyz;
+    return MaterialFloat4(rgb, disabled ? 0.0h : 1.0h);
+}
+
+float4 P12LiteralMacroLikeExpressionTypingSentinel(half2 uv)
+{
+    float3 hardMismatch = float2(uv);
+    return float4(hardMismatch, 1.0);
+}

@@ -1234,6 +1234,53 @@ P8 / P9 full audit 仍显示 `undefined-identifier`、`semantic-source-rule` 和
 - 50-unit audit 中 `undefined-identifier` 和 `expression-type-analysis` 的 LSP-owned 样本继续下降。
 - 如果新增或扩展 public API，头文件职责、输入输出、调用前提和非目标范围同步更新。
 
+### Phase 12 执行记录
+
+状态：已完成 literal / macro-like expression typing 收敛。
+
+根因判断：
+
+- expression typing 已能识别 `true` / `false`，但 undefined identifier 扫描未消费同一 literal 分类入口，导致 boolean literal 仍进入普通 symbol undefined 路径。
+- P11 已把 active object-like macro replacement 暴露给 expression typing，但 declaration-side 类型 token 和 macro-like constructor call 没有统一按当前行 active replacement 归一；`MaterialFloat4(...)` 这类构造在 active branch 下应先解析成实际 replacement 类型，再进入 assignment / return / builtin argument 的共享 type relation。
+
+实现内容：
+
+- `diagnostics_expression_type.*` 新增 `normalizeTypeTokenWithPreprocessor(...)`，按当前行 active macro replacement 归一 declaration-side 类型 token；replacement 不是单一 numeric type token 时不猜测。
+- expression parser 对 object-like macro replacement 得到的 numeric type 增加 constructor-call 消费：`MaterialFloat4(...)` 会先按 active replacement 得到 `half4` / `float4`，再跳过参数列表并继续支持后续 postfix，例如 `.xyz`。
+- constructor fallback 继续消费 `type_desc.*` 的共享轻量 numeric alias 形状；active macro replacement 优先级高于静态 alias 形状。
+- undefined identifier 扫描改为复用 `inferLiteralType(...)`，`true` / `false` 不再走普通 symbol undefined 诊断路径。
+- 新增 focused fixture `test_files/module_diagnostics_literal_macro_like_expression_typing.nsf`，覆盖 boolean literal、numeric object-like macro、active `MaterialFloat*` / matrix alias constructor、`mul(...)` / `normalize(...)` 组合、constructor postfix swizzle 和 hard mismatch sentinel。
+- diagnostics 集成测试新增 `keeps literal and macro-like expression typing shared`，证明合法 literal / macro-like expression 不再产生 undefined、return mismatch、constructor swizzle truncation warning 或 builtin / user-call mismatch。
+
+公开行为变化：
+
+- `true` / `false` 不再发布 `Undefined identifier` diagnostics。
+- active object-like macro 类型别名构造（例如 `MaterialFloat4(...)`）按当前 active replacement 进入 expression type；合法 assignment / return / builtin argument 不再因字面 alias 名称或未消费 constructor 参数产生误报。
+- replacement 缺失时只消费 `type_desc.*` 已有共享轻量形状；function-like macro、replacement 不是单一 numeric type token，或 `type_desc.*` 也无法归一时仍不猜测类型，不新增 suppress / fallback / shim。
+
+验证结果：
+
+- `npm run compile` 通过。
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`75 passing`，`1 pending`。
+- `npm run test:client:repo` 通过。
+- 5-unit smoke audit 使用可比阶段 workspace `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace` 通过，输出 `real-workspace-diagnostics-audit.phase-12-literal-macro-typing-smoke-5.{json,md}`；相对 P11 5-unit：`diagnosticsTotal` `635 -> 555`，`filesWithDiagnostics` `20 -> 19`，`undefined-identifier` `116 -> 36`，`expression-type-analysis=5` 保持，`call-type-analysis=24` 保持，`prerequisiteSkippedTotal=1645` 保持，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 使用同一可比阶段 workspace 通过，输出 `real-workspace-diagnostics-audit.phase-12-literal-macro-typing-trend-50.{json,md}`；相对 P11 50-unit：`diagnosticsTotal` `5186 -> 4420`，`filesWithDiagnostics` `24 -> 23`，`likely-plugin-limitation` `1485 -> 719`，`undefined-identifier` `944 -> 178`，`expression-type-analysis=50` 保持，`call-type-analysis=204` 保持，`prerequisiteSkippedTotal=15552` 保持，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- phase-12 5-unit / 50-unit 报告中未检出 `Undefined identifier: true.`、`Undefined identifier: false.`、`Assignment type mismatch: Material*` 或 `Return type mismatch: expected Material*`。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture 和 phase-12 audit 输出；无运行时路径 / 资源命名变化。
+- 架构或单一事实来源是否变化：是，declaration-side type token 与 macro-like constructor typing 收敛到 `diagnostics_expression_type.*`，active macro replacement 仍由 `preprocessor_view.*` 提供。
+- 测试策略是否变化：是，新增 literal / macro-like expression typing focused fixture 和阶段 audit sample。
+- 文档是否已同步：已更新 `docs/architecture.md`、`diagnostics_expression_type.hpp` 和本执行计划；README、AGENTS、resources、testing、development 和对象类型 / 方法契约未变化。
+- 是否改变公开 diagnostics 行为：是，boolean literal 和合法 active macro-like constructor 不再发布对应误报。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 phase-12 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是。
+
 ## Phase 13 (P13): P11/P12 后 full audit 和剩余问题分流
 
 ### 背景

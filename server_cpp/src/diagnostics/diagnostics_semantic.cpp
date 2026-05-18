@@ -309,6 +309,10 @@ void collectReturnAndTypeDiagnostics(
     return "";
   };
 
+  auto normalizeTypeForLine = [&](const std::string &type, int line) {
+    return normalizeTypeTokenWithPreprocessor(type, &preprocessorView, line);
+  };
+
   auto relationOptionsForExpressionRange =
       [&](const std::vector<LexToken> &rangeTokens, size_t startIndex,
           size_t endIndex) {
@@ -1030,8 +1034,10 @@ void collectReturnAndTypeDiagnostics(
                   DiagnosticsRuleKind::SemanticSource, diagLine, start, end, 2,
                   "Duplicate parameter declaration: " + paramName + ".");
             } else {
-              pendingParams.emplace(paramName, paramType);
-              pendingParamTypesOrdered.push_back(paramType);
+              const std::string normalizedParamType =
+                  normalizeTypeForLine(paramType, diagLine);
+              pendingParams.emplace(paramName, normalizedParamType);
+              pendingParamTypesOrdered.push_back(normalizedParamType);
             }
           }
           segmentStart = i + 1;
@@ -1211,7 +1217,8 @@ void collectReturnAndTypeDiagnostics(
         if (tokens[typeIndex + 1].kind == LexToken::Kind::Identifier &&
             tokens[typeIndex + 2].kind == LexToken::Kind::Punct &&
             tokens[typeIndex + 2].text == "(") {
-          pendingReturnType = tokens[typeIndex].text;
+          pendingReturnType = normalizeTypeForLine(tokens[typeIndex].text,
+                                                   lineIndex);
           pendingFunctionName = tokens[typeIndex + 1].text;
           pendingFunctionLine = lineIndex;
           pendingFunctionStart = static_cast<int>(tokens[typeIndex + 1].start);
@@ -1350,7 +1357,9 @@ void collectReturnAndTypeDiagnostics(
                 static_cast<int>(decl.start), static_cast<int>(decl.end), 2,
                 "Duplicate local declaration: " + decl.name + ".");
           }
-          declareLocalInCurrentScope(decl.name, decl.type, currentSig);
+          declareLocalInCurrentScope(decl.name,
+                                     normalizeTypeForLine(decl.type, lineIndex),
+                                     currentSig);
           localsChanged = true;
         }
         if (localsChanged)
@@ -1405,7 +1414,9 @@ void collectReturnAndTypeDiagnostics(
                   DiagnosticsRuleKind::SemanticSource, lineIndex, nameStart,
                   nameEnd, 2, "Duplicate local declaration: " + name + ".");
             }
-            declareLocalInCurrentScope(name, localType, currentSig);
+            const std::string normalizedLocalType =
+                normalizeTypeForLine(localType, lineIndex);
+            declareLocalInCurrentScope(name, normalizedLocalType, currentSig);
             localsChanged = true;
             if (nameTokenIndex < tokens.size()) {
               int parenDepth = 0;
@@ -1442,7 +1453,7 @@ void collectReturnAndTypeDiagnostics(
                 }
               }
               if (eqIndex < tokens.size()) {
-                std::string lhsType = normalizeTypeToken(localType);
+                std::string lhsType = normalizedLocalType;
                 TypeEvalResult rhsEval;
                 rhsEval.type = normalizeTypeToken(inferExpressionTypeFromTokensRange(
                     tokens, eqIndex + 1, segmentEnd, localsVisibleTypes, uri,
@@ -1527,15 +1538,16 @@ void collectReturnAndTypeDiagnostics(
                   static_cast<int>(tokens[typeIndex + 1].end), 2,
                   "Duplicate local declaration: " + name + ".");
             }
-            declareLocalInCurrentScope(name, tokens[typeIndex].text, currentSig);
+            const std::string normalizedLocalType =
+                normalizeTypeForLine(tokens[typeIndex].text, lineIndex);
+            declareLocalInCurrentScope(name, normalizedLocalType, currentSig);
             rebuildVisibleLocals(currentSig);
 
             for (size_t k = typeIndex + 2; k + 1 < tokens.size(); k++) {
               if (tokens[k].kind == LexToken::Kind::Punct &&
                   tokens[k].text == "=") {
                 declarationEqTokenIndex = k;
-                std::string lhsType =
-                    normalizeTypeToken(tokens[typeIndex].text);
+                std::string lhsType = normalizedLocalType;
                 TypeEvalResult rhsEval;
                 rhsEval.type = normalizeTypeToken(inferExpressionTypeFromTokens(
                     tokens, k + 1, localsVisibleTypes, uri, text, scanRoots,
@@ -1586,7 +1598,9 @@ void collectReturnAndTypeDiagnostics(
                   static_cast<int>(tokens[typeIndex + 1].end), 2,
                   "Duplicate local declaration: " + name + ".");
             }
-            declareLocalInCurrentScope(name, tokens[typeIndex].text, currentSig);
+            declareLocalInCurrentScope(
+                name, normalizeTypeForLine(tokens[typeIndex].text, lineIndex),
+                currentSig);
             rebuildVisibleLocals(currentSig);
             pendingMultilineLocalName = name;
             pendingMultilineLocalDepth = functionBraceDepth;
@@ -2504,6 +2518,8 @@ void collectReturnAndTypeDiagnostics(
         if (tokens[i].kind == LexToken::Kind::Punct)
           continue;
         const std::string word = tokens[i].text;
+        if (!inferLiteralType(word).empty())
+          continue;
         if (isBuiltinOrKeyword(word))
           continue;
         if (word.rfind("SasUi", 0) == 0)

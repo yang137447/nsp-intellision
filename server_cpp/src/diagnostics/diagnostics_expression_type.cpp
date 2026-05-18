@@ -144,6 +144,26 @@ static std::string builtinTypeInfoToString(const BuiltinTypeInfo &t) {
   return "";
 }
 
+static std::string canonicalNumericTypeToken(const std::string &value) {
+  TypeDesc desc = parseTypeDesc(value);
+  if (!typeDescIsNumeric(desc))
+    return "";
+  return typeDescToCanonicalString(desc);
+}
+
+static std::string replacementAsTypeToken(
+    const PreprocessorMacroReplacement &replacement) {
+  if (replacement.functionLike || replacement.replacement.empty())
+    return "";
+  std::vector<LexToken> replacementTokens =
+      lexLineTokens(replacement.replacement);
+  if (replacementTokens.size() != 1 ||
+      replacementTokens[0].kind != LexToken::Kind::Identifier) {
+    return "";
+  }
+  return canonicalNumericTypeToken(replacementTokens[0].text);
+}
+
 static TypeDesc builtinInfoToTypeDesc(const BuiltinTypeInfo &t) {
   return parseTypeDesc(builtinTypeInfoToString(t));
 }
@@ -719,6 +739,25 @@ std::string normalizeTypeToken(std::string value) {
   while (!value.empty() && isWhitespace(value.back()))
     value.pop_back();
   return value;
+}
+
+std::string normalizeTypeTokenWithPreprocessor(
+    std::string value, const PreprocessorView *preprocessorView,
+    int sourceLine) {
+  value = normalizeTypeToken(value);
+  if (value.empty())
+    return value;
+  if (preprocessorView && sourceLine >= 0) {
+    PreprocessorMacroReplacement replacement;
+    if (lookupActivePreprocessorMacroReplacement(
+            *preprocessorView, sourceLine, value, replacement)) {
+      const std::string replacementType = replacementAsTypeToken(replacement);
+      if (!replacementType.empty())
+        return replacementType;
+    }
+  }
+  const std::string canonicalType = canonicalNumericTypeToken(value);
+  return canonicalType.empty() ? value : canonicalType;
 }
 
 bool isVectorType(const std::string &type, int &dimensionOut) {
@@ -2235,10 +2274,27 @@ struct ExprParser {
         return literal;
 
       std::string macroType = inferMacroReplacementType(word);
-      if (!macroType.empty())
-        return macroType;
-
       const LexToken *next = peek();
+      const bool nextIsCall =
+          next && next->kind == LexToken::Kind::Punct && next->text == "(";
+      if (!macroType.empty()) {
+        const std::string macroTypeCanonical =
+            canonicalNumericTypeToken(macroType);
+        if (nextIsCall && !macroTypeCanonical.empty()) {
+          skipBalanced(tokens, i, endIndex, "(", ")");
+          return macroTypeCanonical;
+        }
+        if (!nextIsCall)
+          return macroTypeCanonical.empty() ? macroType : macroTypeCanonical;
+      }
+
+      const std::string constructorType = canonicalNumericTypeToken(word);
+      if (!constructorType.empty()) {
+        if (nextIsCall)
+          skipBalanced(tokens, i, endIndex, "(", ")");
+        return constructorType;
+      }
+
       if (next && next->kind == LexToken::Kind::Punct && next->text == "(") {
         size_t callStart = i;
         std::vector<std::string> args = parseCallArgumentTypes();
