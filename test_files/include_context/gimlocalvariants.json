@@ -1,0 +1,20 @@
+{
+  "shader\\multi_context_variant_profile_resolved.nfx2": {
+    "TARGET_VARIANT_PROFILE=1;VARIANT_SWITCH=0": {
+      "TARGET_VARIANT_PROFILE": 1,
+      "VARIANT_SWITCH": 0
+    },
+    "TARGET_VARIANT_PROFILE=1;VARIANT_SWITCH=1": {
+      "TARGET_VARIANT_PROFILE": 1,
+      "VARIANT_SWITCH": 1
+    }
+  },
+  "shader\\multi_context_variant_profile_unresolved.nfx2": {
+    "TARGET_VARIANT_PROFILE=0": {
+      "TARGET_VARIANT_PROFILE": 0
+    },
+    "TARGET_VARIANT_PROFILE=1": {
+      "TARGET_VARIANT_PROFILE": 1
+    }
+  }
+}

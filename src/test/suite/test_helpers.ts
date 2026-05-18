@@ -258,6 +258,9 @@ export type DocumentRuntimeDebugEntry = {
 	activeUnitPath?: string;
 	activeUnitIncludeClosureFingerprint?: string;
 	activeUnitBranchFingerprint?: string;
+	activeUnitProfileDefines?: Record<string, number>;
+	activeUnitProfileShaderKey?: string;
+	activeUnitProfileSourcePath?: string;
 	activeUnitWorkspaceSummaryVersion?: number;
 	hasCurrentDocSemanticSnapshot?: boolean;
 	hasLastGoodCurrentDocSemanticSnapshot?: boolean;

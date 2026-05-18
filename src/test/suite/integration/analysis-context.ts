@@ -15,6 +15,8 @@ import {
 	repoDescribe,
 	toFsPath,
 	touchDocument,
+	waitForActiveUnitAndVisibilityReadyForTests,
+	waitForClientQuiescent,
 	waitFor,
 	waitForClientReady,
 	waitForHoverText,
@@ -619,6 +621,73 @@ export function registerDeferredDocWorkspaceSummaryAnalysisContextTests(): void 
 				} finally {
 					await vscode.workspace.fs.writeFile(vscode.Uri.file(providerPath), Buffer.from(original, 'utf8'));
 					await waitForIndexingIdle('indexing idle after workspace summary provider restore');
+				}
+			});
+		});
+	});
+}
+
+export function registerDeferredDocUnitMacroProfileAnalysisContextTests(): void {
+	repoDescribe('NSF client integration: Deferred Doc Runtime / Analysis Context / Unit Macro Profile', () => {
+		it('refreshes shared analysis context when the active unit resolves a different macro profile', async () => {
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
+				const resolvedKey = 'shader\\multi_context_variant_profile_resolved.nfx2';
+				const unresolvedUnit = await openFixture('include_context/units/multi_context_variant_profile_unresolved.nsf');
+
+				try {
+					await waitForIndexingIdle('indexing idle before unit macro profile analysis context');
+					await vscode.commands.executeCommand('nsf._setActiveUnitForTests', unresolvedUnit.uri.toString());
+					await waitForActiveUnitAndVisibilityReadyForTests(
+						unresolvedUnit.uri.toString(),
+						path.join('include_context', 'units', 'multi_context_variant_profile_unresolved.nsf'),
+						'active unit ready for unresolved unit macro profile document'
+					);
+					const beforeEntries = await getDocumentRuntimeDebug([unresolvedUnit.uri.toString()]);
+					const before = beforeEntries[0];
+					assert.ok(before?.analysisFullFingerprint);
+					assert.strictEqual(
+						(before?.activeUnitProfileDefines as Record<string, number> | undefined)?.TARGET_VARIANT_PROFILE,
+						undefined
+					);
+
+					const resolvedUnit = await openFixture('include_context/units/multi_context_variant_profile_resolved.nsf');
+					await vscode.commands.executeCommand('nsf._setActiveUnitForTests', resolvedUnit.uri.toString());
+					await waitForActiveUnitAndVisibilityReadyForTests(
+						resolvedUnit.uri.toString(),
+						path.join('include_context', 'units', 'multi_context_variant_profile_resolved.nsf'),
+						'active unit ready for resolved unit macro profile document'
+					);
+					const hoverPosition = positionOf(resolvedUnit, 'value =', 1, 1);
+					await waitForHoverText(
+						resolvedUnit,
+						hoverPosition,
+						(text) => text.includes('Type: VariantProfileResolvedType'),
+						'hover for resolved unit macro profile branch'
+					);
+					const afterEntries = await waitFor(
+						() => getDocumentRuntimeDebug([resolvedUnit.uri.toString()]),
+						(entries) => {
+							const entry = entries[0];
+							return Boolean(
+								entry?.analysisFullFingerprint &&
+								before?.analysisFullFingerprint &&
+								entry.analysisFullFingerprint !== before.analysisFullFingerprint &&
+								(entry.activeUnitProfileDefines as Record<string, number> | undefined)?.TARGET_VARIANT_PROFILE === 1
+							);
+						},
+						'unit macro profile analysis context refresh'
+					);
+					const after = afterEntries[0];
+					assert.notStrictEqual(after.analysisFullFingerprint, before.analysisFullFingerprint);
+					assert.strictEqual(
+						(after.activeUnitProfileDefines as Record<string, number> | undefined)?.TARGET_VARIANT_PROFILE,
+						1
+					);
+					assert.strictEqual(after.activeUnitProfileShaderKey, resolvedKey);
+				} finally {
+					await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+					await waitForClientQuiescent('unit macro profile cleanup settled');
+					await openFixture('module_suite.nsf');
 				}
 			});
 		});

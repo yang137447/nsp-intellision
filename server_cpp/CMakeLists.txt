@@ -33,6 +33,7 @@ add_executable(nsf_lsp
   src/server_documents.cpp
   src/server_parse.cpp
   src/server_settings.cpp
+  src/unit_macro_profile_provider.cpp
   src/requests/server_request_handlers.cpp
   src/requests/server_request_handler_background.cpp
   src/requests/server_request_handler_completion.cpp

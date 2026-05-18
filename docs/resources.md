@@ -77,13 +77,14 @@ server_cpp/resources/
 preset 包含两类事实：
 
 - `shadercompiler/data/builtin_macros.py` 中的默认 builtin 宏和质量等级派生宏。
-- `shadercompiler/hlsl_process.py` 中的编译上下文宏名，包括 system / device / API support / platform quality 宏；这些宏在默认 preset 中使用保守值 `0`，真实 target 或 compile mode 值应由 workspace `nsf.preprocessorMacros` 或 `nsf.defines` 覆盖。
+- `shadercompiler/hlsl_process.py` 中的编译上下文宏名，包括 system / device / API support / platform quality 宏；这些宏在默认 preset 中使用保守值 `0`，真实 target 或 compile mode 值应由 active unit compile profile、workspace `nsf.preprocessorMacros` 或 `nsf.defines` 覆盖。
 
 server 构建预处理环境时按以下顺序合并：
 
 1. `nsf.preprocessorMacros` 完整有效 preset 表。
-2. `nsf.defines` 数字宏。
-3. active unit / include / 当前文件里的 `#define` 和 `#undef`。
+2. active unit compile profile 提供的显式数值宏；当前只接收 `gimlocalvariants.json` 中对该 shader key 所有 local variants 都一致的宏值，不会为冲突 selector/profile 宏猜默认。
+3. `nsf.defines` 数字宏。
+4. active unit / include / 当前文件里的 `#define` 和 `#undef`。
 
 因此资源 bundle 只负责提供初始填充值，分析时不再隐藏叠加 bundle 默认值；用户配置应被视为预处理宏 preset 层，而不是新的资源 bundle 或 diagnostics 特判。
 

@@ -61,6 +61,7 @@
 #include "server_request_handlers.hpp"
 #include "server_settings.hpp"
 #include "text_utils.hpp"
+#include "unit_macro_profile_provider.hpp"
 #include "uri_utils.hpp"
 #include "workspace_index.hpp"
 #include "workspace_summary_runtime.hpp"
@@ -1877,6 +1878,9 @@ int main(int argc, char **argv) {
         std::unordered_set<std::string> includeImpactedPaths;
         std::vector<std::string> refreshUris;
         std::vector<Document> documentSnapshot;
+        std::vector<std::string> workspaceFoldersSnapshot;
+        std::vector<std::string> includePathsSnapshot;
+        bool unitMacroProfileChanged = false;
         auto normalize = [](const std::string &value) -> std::string {
           std::string out;
           out.reserve(value.size());
@@ -1946,8 +1950,17 @@ int main(int argc, char **argv) {
         const std::string unitDirN = normalize(unitDir);
         {
           std::lock_guard<std::mutex> lock(coreMutex);
+          workspaceFoldersSnapshot = core.workspaceFolders;
+          includePathsSnapshot = core.includePaths;
           for (const auto &entry : core.documents)
             documentSnapshot.push_back(entry.second);
+        }
+        for (const auto &uri : changedUris) {
+          if (unitMacroProfileProviderOwnsPath(uri, workspaceFoldersSnapshot,
+                                               includePathsSnapshot)) {
+            unitMacroProfileChanged = true;
+            break;
+          }
         }
 
         const int delay = 180;
@@ -1964,7 +1977,7 @@ int main(int argc, char **argv) {
               changedPaths.find(docPathN) != changedPaths.end();
           const bool includeImpacted =
               includeImpactedPaths.find(docPathN) != includeImpactedPaths.end();
-          if (directlyChanged || includeImpacted) {
+          if (unitMacroProfileChanged || directlyChanged || includeImpacted) {
             refreshUris.push_back(doc.uri);
           }
           if (underUnit || directlyChanged || includeImpacted) {
@@ -1972,6 +1985,9 @@ int main(int argc, char **argv) {
             if (!changedUris.empty()) {
               scheduleDiagnosticsForText(doc, false, true, -1, followupDelay);
             }
+          }
+          if (unitMacroProfileChanged) {
+            scheduleDiagnosticsForText(doc, true, true, 80, 220);
           }
         }
         if (!refreshUris.empty()) {
@@ -2177,6 +2193,16 @@ int main(int argc, char **argv) {
             makeString(globalActive.includeClosureFingerprint);
         item.o["activeUnitBranchFingerprint"] =
             makeString(globalActive.activeBranchFingerprint);
+        Json profileDefines = makeObject();
+        for (const auto &entry : globalActive.profileDefines) {
+          profileDefines.o[entry.first] =
+              makeNumber(static_cast<double>(entry.second));
+        }
+        item.o["activeUnitProfileDefines"] = std::move(profileDefines);
+        item.o["activeUnitProfileShaderKey"] =
+            makeString(globalActive.profileShaderKey);
+        item.o["activeUnitProfileSourcePath"] =
+            makeString(globalActive.profileSourcePath);
         item.o["interactiveVisibilityFingerprint"] =
             makeString(globalVisibility.fullFingerprint);
         item.o["globalContextSnapshotId"] =

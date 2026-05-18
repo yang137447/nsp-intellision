@@ -60,6 +60,7 @@
 - server lifecycle、restart 和 `onReady` 装配
 - 配置同步，包括 include 路径、defines、diagnostics、inlay hints、semantic tokens 和 metrics
 - 预处理宏 preset 首次填充与配置同步；client 从 server 共享 registry 读取默认 preset，写入工作区 `nsf.preprocessorMacros` 后再作为普通用户配置传给 server
+- active unit compile profile 宏解析由 `unit_macro_profile_provider.*` 负责；它从 workspace/include roots 下发现 shadercompiler 导出的 `gimlocalvariants.json`，按 active unit basename 映射 shader key，并且只注入所有 local variants 都一致的数值宏，不为冲突 selector/profile 值猜默认
 - 状态栏、trace 输出、诊断和索引状态展示
 - 测试模式下的固定启动和内部命令
 - 编辑器壳层挂接，如语言注册、language configuration 和 snippets
@@ -142,7 +143,7 @@
 - background 请求统一 latest-only + cancellation；过期 analysis key 的结果只能 drop，不能发布。
 - current-doc semantic snapshot 在 `didOpen`、active unit 变化、配置变化和 workspace summary version 刷新后主动预热；`didChange` 只同步维护最新文档和 runtime key，completion / hover / signature help 等交互请求按需 build 或 promote 最新 current-doc snapshot，fast diagnostics worker 按 latest-only 构建并存储最新 local structural snapshot，fast diagnostics publish 启用时再由该 snapshot 发布 local-structural diagnostics，避免逐字符输入时在 server 输入线程上重建每个中间版本。
 - request worker 写入 `ServerRequestContext` 的 queue wait / context build / request document version / debug wall-clock timestamp / didChange 输入线程重叠摘要只用于 debug 和 replay 归因，不参与 completion、hover、signature help、diagnostics 等公开行为决策。completion replay 归因可在现有 LSP completion params 上附加 `nsfDebugRequestId` 和 client send-start timestamp 调试字段，server 只把它们写入 completion debug snapshot/history；这些字段不得参与候选生成、排序、过滤或触发行为。
-- 预处理宏 preset 属于配置输入：`nsf.preprocessorMacros` 是完整有效 preset 表，`nsf.defines` 和源码 `#define/#undef` 按顺序覆盖；preset fingerprint 必须参与 active-unit / semantic cache 复用判断。
+- 预处理宏 preset 属于配置输入：`nsf.preprocessorMacros` 是完整有效 preset 表；active unit compile profile 宏会在 shared global context 中按 unit 注入，`nsf.defines` 和源码 `#define/#undef` 按顺序覆盖；preset fingerprint 和 active-unit effective define fingerprint 都必须参与 active-unit / semantic cache 复用判断。
 - 小范围 syntax-only 编辑和纯注释编辑优先让 immediate syntax diagnostics 抢占热路径。
 - fast diagnostics 会先发布 immediate syntax，再异步补 full diagnostics；等待 full 结果时可保留 last-good full diagnostics，避免无关语义波浪线被整份清空。
 - diagnostics payload 在构建返回和发布层合并后按 document URI、range、message、code 和 source 去重；同一位置的不同原因应通过不同 code/source 保持可区分。
@@ -165,6 +166,7 @@
 - HLSL builtin 函数：`hlsl_builtin_docs.*` + `server_cpp/resources/builtins/intrinsics/`
 - HLSL 关键字、预处理指令、系统语义、默认预处理宏填充 preset：`language_registry.*` + `server_cpp/resources/language/`
 - 有效用户预处理宏 preset：`nsf.preprocessorMacros` + `preprocessor_view.*`
+- active unit compile profile 宏：`unit_macro_profile_provider.*` + `global_context_runtime.*`
 - HLSL 对象类型 / 对象族：`type_model.*` + `server_cpp/resources/types/`
 - HLSL 对象方法：`hover_markdown.*` + `server_cpp/resources/methods/object_methods/`
 - 资源 bundle 规则：`resource_registry.*` + `docs/resources.md`
@@ -179,7 +181,7 @@
 - `language/keywords`: completion、hover、diagnostics 和 semantic tokens
 - `language/directives`: 预处理指令 completion / hover
 - `language/semantics`: `SV_*` 系统语义 hover / 识别
-- `language/preprocessor_macros`: 用于首次填充 `nsf.preprocessorMacros` 工作区设置的默认 preset；包含 shadercompiler builtin 宏以及 system / device / API support / platform quality 编译上下文宏名，编译上下文宏默认保守值为 `0`，真实 target / compile mode 值由 workspace 配置或 `nsf.defines` 覆盖；`#if` / `#elif` 表达式求值、active branch 判断和预处理宏 diagnostics 消费设置同步后的完整宏表
+- `language/preprocessor_macros`: 用于首次填充 `nsf.preprocessorMacros` 工作区设置的默认 preset；包含 shadercompiler builtin 宏以及 system / device / API support / platform quality 编译上下文宏名，编译上下文宏默认保守值为 `0`，真实 target / compile mode 值由 active unit compile profile、workspace 配置或 `nsf.defines` 覆盖；`#if` / `#elif` 表达式求值、active branch 判断和预处理宏 diagnostics 消费设置同步后的完整宏表
 - `types/*`: texture / sampler / buffer 家族识别、成员方法匹配和 diagnostics 类型兼容辅助
 - `methods/object_methods`: texture-like / buffer-like 方法签名与文档
 

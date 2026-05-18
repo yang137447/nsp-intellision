@@ -11,6 +11,7 @@ import {
 	positionOf,
 	repoDescribe,
 	touchDocument,
+	waitForActiveUnitAndVisibilityReadyForTests,
 	waitFor,
 	waitForClientQuiescent,
 	waitForDiagnostics,
@@ -250,6 +251,64 @@ export function registerDiagnosticsTests(): void {
 		} finally {
 			await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
 			await waitForClientQuiescent('active unit dot-include cleanup settled');
+		}
+	});
+
+	it('injects unanimous active-unit macro profiles but does not guess conflicting profile values', async () => {
+		try {
+			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
+				await waitForIndexingIdle('indexing idle for unit macro profile diagnostics');
+
+				const resolvedUnit = await openFixture('include_context/units/multi_context_variant_profile_resolved.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', resolvedUnit.uri.toString());
+				const shared = await openFixture('include_context/shared/multi_context_variant_profile_shared.hlsl');
+				await waitForActiveUnitAndVisibilityReadyForTests(
+					shared.uri.toString(),
+					path.join('include_context', 'units', 'multi_context_variant_profile_resolved.nsf'),
+					'resolved unit macro profile active-unit context'
+				);
+
+				await waitForDiagnosticsWithTouches(
+					shared,
+					(value) => {
+						const messages = diagnosticMessages(value);
+						return !messages.includes('Undefined macro in preprocessor expression: TARGET_VARIANT_PROFILE.');
+					},
+					'resolved unit macro profile diagnostics'
+				);
+				await waitForClientQuiescent('resolved unit macro profile diagnostics settled');
+				let settledMessages = diagnosticMessages(vscode.languages.getDiagnostics(shared.uri));
+				assert.ok(
+					!settledMessages.includes('Undefined macro in preprocessor expression: TARGET_VARIANT_PROFILE.'),
+					settledMessages
+				);
+
+				const unresolvedUnit = await openFixture('include_context/units/multi_context_variant_profile_unresolved.nsf');
+				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', unresolvedUnit.uri.toString());
+				await waitForActiveUnitAndVisibilityReadyForTests(
+					shared.uri.toString(),
+					path.join('include_context', 'units', 'multi_context_variant_profile_unresolved.nsf'),
+					'unresolved unit macro profile active-unit context'
+				);
+				await touchDocument(shared);
+
+				const unresolvedDiagnostics = await waitForDiagnosticsWithTouches(
+					shared,
+					(value) => {
+						const messages = diagnosticMessages(value);
+						return messages.includes('Undefined macro in preprocessor expression: TARGET_VARIANT_PROFILE.');
+					},
+					'unresolved unit macro profile diagnostics'
+				);
+				settledMessages = diagnosticMessages(unresolvedDiagnostics);
+				assert.ok(
+					settledMessages.includes('Undefined macro in preprocessor expression: TARGET_VARIANT_PROFILE.'),
+					settledMessages
+				);
+			});
+		} finally {
+			await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+			await waitForClientQuiescent('unit macro profile diagnostics cleanup settled');
 		}
 	});
 

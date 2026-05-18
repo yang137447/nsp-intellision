@@ -7,6 +7,7 @@ export {
 	registerDeferredDocDefinesAnalysisContextTests,
 	registerDeferredDocIncludeClosureAnalysisContextTests,
 	registerDeferredDocSharedKeyAnalysisContextTests,
+	registerDeferredDocUnitMacroProfileAnalysisContextTests,
 	registerDeferredDocWorkspaceSummaryAnalysisContextTests
 } from './integration/analysis-context';
 

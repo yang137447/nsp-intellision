@@ -23,7 +23,7 @@
 		"test": "npm run test:client",
 		"test:client": "npm run compile && node .\\out\\test\\runCodeTests.js",
 		"test:client:repo": "npm run compile && node .\\out\\test\\runCodeTests.js --mode repo",
-		"test:client:repo:m4": "npm run compile && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-shared-key && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-active-unit && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-defines && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-include && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-workspace",
+		"test:client:repo:m4": "npm run compile && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-shared-key && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-active-unit && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-defines && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-include && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-unit-profile && node .\\out\\test\\runCodeTests.js --mode repo --file-filter analysis-context-workspace",
 		"test:client:real": "npm run compile && node .\\out\\test\\runCodeTests.js --mode real --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\"",
 		"test:client:real:replay": "npm run compile && node .\\out\\test\\runCodeTests.js --mode real --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\" --file-filter realWorkspace.replay",
 		"test:client:real:perf": "npm run compile && node .\\out\\test\\runCodeTests.js --mode perf --workspace \"C:\\Software\\WorkTemp\\G66ShaderDevelop\\G66ShaderDevelop.code-workspace\" --file-filter realWorkspace.perf",
@@ -143,7 +143,7 @@
 								}
 							]
 						},
-						"description": "预处理宏 replacement 配置。扩展首次会把内置宏 preset 写入工作区设置；之后用户可直接编辑、删除或补充条目。nsf.defines 和源码 #define/#undef 会继续覆盖这些值。"
+						"description": "预处理宏 replacement 配置。扩展首次会把内置宏 preset 写入工作区设置；之后用户可直接编辑、删除或补充条目。active unit compile profile 宏会在运行时补充到这层之上，nsf.defines 和源码 #define/#undef 会继续覆盖这些值。"
 					},
 					"nsf.inlayHints.enabled": {
 						"type": "boolean",

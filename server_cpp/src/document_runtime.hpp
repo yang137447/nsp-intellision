@@ -24,8 +24,9 @@
 // Current M4 contract:
 // - InteractiveSnapshot and DeferredDocSnapshot are keyed by the same
 //   AnalysisSnapshotKey
-// - ActiveUnitSnapshot carries the shared include / branch / defines context
-//   consumed by both runtimes
+// - ActiveUnitSnapshot carries the shared include / branch / effective-define
+//   context consumed by both runtimes, including explicit per-unit profile
+//   macros resolved by global_context_runtime.*
 // - active unit / include closure / defines / workspace summary version /
 //   resource model changes must flow through this module before snapshot reuse is
 //   considered

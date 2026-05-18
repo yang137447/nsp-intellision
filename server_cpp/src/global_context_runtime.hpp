@@ -21,8 +21,9 @@ struct ChangedRange {
 // document runtimes and shared-visible queries.
 //
 // This snapshot is the single fact source for active unit selection, active
-// include closure, active branch state, and macro/configuration inputs. Feature
-// code should consume it instead of rebuilding ad-hoc context.
+// include closure, active branch state, and effective macro/configuration
+// inputs, including explicit per-unit profile macros. Feature code should
+// consume it instead of rebuilding ad-hoc context.
 struct ActiveUnitSnapshot {
   std::string uri;
   std::string path;
@@ -35,6 +36,9 @@ struct ActiveUnitSnapshot {
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;
   std::vector<std::string> shaderExtensions;
+  std::unordered_map<std::string, int> profileDefines;
+  std::string profileShaderKey;
+  std::string profileSourcePath;
   std::unordered_map<std::string, int> defines;
   std::string workspaceFoldersFingerprint;
   std::string definesFingerprint;

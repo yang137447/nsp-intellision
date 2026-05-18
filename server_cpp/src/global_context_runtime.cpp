@@ -4,6 +4,7 @@
 #include "preprocessor_view.hpp"
 #include "server_documents.hpp"
 #include "text_utils.hpp"
+#include "unit_macro_profile_provider.hpp"
 #include "uri_utils.hpp"
 #include "workspace_summary_runtime.hpp"
 
@@ -19,6 +20,11 @@ struct RuntimeContextFingerprints {
   std::string definesFingerprint;
   std::string includePathsFingerprint;
   std::string shaderExtensionsFingerprint;
+};
+
+struct RuntimeDefineContext {
+  UnitMacroProfileSnapshot profileSnapshot;
+  std::unordered_map<std::string, int> effectiveDefines;
 };
 
 struct GlobalContextRuntimeState {
@@ -94,12 +100,13 @@ fingerprintDefines(const std::unordered_map<std::string, int> &defines) {
 }
 
 RuntimeContextFingerprints
-buildRuntimeContextFingerprints(const GlobalContextRuntimeOptions &options) {
+buildRuntimeContextFingerprints(const GlobalContextRuntimeOptions &options,
+                                const RuntimeDefineContext &defineContext) {
   RuntimeContextFingerprints fingerprints;
   fingerprints.workspaceFoldersFingerprint =
       fingerprintStringList(options.workspaceFolders);
   fingerprints.definesFingerprint =
-      fingerprintDefines(options.defines) + "|" +
+      fingerprintDefines(defineContext.effectiveDefines) + "|" +
       getConfiguredPreprocessorMacrosFingerprint();
   fingerprints.includePathsFingerprint =
       fingerprintStringList(options.includePaths);
@@ -108,9 +115,22 @@ buildRuntimeContextFingerprints(const GlobalContextRuntimeOptions &options) {
   return fingerprints;
 }
 
+RuntimeDefineContext buildRuntimeDefineContext(
+    const GlobalContextRuntimeOptions &options, const std::string &activeUnitPath) {
+  RuntimeDefineContext context;
+  resolveUnitMacroProfileSnapshot(activeUnitPath, options.workspaceFolders,
+                                  options.includePaths,
+                                  context.profileSnapshot);
+  context.effectiveDefines = context.profileSnapshot.defines;
+  for (const auto &entry : options.defines)
+    context.effectiveDefines[entry.first] = entry.second;
+  return context;
+}
+
 bool buildActiveUnitPreprocessorView(
     const std::string &rootUri, const std::string &rootText,
-    const GlobalContextRuntimeOptions &options, PreprocessorView &out) {
+    const GlobalContextRuntimeOptions &options,
+    const RuntimeDefineContext &defineContext, PreprocessorView &out) {
   out = PreprocessorView{};
   if (rootUri.empty() || rootText.empty())
     return false;
@@ -124,7 +144,8 @@ bool buildActiveUnitPreprocessorView(
     const std::string path = uriToPath(uri);
     return !path.empty() && readFileText(path, textOut);
   };
-  out = buildPreprocessorView(rootText, options.defines, includeContext);
+  out = buildPreprocessorView(rootText, defineContext.effectiveDefines,
+                              includeContext);
   return true;
 }
 
@@ -190,6 +211,7 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
     const GlobalContextRuntimeOptions &options,
     const std::string &activeUnitUri, const std::string &activeUnitPath,
     const std::string &activeUnitText,
+    const RuntimeDefineContext &defineContext,
     const RuntimeContextFingerprints &contextFingerprints) {
   ActiveUnitSnapshot snapshot;
   snapshot.uri = activeUnitUri;
@@ -199,7 +221,10 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
   snapshot.workspaceFolders = options.workspaceFolders;
   snapshot.includePaths = options.includePaths;
   snapshot.shaderExtensions = options.shaderExtensions;
-  snapshot.defines = options.defines;
+  snapshot.profileDefines = defineContext.profileSnapshot.defines;
+  snapshot.profileShaderKey = defineContext.profileSnapshot.shaderKey;
+  snapshot.profileSourcePath = defineContext.profileSnapshot.sourcePath;
+  snapshot.defines = defineContext.effectiveDefines;
   snapshot.workspaceFoldersFingerprint =
       contextFingerprints.workspaceFoldersFingerprint;
   snapshot.definesFingerprint = contextFingerprints.definesFingerprint;
@@ -210,6 +235,7 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
   snapshot.workspaceSummaryVersion = options.workspaceSummaryVersion;
   PreprocessorView activeUnitPreprocessorView;
   if (buildActiveUnitPreprocessorView(activeUnitUri, activeUnitText, options,
+                                      defineContext,
                                       activeUnitPreprocessorView)) {
     snapshot.activeLineStates = activeUnitPreprocessorView.lineActive;
     snapshot.includeClosureUris = activeUnitPreprocessorView.activeIncludeUris;
@@ -345,10 +371,12 @@ std::shared_ptr<const GlobalContextSnapshot> globalContextRuntimeRefresh(
     const std::vector<ChangedRange> *changedRanges) {
   const std::string activeUnitUri = getActiveUnitUri();
   const std::string activeUnitPath = getActiveUnitPath();
-  const RuntimeContextFingerprints contextFingerprints =
-      buildRuntimeContextFingerprints(options);
   const std::string activeUnitText =
       resolveCurrentActiveUnitText(options, activeUnitPath);
+  const RuntimeDefineContext defineContext =
+      buildRuntimeDefineContext(options, activeUnitPath);
+  const RuntimeContextFingerprints contextFingerprints =
+      buildRuntimeContextFingerprints(options, defineContext);
 
   std::lock_guard<std::mutex> lock(gGlobalContextRuntimeMutex);
   if (gGlobalContextRuntimeState.snapshot &&
@@ -370,7 +398,7 @@ std::shared_ptr<const GlobalContextSnapshot> globalContextRuntimeRefresh(
 
   auto rebuilt = std::make_shared<GlobalContextSnapshot>();
   rebuilt->activeUnitSnapshot = buildActiveUnitSnapshot(
-      options, activeUnitUri, activeUnitPath, activeUnitText,
+      options, activeUnitUri, activeUnitPath, activeUnitText, defineContext,
       contextFingerprints);
   rebuilt->interactiveVisibilityKey =
       buildInteractiveVisibilityKey(rebuilt->activeUnitSnapshot);
