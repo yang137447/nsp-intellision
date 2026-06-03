@@ -64,6 +64,8 @@ PreprocessorIncludeContext makeInteractiveIncludeContext(
   includeContext.workspaceFolders = ctx.workspaceFolders;
   includeContext.includePaths = ctx.includePaths;
   includeContext.shaderExtensions = ctx.shaderExtensions;
+  workspaceSummaryRuntimeCollectArtDefaultZeroMacros(
+      includeContext.artDefaultZeroMacros, 4096);
   includeContext.loadText = [&](const std::string &includeUri,
                                 std::string &textOut) -> bool {
     return ctx.readDocumentText(includeUri, textOut);

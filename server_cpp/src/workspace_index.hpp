@@ -1,5 +1,6 @@
 #pragma once
 
+#include "art_macro_defaults.hpp"
 #include "definition_location.hpp"
 #include "json.hpp"
 
@@ -12,7 +13,8 @@
 // Responsibilities:
 // - maintain the persisted in-repo summary store for workspace files
 // - answer summary-first cross-file queries (definitions, symbol types,
-//   workspace symbol, include closures, reverse includes)
+//   workspace symbol, include closures, reverse includes, and `#art` default
+//   macro declarations)
 // - own background indexing / file-watch update machinery
 //
 // Current M5 contract:
@@ -122,6 +124,14 @@ void workspaceIndexCollectIncludingUnits(const std::vector<std::string> &uris,
 void workspaceIndexCollectIncludeClosureForUnit(const std::string &unitPathOrUri,
                                                 std::vector<std::string> &outPaths,
                                                 size_t limit);
+
+// Returns workspace-indexed `#art NAME ... "BOOL"/"INT"` declarations that
+// contribute default-zero preprocessor macros when no higher-priority input
+// defines the same macro. Entries may carry same-parameter-block integer
+// companion constants; preprocessor_view.* is responsible for active-closure
+// scoping and conflict filtering before using those constants.
+void workspaceIndexCollectArtDefaultZeroMacros(
+    std::vector<ArtDefaultZeroMacro> &outMacros, size_t limit);
 
 // Stops background indexing workers and clears pending work.
 void workspaceIndexShutdown();

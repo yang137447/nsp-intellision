@@ -1,0 +1,37 @@
+#define P14A_EMPTY
+
+#if P14A_EMPTY
+float4 P14AEmptyReplacementShouldBeInactive(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float2 bad = float4(uv, 0.0, 1.0);
+    return float4(bad, 0.0, 1.0);
+}
+#endif
+
+#if P14A_MISSING_ONCE == 1 || P14A_MISSING_ONCE == 2
+#endif
+
+#if P14A_MISSING_ONCE == 3
+#endif
+
+#if P14A_LEFT_MISSING == 1 && P14A_RIGHT_MISSING == 2
+#endif
+
+#if defined(P14A_EXISTENCE_ONLY)
+#endif
+
+#if defined(P14A_EXISTENCE_NUMERIC) && P14A_EXISTENCE_NUMERIC == 1
+#endif
+
+#if P14A_RESET == 0
+#endif
+
+#undef P14A_RESET
+
+#if P14A_RESET == 0
+#endif
+
+float4 P14AStateMachineEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return float4(uv, 0.0, 1.0);
+}

@@ -59,8 +59,8 @@
 
 - server lifecycle、restart 和 `onReady` 装配
 - 配置同步，包括 include 路径、defines、diagnostics、inlay hints、semantic tokens 和 metrics
-- 预处理宏 preset 首次填充与配置同步；client 从 server 共享 registry 读取默认 preset，写入工作区 `nsf.preprocessorMacros` 后再作为普通用户配置传给 server
-- active unit compile profile 宏解析由 `unit_macro_profile_provider.*` 负责；它从 workspace/include roots 下发现 shadercompiler 导出的 `gimlocalvariants.json` 和 `used_shader_variants.csv`，按 active unit basename 映射 shader key，并且只注入跨 local variants / used-variant rows 都保持一致的显式数值宏，不为冲突 selector/profile 值猜默认；冲突或缺失的 variant 宏只作为 unresolved metadata 暴露给 debug/audit，不进入 effective defines。`nsf.defines` 和 `nsf.preprocessorMacros`（包括可解析为整数的符号链）会作为显式 selection hints 参与 row 过滤；同时 provider 会从 `active_unit_variant_selection.csv` 读取按 unit stem 聚合后的选择提示作为 baseline，再由 workspace 显式 hints 覆盖同名键，但仅在 profile source 已出现该宏且存在匹配值行时才收敛。debug runtime 会暴露 profile 总行数、筛选后行数、单行命中 signature 以及 selection hint source path，便于区分“已选中具体 row”与“仍是多行 unresolved”
+- 预处理宏 preset 首次填充、旧版完整 preset 缺项补齐与配置同步；client 从 server 共享 registry 读取默认 preset，写入或一次性补齐工作区 `nsf.preprocessorMacros` 后再作为普通用户配置传给 server，补齐只添加缺失 key 并保留已有值
+- active unit compile profile 宏解析由 `unit_macro_profile_provider.*` 负责；它从 workspace/include roots 以及可选 `nsf.shaderCompilerPath` 下发现 shadercompiler 导出的 `gimlocalvariants.json` 和 `used_shader_variants.csv`，按 active unit basename 映射 shader key，并且只注入跨 local variants / used-variant rows 都保持一致的显式数值宏，不为冲突 selector/profile 值猜默认；冲突或缺失的 variant 宏只作为 unresolved metadata 暴露给 debug/audit，不进入 effective defines。`nsf.defines` 和 `nsf.preprocessorMacros`（包括可解析为整数的符号链）会作为显式 selection hints 参与 row 过滤；同时 provider 会从 `active_unit_variant_selection.csv` 读取按 unit stem 聚合后的选择提示作为 baseline，再由 workspace 显式 hints 覆盖同名键，但仅在 profile source 已出现该宏且存在匹配值行时才收敛。debug runtime 会暴露 profile 总行数、筛选后行数、单行命中 signature 以及 selection hint source path，便于区分“已选中具体 row”与“仍是多行 unresolved”。`nsf.shaderCompilerPath` 只作为只读权威输入根，不在编辑热路径执行完整 shadercompiler。
 - 状态栏、trace 输出、诊断和索引状态展示
 - 测试模式下的固定启动和内部命令
 - 编辑器壳层挂接，如语言注册、language configuration 和 snippets
@@ -103,7 +103,7 @@
 
 - `server_parse.*`: 共享行级 declaration/header 解析、`for` initializer declaration 解析、宏定义头解析、注释/字符串剥离后的 shared line scan、多行 nesting 前后状态，以及 missing-semicolon syntax boundary 判断；多行函数 / control header、NSF metadata / effect block、表达式 continuation 和 macro-only recovery 区域的高置信缺分号判定应在这里统一收敛
 - `conditional_ast.*`: 每文件预处理结构真相
-- `preprocessor_view.*`: active branch、branch signature、配置预处理宏初始化、include 链宏传播求值，以及按行查询 active object-like macro replacement，供 diagnostics expression typing 等共享 consumer 使用；它只暴露预处理上下文，不替 consumer 猜测类型
+- `preprocessor_view.*`: active branch、branch signature、配置预处理宏初始化、workspace summary 提供的 `#art` BOOL/INT default-zero 初始化、active unit include closure 内 `#art` companion enum 常量初始化、active unit include closure 内 compiler private numeric constant 初始化、C++ compiler macro snapshot 初始化、include 链宏传播求值、严格顺序 `#define/#undef/#ifdef/#ifndef/defined(...)` 状态机、object-like 符号链 / 用户配置表达式递归求值、`#if/#elif` 中 function-like macro 展开、inactive branch probe 和 branch merge metadata，以及按行查询 active macro replacement / active macro integer value / source location，供 diagnostics expression typing、macro hover 和 macro definition 等共享 consumer 使用；初始优先级为 `#art` default zero / closure-scoped `#art` companion constants < active-unit compiler private numeric constants < `nsf.preprocessorMacros` < active-unit compiler macro snapshot < active unit profile / `nsf.defines`，之后由源码 `#define/#undef` 按顺序覆盖；`#art` companion constants 只来自当前 active closure 内对应参数文件，同名 provider 或 companion 值冲突时不注入，不把 material-family 常量提升为全局 preset；compiler private numeric constants 只来自当前 active closure 内稳定、无冲突、最终仍有可见定义的 object-like 单整数 `#define`，且不会覆盖已识别的 `#art` companion 常量来源；compiler macro snapshot 由 `compiler_macro_snapshot_provider.*` 从当前 active closure 的源码 AST 中收集稳定、无冲突、最终仍有可见定义、被实际使用的 object-like 单 token alias 和 root-level `#ifndef NAME` / `#define NAME token` default alias，不执行 shadercompiler 或 Python helper，不扫描全 workspace；两者收集时 `#undef NAME` 清空当前候选，允许后续稳定 `#define NAME value` 重新建立候选，冲突、非单 token / 非整数或最终没有后续定义的候选仍排除；两者用于对齐 shadercompiler 先收集宏快照后求值的 `#if/#elif` 行为；include 传播出来的宏事件会保留当前 view 的可见位置和真实 source `#define` / synthesized use 位置，macro definition 不应把 include 定义误落到父文件 include directive；数值上下文中未定义宏只在当前 live state 的缺失叶子首次使用处发布 preprocessor diagnostic，然后合成 `0` 并作为已定义宏继续推导直到真实 `#define` 或 `#undef` 改变状态；无 replacement 的 object-like macro 按已定义且值为 `0` 处理；function-like macro 展开覆盖固定参数、嵌套调用、变参、`__VA_ARGS__`、`##` token paste、`#` stringization warning 和递归 / 深度保护 warning；未激活分支会用隔离宏状态继续推导并保留 preprocessor condition diagnostics / branch metadata，但 active line mask 和汇合后的主宏状态仍只跟随 active branch；`PreprocessorView::macroHealth` 只作为 debug / audit 健康度统计，不参与公开行为决策；它只暴露预处理上下文，不替 consumer 猜测类型
 - `expanded_source.*`: line-preserving active-only 展开与基础 line source map
 - `hlsl_ast.*`: 顶层 HLSL AST 骨架、include、function、struct/cbuffer/typedef、全局声明和 inline include 元数据
 - `semantic_snapshot.*`: 共享语义快照构建入口，产出函数、overload、参数、lexical local scope / 局部变量、struct 字段、全局类型等语义；local 查询必须同时满足 declaration offset 和 half-open lexical scope range，不能只按 brace depth 近似可见性
@@ -127,8 +127,8 @@
 
 ### Workspace
 
-- `workspace_summary_runtime.*`: `workspace_index.*` 的运行时边界层，统一暴露 cross-file summary、indexed include closure、reverse include closure 和 version 变化
-- `workspace/workspace_index.*`: workspace summary facade 和 owner wiring
+- `workspace_summary_runtime.*`: `workspace_index.*` 的运行时边界层，统一暴露 cross-file summary、indexed include closure、reverse include closure、`#art` BOOL/INT default-zero 宏声明、同参数块 companion enum 常量元数据和 version 变化
+- `workspace/workspace_index.*`: workspace summary facade 和 owner wiring；索引 active、非注释的 Neox `#art NAME "..." "BOOL"` / `"INT"` 声明，作为预处理环境最低优先级默认 `0` 输入；同时记录同一参数块中紧邻 `#art` 的 object-like 单整数 `#define` companion 常量，供 `preprocessor_view.*` 按 active include closure 和冲突规则选择
 - `workspace/workspace_index_cache.*`: cache 路径、磁盘 load/save 和旧索引兼容迁移
 - `workspace/workspace_index_scan.*`: path 归一化、include-closure 扫描和 file-to-meta 解析
 - `workspace/workspace_index_scheduler.*`: rebuild、file-watch update、后台线程和并行索引调度
@@ -143,7 +143,7 @@
 - background 请求统一 latest-only + cancellation；过期 analysis key 的结果只能 drop，不能发布。
 - current-doc semantic snapshot 在 `didOpen`、active unit 变化、配置变化和 workspace summary version 刷新后主动预热；`didChange` 只同步维护最新文档和 runtime key，completion / hover / signature help 等交互请求按需 build 或 promote 最新 current-doc snapshot，fast diagnostics worker 按 latest-only 构建并存储最新 local structural snapshot，fast diagnostics publish 启用时再由该 snapshot 发布 local-structural diagnostics，避免逐字符输入时在 server 输入线程上重建每个中间版本。
 - request worker 写入 `ServerRequestContext` 的 queue wait / context build / request document version / debug wall-clock timestamp / didChange 输入线程重叠摘要只用于 debug 和 replay 归因，不参与 completion、hover、signature help、diagnostics 等公开行为决策。completion replay 归因可在现有 LSP completion params 上附加 `nsfDebugRequestId` 和 client send-start timestamp 调试字段，server 只把它们写入 completion debug snapshot/history；这些字段不得参与候选生成、排序、过滤或触发行为。
-- 预处理宏 preset 属于配置输入：`nsf.preprocessorMacros` 是完整有效 preset 表；active unit compile profile 宏会在 shared global context 中按 unit 注入，`nsf.defines` 和源码 `#define/#undef` 按顺序覆盖；preset fingerprint 和 active-unit effective define fingerprint 都必须参与 active-unit / semantic cache 复用判断。
+- 预处理宏 preset 属于配置输入：`nsf.preprocessorMacros` 是完整有效 preset 表；client 可在启动时对看起来像旧版完整 preset 的显式配置一次性补齐当前默认 preset 缺失 key，server 分析时不隐式叠加资源默认值；active unit compile profile 宏会在 shared global context 中按 unit 注入，`nsf.defines` 和源码 `#define/#undef` 按顺序覆盖；preset fingerprint 和 active-unit effective define fingerprint 都必须参与 active-unit / semantic cache 复用判断。
 - 小范围 syntax-only 编辑和纯注释编辑优先让 immediate syntax diagnostics 抢占热路径。
 - fast diagnostics 会先发布 immediate syntax，再异步补 full diagnostics；等待 full 结果时可保留 last-good full diagnostics，避免无关语义波浪线被整份清空。
 - diagnostics payload 在构建返回和发布层合并后按 document URI、range、message、code 和 source 去重；同一位置的不同原因应通过不同 code/source 保持可区分。
@@ -160,13 +160,17 @@
 - `server_cpp/src/interactive_semantic_runtime.hpp`: current-doc interactive 查询顺序
 - `server_cpp/src/deferred_doc_runtime.hpp`: deferred latest-only 合并和 stale work drop 规则
 - `server_cpp/src/diagnostics_prerequisites.hpp`: semantic diagnostics rule prerequisite 和 skipped-reason 统计契约
+- `server_cpp/src/compiler_macro_snapshot_provider.hpp`: active-unit compiler macro snapshot C++ 提取边界；只暴露源码可重建的稳定宏事实，不执行 shadercompiler 或 Python helper
 
 ## 单一事实来源
 
 - HLSL builtin 函数：`hlsl_builtin_docs.*` + `server_cpp/resources/builtins/intrinsics/`
-- HLSL 关键字、预处理指令、系统语义、默认预处理宏填充 preset：`language_registry.*` + `server_cpp/resources/language/`
+- HLSL 关键字、预处理指令、系统语义、默认预处理宏填充 preset：`language_registry.*` + `server_cpp/resources/language/`；预处理宏 preset 同时保留少量已确认 legacy compiler/context / project undefined-zero 宏（例如 `GL3_PROFILE=0`、`RENDER_VELOCITY=0`）和已验证无冲突的 source enum-like 常量
 - 有效用户预处理宏 preset：`nsf.preprocessorMacros` + `preprocessor_view.*`
-- active unit compile profile 宏：`unit_macro_profile_provider.*` + `global_context_runtime.*` + shadercompiler 导出的 `gimlocalvariants.json` / `used_shader_variants.csv` / `active_unit_variant_selection.csv`
+- active unit compile profile 宏：`unit_macro_profile_provider.*` + `global_context_runtime.*` + shadercompiler 导出的 `gimlocalvariants.json` / `used_shader_variants.csv` / `active_unit_variant_selection.csv`；发现根来自 workspace/include roots 和可选 `nsf.shaderCompilerPath`
+- Neox `#art` BOOL/INT 美术宏默认 `0` 与 closure-scoped companion enum 常量：`workspace_index.*` / `workspace_summary_runtime.*` + `global_context_runtime.*` + `preprocessor_view.*`
+- active unit compiler private numeric constants：当前 active include closure + `preprocessor_view.*`
+- active unit compiler macro snapshot aliases：`compiler_macro_snapshot_provider.*` + 当前 active include closure + `preprocessor_view.*`
 - HLSL 对象类型 / 对象族：`type_model.*` + `server_cpp/resources/types/`
 - HLSL 对象方法：`hover_markdown.*` + `server_cpp/resources/methods/object_methods/`
 - 资源 bundle 规则：`resource_registry.*` + `docs/resources.md`
@@ -181,7 +185,7 @@
 - `language/keywords`: completion、hover、diagnostics 和 semantic tokens
 - `language/directives`: 预处理指令 completion / hover
 - `language/semantics`: `SV_*` 系统语义 hover / 识别
-- `language/preprocessor_macros`: 用于首次填充 `nsf.preprocessorMacros` 工作区设置的默认 preset；包含 shadercompiler builtin 宏以及 system / device / API support / platform quality 编译上下文宏名，编译上下文宏默认保守值为 `0`，真实 target / compile mode 值由 active unit compile profile、workspace 配置或 `nsf.defines` 覆盖；`#if` / `#elif` 表达式求值、active branch 判断和预处理宏 diagnostics 消费设置同步后的完整宏表
+- `language/preprocessor_macros`: 用于首次填充 `nsf.preprocessorMacros` 工作区设置的默认 preset；包含 shadercompiler builtin 宏、system / device / API support / platform quality 编译上下文宏名、已确认按 legacy `#if` undefined-as-zero 语义工作的 profile / project 宏（例如 `GL3_PROFILE=0`、`RENDER_VELOCITY=0`、`HAS_THIN_TRANSLUCENT=0`、`DYNAMIC_GI_TYPE=0`、`IS_MEADOW_LOD=0`），以及已验证无冲突的 source enum-like 常量。编译上下文宏默认保守值为 `0`，真实 target / compile mode 值由 active unit compile profile、workspace 配置或 `nsf.defines` 覆盖；legacy project undefined-zero 宏只表示缺少 source/profile/provider 输入时按 shadercompiler `#if` 求值为 `0`，不表示 material-family enum 常量真值；source 常量只收录跨 source/generated 定义一致的枚举值，material-family 冲突枚举只有在按 undefined-zero 约定保守为 `0` 时才进入 preset，真实非零值仍必须来自 source include、profile、generated config 或用户配置；`#if` / `#elif` 表达式求值、active branch 判断和预处理宏 diagnostics 消费设置同步后的完整宏表
 - `types/*`: texture / sampler / buffer 家族识别、成员方法匹配和 diagnostics 类型兼容辅助
 - `methods/object_methods`: texture-like / buffer-like 方法签名与文档
 

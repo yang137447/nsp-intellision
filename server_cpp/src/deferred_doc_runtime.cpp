@@ -116,6 +116,7 @@ DeferredDocBuildContext makeDeferredContextFromRuntime(
       !runtime.activeUnitSnapshot.defines.empty()) {
     context.workspaceFolders = runtime.activeUnitSnapshot.workspaceFolders;
     context.includePaths = runtime.activeUnitSnapshot.includePaths;
+    context.shaderCompilerPath = runtime.activeUnitSnapshot.shaderCompilerPath;
     context.shaderExtensions = runtime.activeUnitSnapshot.shaderExtensions;
     context.defines = runtime.activeUnitSnapshot.defines;
   }
@@ -247,6 +248,8 @@ ExpandedSource buildDeferredExpandedSource(
   includeContext.workspaceFolders = context.workspaceFolders;
   includeContext.includePaths = context.includePaths;
   includeContext.shaderExtensions = context.shaderExtensions;
+  includeContext.artDefaultZeroMacros =
+      activeUnitSnapshot.artDefaultZeroMacros;
 
   const std::string activeUnitUri =
       resolveActiveUnitUriForRuntime(activeUnitSnapshot, analysisKey);

@@ -1,0 +1,2 @@
+#define P14H_ART_CONFLICT_PICKER 2
+#art P14H_ART_CONFLICT_MODE "P14H conflict mode B" "INT"

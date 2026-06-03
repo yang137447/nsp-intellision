@@ -1,5 +1,7 @@
 #pragma once
 
+#include "art_macro_defaults.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -22,8 +24,10 @@ struct ChangedRange {
 //
 // This snapshot is the single fact source for active unit selection, active
 // include closure, active branch state, and effective macro/configuration
-// inputs, including explicit per-unit profile macros. Feature code should
-// consume it instead of rebuilding ad-hoc context.
+// inputs, including explicit per-unit profile macros discovered from
+// workspace/include roots or `nsf.shaderCompilerPath`, and workspace-indexed
+// `#art` BOOL/INT default-zero declarations. Feature code should consume it
+// instead of rebuilding ad-hoc context.
 struct ActiveUnitSnapshot {
   std::string uri;
   std::string path;
@@ -35,6 +39,7 @@ struct ActiveUnitSnapshot {
   std::string activeBranchFingerprint;
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;
+  std::string shaderCompilerPath;
   std::vector<std::string> shaderExtensions;
   std::unordered_map<std::string, int> profileDefines;
   std::string profileShaderKey;
@@ -45,10 +50,12 @@ struct ActiveUnitSnapshot {
   std::string profileSelectedRowSignature;
   std::string profileSelectionHintSourcePath;
   std::vector<std::string> profileUnresolvedMacroNames;
+  std::vector<ArtDefaultZeroMacro> artDefaultZeroMacros;
   std::unordered_map<std::string, int> defines;
   std::string workspaceFoldersFingerprint;
   std::string definesFingerprint;
   std::string includePathsFingerprint;
+  std::string shaderCompilerPathFingerprint;
   std::string shaderExtensionsFingerprint;
   uint64_t workspaceSummaryVersion = 0;
 };
@@ -66,12 +73,15 @@ struct InteractiveVisibilityKey {
 // Inputs required to build the shared global context snapshot.
 //
 // `activeUnitText/documentVersion/documentEpoch` describe the currently opened
-// active unit when available. The runtime may reuse a cached snapshot across
-// comment/whitespace edits that do not affect preprocessor state, but only this
-// module decides when that reuse is safe.
+// active unit when available. `shaderCompilerPath` is an optional read-only
+// profile source root; the runtime includes it in cache fingerprints but does
+// not execute external compiler processes. The runtime may reuse a cached
+// snapshot across comment/whitespace edits that do not affect preprocessor
+// state, but only this module decides when that reuse is safe.
 struct GlobalContextRuntimeOptions {
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;
+  std::string shaderCompilerPath;
   std::vector<std::string> shaderExtensions;
   std::unordered_map<std::string, int> defines;
   std::string activeUnitText;

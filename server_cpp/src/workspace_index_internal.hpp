@@ -21,6 +21,7 @@ struct FileMeta {
   std::vector<IndexedDefinition> defs;
   std::vector<IndexedStruct> structs;
   std::vector<std::string> includes;
+  std::vector<ArtDefaultZeroMacro> artDefaultZeroMacros;
 };
 
 struct CachedFileStamp {
@@ -40,6 +41,7 @@ struct IndexStore {
   std::unordered_map<std::string, std::string> bestTypeBySymbol;
   std::unordered_map<std::string, std::unordered_map<std::string, std::string>>
       structMemberType;
+  std::vector<ArtDefaultZeroMacro> artDefaultZeroMacros;
 };
 
 bool readFileToString(const std::string &path, std::string &out);
@@ -101,6 +103,10 @@ void extractStructMembers(const std::string &uri, const std::string &text,
 
 void extractDefinitions(const std::string &uri, const std::string &text,
                         std::vector<IndexedDefinition> &defsOut);
+
+void extractArtDefaultZeroMacros(
+    const std::string &uri, const std::string &text,
+    std::vector<ArtDefaultZeroMacro> &artMacrosOut);
 
 void rebuildGlobals(IndexStore &store);
 

@@ -1,0 +1,31 @@
+#define P14C_CHAIN_VALUE 1
+#define P14C_CHAIN_ALIAS P14C_CHAIN_VALUE
+#define P14C_CHAIN_EMPTY
+#define P14C_CHAIN_EMPTY_ALIAS P14C_CHAIN_EMPTY
+#define P14C_CHAIN_MISSING_TOP P14C_CHAIN_MISSING_LEAF
+#define P14C_CHAIN_MISSING_ALIAS P14C_CHAIN_MISSING_LEAF
+
+#if P14C_CHAIN_ALIAS == 1
+#define P14C_CHAIN_SELECTED 1
+#else
+#define P14C_CHAIN_SELECTED 0
+#endif
+
+#if P14C_CHAIN_EMPTY_ALIAS
+#define P14C_EMPTY_BRANCH 1
+#else
+#define P14C_EMPTY_BRANCH 0
+#endif
+
+#if P14C_CHAIN_MISSING_TOP == 1 || P14C_CHAIN_MISSING_ALIAS == 2
+#endif
+
+float4 P14CSymbolChainEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14C_CHAIN_SELECTED && !P14C_EMPTY_BRANCH
+    return float4(uv, 0.0, 1.0);
+#else
+    float2 bad = float4(uv, 0.0, 1.0);
+    return float4(bad, 0.0, 1.0);
+#endif
+}

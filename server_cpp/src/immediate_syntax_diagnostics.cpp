@@ -7,6 +7,7 @@
 #include "server_parse.hpp"
 #include "text_utils.hpp"
 #include "uri_utils.hpp"
+#include "workspace_summary_runtime.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -41,6 +42,8 @@ PreprocessorView buildDiagnosticsPreprocessorView(
   includeContext.workspaceFolders = options.workspaceFolders;
   includeContext.includePaths = options.includePaths;
   includeContext.shaderExtensions = options.shaderExtensions;
+  workspaceSummaryRuntimeCollectArtDefaultZeroMacros(
+      includeContext.artDefaultZeroMacros, 4096);
   includeContext.loadText =
       [uri, text, activeUnitUri = options.activeUnitUri,
        activeUnitText = options.activeUnitText](const std::string &includeUri,

@@ -31,6 +31,28 @@ bool pickBestWorkspaceDefinitionForCurrentContext(
     const std::string &uri, const std::string &word,
     DefinitionLocation &outLocation);
 
+struct ActivePreprocessorMacroResolution {
+  bool found = false;
+  // True only for configured/profile inputs that have no source location.
+  bool fromInitialState = false;
+  bool fromSynthesizedZero = false;
+  bool fromIfndefDefault = false;
+  bool fromArtDefaultZero = false;
+  bool fromArtCompanionConstant = false;
+  bool fromCompilerPrivateConstant = false;
+  bool fromCompilerMacroSnapshot = false;
+  bool functionLike = false;
+  std::string replacement;
+  bool hasIntegerValue = false;
+  int integerValue = 0;
+  DefinitionLocation location;
+};
+
+bool resolveActivePreprocessorMacroAtLine(
+    const std::string &uri, const std::string &text, int line,
+    const std::string &word, ServerRequestContext &ctx,
+    ActivePreprocessorMacroResolution &out);
+
 inline constexpr bool kEnableOverloadResolver = false;
 
 void emitSignatureHelpIndeterminateTrace(const std::string &functionName,

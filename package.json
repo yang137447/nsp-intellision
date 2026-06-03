@@ -103,6 +103,11 @@
 						},
 						"description": "NSF 工作路径列表（用于 #include 解析、索引扫描与 include-context 解析）"
 					},
+					"nsf.shaderCompilerPath": {
+						"type": "string",
+						"default": "",
+						"description": "shadercompiler 根目录或可执行文件路径。语言服务只读取其导出的宏/profile 数据，不在编辑热路径执行完整编译。"
+					},
 					"nsf.include.validUnderline": {
 						"type": "boolean",
 						"default": true,
@@ -143,7 +148,7 @@
 								}
 							]
 						},
-						"description": "预处理宏 replacement 配置。扩展首次会把内置宏 preset 写入工作区设置；之后用户可直接编辑、删除或补充条目。active unit compile profile 宏会在运行时补充到这层之上，nsf.defines 和源码 #define/#undef 会继续覆盖这些值。"
+						"description": "预处理宏 replacement 配置。扩展首次会把内置宏 preset 写入工作区设置；之后用户可直接编辑、删除或补充条目。旧版完整 preset 缺少新版内置项时，扩展会一次性补齐缺失项并保留已有值。active unit compile profile 宏会在运行时补充到这层之上，nsf.defines 和源码 #define/#undef 会继续覆盖这些值。"
 					},
 					"nsf.inlayHints.enabled": {
 						"type": "boolean",

@@ -1,0 +1,26 @@
+#define P14B_ACTIVE_BRANCH 1
+
+#if P14B_ACTIVE_BRANCH
+#define P14B_MERGED_VALUE 1
+#else
+#if P14B_INACTIVE_BODY_MISSING == 1
+#endif
+#define P14B_MERGED_VALUE 2
+#endif
+
+#if P14B_MERGED_VALUE == 1
+float4 P14BMergeEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    return float4(uv, 0.0, 1.0);
+}
+#else
+float4 P14BMergeEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    float2 bad = float4(uv, 0.0, 1.0);
+    return float4(bad, 0.0, 1.0);
+}
+#endif
+
+#if P14B_ACTIVE_BRANCH
+#elif P14B_INACTIVE_ELIF_MISSING == 1
+#endif

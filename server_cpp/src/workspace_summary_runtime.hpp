@@ -116,6 +116,11 @@ void workspaceSummaryRuntimeCollectIncludeClosureForUnit(
     const std::string &unitPathOrUri, std::vector<std::string> &outPaths,
     size_t limit);
 
+// Collects workspace-indexed `#art` BOOL/INT declarations that seed
+// default-zero preprocessor macros below configured/profile/source inputs.
+void workspaceSummaryRuntimeCollectArtDefaultZeroMacros(
+    std::vector<ArtDefaultZeroMacro> &outMacros, size_t limit);
+
 // Public workspace summary version consumed by document_runtime.* analysis keys.
 uint64_t workspaceSummaryRuntimeGetVersion();
 

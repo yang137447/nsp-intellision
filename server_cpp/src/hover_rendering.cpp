@@ -125,6 +125,12 @@ std::string renderHoverMacroMarkdown(const HoverMacroMarkdownInput &input) {
     markdown += "\n\n";
     markdown += input.kindLabel;
   }
+  for (const auto &note : input.notes) {
+    if (note.empty())
+      continue;
+    markdown += "\n\n";
+    markdown += note;
+  }
   if (!input.definedAt.empty()) {
     markdown += "\n\nDefined at: ";
     markdown += input.definedAt;

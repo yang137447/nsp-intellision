@@ -8,7 +8,7 @@
 //
 // Responsibilities:
 // - discover shadercompiler-exported local variant sources under the configured
-//   workspace/include roots
+//   workspace/include roots and optional `nsf.shaderCompilerPath`
 // - map one active unit path to its shader key
 // - extract only explicit per-unit numeric macros that remain stable across all
 //   local variants / used-variant rows for that shader key
@@ -49,6 +49,7 @@ bool resolveUnitMacroProfileSnapshot(
     const std::string &activeUnitPath,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
+    const std::string &shaderCompilerPath,
     const std::unordered_map<std::string, int> &selectionHints,
     UnitMacroProfileSnapshot &snapshotOut);
 
@@ -58,4 +59,5 @@ bool resolveUnitMacroProfileSnapshot(
 bool unitMacroProfileProviderOwnsPath(
     const std::string &pathOrUri,
     const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths);
+    const std::vector<std::string> &includePaths,
+    const std::string &shaderCompilerPath);

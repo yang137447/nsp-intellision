@@ -80,6 +80,20 @@ bool request_definition_handlers::handleDefinitionRequest(
     return true;
   }
   const size_t cursorOffset = positionToOffsetUtf16(doc->text, line, character);
+  {
+    ActivePreprocessorMacroResolution activeMacro;
+    if (resolveActivePreprocessorMacroAtLine(uri, doc->text, line, word, ctx,
+                                             activeMacro)) {
+      Json locations = makeArray();
+      if (!activeMacro.fromInitialState && !activeMacro.location.uri.empty()) {
+        locations.a.push_back(makeLocationRange(
+            activeMacro.location.uri, activeMacro.location.line,
+            activeMacro.location.start, activeMacro.location.end));
+      }
+      writeDefinitionResponse(locations);
+      return true;
+    }
+  }
   bool looksLikeCall = false;
   {
     std::string callName;

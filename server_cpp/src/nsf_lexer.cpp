@@ -24,11 +24,16 @@ std::vector<LexToken> lexLineTokens(const std::string &line) {
                                 line.substr(start, i - start), start, i});
       continue;
     }
+    if (i + 2 < line.size() && line.substr(i, 3) == "...") {
+      tokens.push_back(LexToken{LexToken::Kind::Punct, "...", i, i + 3});
+      i += 3;
+      continue;
+    }
     if (i + 1 < line.size()) {
       std::string two = line.substr(i, 2);
       if (two == "::" || two == "->" || two == "&&" || two == "||" ||
           two == "<=" || two == ">=" || two == "==" || two == "!=" ||
-          two == "<<" || two == ">>") {
+          two == "<<" || two == ">>" || two == "##") {
         tokens.push_back(LexToken{LexToken::Kind::Punct, two, i, i + 2});
         i += 2;
         continue;

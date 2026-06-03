@@ -61,6 +61,43 @@ Json buildPrerequisiteSkipsJson(
   return result;
 }
 
+Json buildMacroHealthJson(const PreprocessorMacroHealthMetrics &stats) {
+  Json result = makeObject();
+  result.o["initialConfiguredMacroCount"] =
+      makeNumber(static_cast<double>(stats.initialConfiguredMacroCount));
+  result.o["initialArtDefaultZeroMacroCount"] =
+      makeNumber(static_cast<double>(stats.initialArtDefaultZeroMacroCount));
+  result.o["initialCompilerPrivateConstantCount"] = makeNumber(
+      static_cast<double>(stats.initialCompilerPrivateConstantCount));
+  result.o["initialCompilerMacroSnapshotCount"] = makeNumber(
+      static_cast<double>(stats.initialCompilerMacroSnapshotCount));
+  result.o["initialNumericDefineCount"] =
+      makeNumber(static_cast<double>(stats.initialNumericDefineCount));
+  result.o["initialMacroCount"] =
+      makeNumber(static_cast<double>(stats.initialMacroCount));
+  result.o["sourceDefineEvents"] =
+      makeNumber(static_cast<double>(stats.sourceDefineEvents));
+  result.o["ifndefDefaultDefineEvents"] =
+      makeNumber(static_cast<double>(stats.ifndefDefaultDefineEvents));
+  result.o["sourceUndefEvents"] =
+      makeNumber(static_cast<double>(stats.sourceUndefEvents));
+  result.o["synthesizedZeroEvents"] =
+      makeNumber(static_cast<double>(stats.synthesizedZeroEvents));
+  result.o["conditionDiagnosticCount"] =
+      makeNumber(static_cast<double>(stats.conditionDiagnosticCount));
+  result.o["undefinedMacroDiagnosticCount"] =
+      makeNumber(static_cast<double>(stats.undefinedMacroDiagnosticCount));
+  result.o["expansionWarningDiagnosticCount"] =
+      makeNumber(static_cast<double>(stats.expansionWarningDiagnosticCount));
+  result.o["inactiveBranchDiagnosticCount"] =
+      makeNumber(static_cast<double>(stats.inactiveBranchDiagnosticCount));
+  result.o["branchMergeCount"] =
+      makeNumber(static_cast<double>(stats.branchMergeCount));
+  result.o["activeIncludeCount"] =
+      makeNumber(static_cast<double>(stats.activeIncludeCount));
+  return result;
+}
+
 } // namespace
 
 Json buildDiagnosticsAuditIncludeClosureDebugResponse(const Json *params) {
@@ -136,6 +173,12 @@ Json buildDiagnosticsAuditDiagnosticsDebugResponse(
         getObjectValue(*params, "semanticCacheEnabled");
     if (semanticCacheValue && semanticCacheValue->type == Json::Type::Bool)
       options.semanticCacheEnabled = semanticCacheValue->b;
+    const Json *compilerPrivateCacheScopeValue =
+        getObjectValue(*params, "compilerPrivateConstantCacheScope");
+    if (compilerPrivateCacheScopeValue &&
+        compilerPrivateCacheScopeValue->type == Json::Type::String)
+      options.compilerPrivateConstantCacheScope =
+          compilerPrivateCacheScopeValue->s;
   }
 
   std::string text;
@@ -168,6 +211,7 @@ Json buildDiagnosticsAuditDiagnosticsDebugResponse(
         makeNumber(static_cast<double>(buildResult.indeterminateTotal));
     result.o["prerequisiteSkips"] =
         buildPrerequisiteSkipsJson(buildResult.prerequisiteSkips);
+    result.o["macroHealth"] = buildMacroHealthJson(buildResult.macroHealth);
     result.o["elapsedMs"] = makeNumber(buildResult.elapsedMs);
   } else {
     result.o["diagnostics"] = makeArray();

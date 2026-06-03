@@ -692,6 +692,58 @@ export function registerDeferredDocUnitMacroProfileAnalysisContextTests(): void 
 			});
 		});
 
+		it('discovers unit macro profiles from configured shaderCompilerPath', async () => {
+			await withTemporaryIntellisionPath([], async () => {
+				const configuration = vscode.workspace.getConfiguration('nsf');
+				const inspectedCompilerPath = configuration.inspect<string>('shaderCompilerPath');
+				const originalCompilerPath = inspectedCompilerPath?.workspaceValue;
+				const compilerRoot = path.join(getWorkspaceRoot(), 'test_files', 'shadercompiler_path_fixture');
+				await configuration.update('shaderCompilerPath', compilerRoot, vscode.ConfigurationTarget.Workspace);
+				await waitForClientQuiescent('shaderCompilerPath update settled');
+
+				const resolvedUnit = await openFixture('include_context/units/multi_context_variant_profile_resolved.nsf');
+				try {
+					await waitForIndexingIdle('indexing idle before shaderCompilerPath unit macro profile test');
+					await vscode.commands.executeCommand('nsf._setActiveUnitForTests', resolvedUnit.uri.toString());
+					await waitForActiveUnitAndVisibilityReadyForTests(
+						resolvedUnit.uri.toString(),
+						path.join('include_context', 'units', 'multi_context_variant_profile_resolved.nsf'),
+						'active unit ready for shaderCompilerPath unit macro profile test'
+					);
+					const entries = await waitFor(
+						() => getDocumentRuntimeDebug([resolvedUnit.uri.toString()]),
+						(value) => {
+							const entry = value[0];
+							const defines = entry?.activeUnitProfileDefines as Record<string, number> | undefined;
+							return Boolean(
+								entry?.analysisFullFingerprint &&
+								defines?.TARGET_VARIANT_PROFILE === 1 &&
+								entry.activeUnitProfileSourcePath?.includes('shadercompiler_path_fixture') &&
+								entry.activeUnitProfileSourcePath?.endsWith('gimlocalvariants.json')
+							);
+						},
+						'shaderCompilerPath unit macro profile runtime debug'
+					);
+					const entry = entries[0];
+					assert.strictEqual(
+						(entry.activeUnitProfileDefines as Record<string, number> | undefined)?.TARGET_VARIANT_PROFILE,
+						1
+					);
+					assert.ok(
+						entry.activeUnitProfileSourcePath?.includes('shadercompiler_path_fixture'),
+						`Expected shaderCompilerPath source, got ${entry.activeUnitProfileSourcePath ?? '<missing>'}.`
+					);
+					assert.strictEqual(entry.activeUnitProfileSourceKind, 'gimlocalvariants');
+				} finally {
+					await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+					await waitForClientQuiescent('shaderCompilerPath unit macro profile cleanup settled');
+					await openFixture('module_suite.nsf');
+					await configuration.update('shaderCompilerPath', originalCompilerPath, vscode.ConfigurationTarget.Workspace);
+					await waitForClientQuiescent('shaderCompilerPath restore settled');
+				}
+			});
+		});
+
 		it('injects only unanimous CSV variant macros into the shared analysis context', async () => {
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {
 				const csvUnit = await openFixture('include_context/units/multi_context_variant_profile_csv.nsf');

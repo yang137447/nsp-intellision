@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { commands, ConfigurationTarget, ExtensionContext, workspace, window } from 'vscode';
+import { commands, ConfigurationTarget, ExtensionContext, Uri, workspace, window } from 'vscode';
 
 export type DiagnosticsMode = 'basic' | 'balanced' | 'full';
 
@@ -33,6 +33,12 @@ export type DiagnosticsRuntimeSettings = {
 
 export const INTELLISION_PATH_PROMPT_DISMISSED_KEY = 'nsf.intellisionPathPromptDismissed';
 export const PREPROCESSOR_MACROS_SEEDED_KEY = 'nsf.preprocessorMacrosSeeded';
+export const PREPROCESSOR_MACROS_PRESET_MIGRATION_KEY = 'nsf.preprocessorMacrosPresetMigrationVersion';
+export const PREPROCESSOR_MACROS_PRESET_MIGRATION_VERSION = 2;
+
+const PREPROCESSOR_MACRO_PRESET_MIGRATION_MIN_CONFIGURED_COUNT = 50;
+const PREPROCESSOR_MACRO_PRESET_MIGRATION_MIN_OVERLAP_RATIO = 0.7;
+const PREPROCESSOR_MACRO_PRESET_MIGRATION_MAX_MISSING_RATIO = 0.25;
 
 export type PreprocessorMacroPresetResponse = {
 	entries?: Array<{
@@ -46,6 +52,18 @@ export type SeedPreprocessorMacroOptions = {
 	isTestMode: boolean;
 	fetchPreset: () => Promise<PreprocessorMacroPresetResponse>;
 	logClient: (message: string) => void;
+};
+
+export type PreprocessorMacroPresetCompletionResult = {
+	eligible: boolean;
+	shouldUpdate: boolean;
+	reason: string;
+	configuredCount: number;
+	presetCount: number;
+	overlapCount: number;
+	missingCount: number;
+	missingNames: string[];
+	merged: Record<string, unknown>;
 };
 
 export function resolveDiagnosticsMode(): DiagnosticsMode {
@@ -219,6 +237,11 @@ export function normalizeIncludePaths(paths: string[]): string[] {
 	return kept;
 }
 
+export function normalizeOptionalPath(value: string | undefined): string {
+	const trimmed = (value ?? '').trim();
+	return trimmed.length > 0 ? path.resolve(trimmed) : '';
+}
+
 export function readPreprocessorMacroSettings(): Record<string, unknown> {
 	const inspected = workspace.getConfiguration('nsf').inspect<Record<string, unknown>>('preprocessorMacros');
 	return (
@@ -238,6 +261,7 @@ export function buildRuntimeSettings(
 	return {
 		intellisionPath:
 			includePathsOverride ?? normalizeIncludePaths(config.get<string[]>('intellisionPath', [])),
+		shaderCompilerPath: normalizeOptionalPath(config.get<string>('shaderCompilerPath', '')),
 		shaderFileExtensions: config.get<string[]>(
 			'shaderFileExtensions',
 			['.nsf', '.hlsl']
@@ -277,12 +301,43 @@ export function buildRuntimeSettings(
 }
 
 function hasExplicitPreprocessorMacroSetting(): boolean {
+	return readExplicitPreprocessorMacroSetting() !== undefined;
+}
+
+function readExplicitPreprocessorMacroSetting():
+	| { value: Record<string, unknown>; target: ConfigurationTarget; resource?: Uri }
+	| undefined {
+	for (const folder of workspace.workspaceFolders ?? []) {
+		const inspected = workspace
+			.getConfiguration('nsf', folder.uri)
+			.inspect<Record<string, unknown>>('preprocessorMacros');
+		if (
+			inspected?.workspaceFolderValue &&
+			typeof inspected.workspaceFolderValue === 'object' &&
+			!Array.isArray(inspected.workspaceFolderValue)
+		) {
+			return {
+				value: inspected.workspaceFolderValue,
+				target: ConfigurationTarget.WorkspaceFolder,
+				resource: folder.uri
+			};
+		}
+	}
 	const inspected = workspace.getConfiguration('nsf').inspect<Record<string, unknown>>('preprocessorMacros');
-	return (
-		inspected?.globalValue !== undefined ||
-		inspected?.workspaceValue !== undefined ||
-		inspected?.workspaceFolderValue !== undefined
-	);
+	const selected =
+		inspected?.workspaceValue !== undefined
+			? { value: inspected.workspaceValue, target: ConfigurationTarget.Workspace }
+			: inspected?.globalValue !== undefined
+				? { value: inspected.globalValue, target: ConfigurationTarget.Global }
+				: undefined;
+	if (!selected || !selected.value || typeof selected.value !== 'object' || Array.isArray(selected.value)) {
+		return undefined;
+	}
+	return selected;
+}
+
+function isSupportedPreprocessorMacroReplacement(value: unknown): boolean {
+	return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
 function normalizePreprocessorMacroPreset(
@@ -308,6 +363,62 @@ function normalizePreprocessorMacroPreset(
 	return macros;
 }
 
+export function computePreprocessorMacroPresetCompletion(
+	configured: Record<string, unknown>,
+	preset: Record<string, string | number | boolean>
+): PreprocessorMacroPresetCompletionResult {
+	const configuredEntries = Object.entries(configured).filter(
+		([name, value]) => name.trim().length > 0 && isSupportedPreprocessorMacroReplacement(value)
+	);
+	const presetEntries = Object.entries(preset).filter(
+		([name, value]) => name.trim().length > 0 && isSupportedPreprocessorMacroReplacement(value)
+	);
+	const presetNames = new Set(presetEntries.map(([name]) => name));
+	const configuredCount = configuredEntries.length;
+	const presetCount = presetEntries.length;
+	const overlapCount = configuredEntries.filter(([name]) => presetNames.has(name)).length;
+	const missingEntries = presetEntries.filter(([name]) => !Object.prototype.hasOwnProperty.call(configured, name));
+	const missingCount = missingEntries.length;
+	const overlapRatio = configuredCount > 0 ? overlapCount / configuredCount : 0;
+	const missingRatio = presetCount > 0 ? missingCount / presetCount : 1;
+	const eligible =
+		presetCount > 0 &&
+		configuredCount >= PREPROCESSOR_MACRO_PRESET_MIGRATION_MIN_CONFIGURED_COUNT &&
+		overlapCount >= PREPROCESSOR_MACRO_PRESET_MIGRATION_MIN_CONFIGURED_COUNT &&
+		overlapRatio >= PREPROCESSOR_MACRO_PRESET_MIGRATION_MIN_OVERLAP_RATIO &&
+		missingRatio <= PREPROCESSOR_MACRO_PRESET_MIGRATION_MAX_MISSING_RATIO;
+	let reason = 'eligible';
+	if (presetCount === 0) {
+		reason = 'empty-preset';
+	} else if (configuredCount < PREPROCESSOR_MACRO_PRESET_MIGRATION_MIN_CONFIGURED_COUNT) {
+		reason = 'too-few-configured-macros';
+	} else if (overlapCount < PREPROCESSOR_MACRO_PRESET_MIGRATION_MIN_CONFIGURED_COUNT) {
+		reason = 'too-few-preset-overlap-macros';
+	} else if (overlapRatio < PREPROCESSOR_MACRO_PRESET_MIGRATION_MIN_OVERLAP_RATIO) {
+		reason = 'low-preset-overlap-ratio';
+	} else if (missingRatio > PREPROCESSOR_MACRO_PRESET_MIGRATION_MAX_MISSING_RATIO) {
+		reason = 'too-many-missing-preset-macros';
+	}
+
+	const merged: Record<string, unknown> = { ...configured };
+	if (eligible) {
+		for (const [name, value] of missingEntries) {
+			merged[name] = value;
+		}
+	}
+	return {
+		eligible,
+		shouldUpdate: eligible && missingCount > 0,
+		reason,
+		configuredCount,
+		presetCount,
+		overlapCount,
+		missingCount,
+		missingNames: missingEntries.map(([name]) => name),
+		merged
+	};
+}
+
 export async function seedPreprocessorMacrosSettingIfMissing(
 	options: SeedPreprocessorMacroOptions
 ): Promise<boolean> {
@@ -319,7 +430,57 @@ export async function seedPreprocessorMacrosSettingIfMissing(
 	}
 	if (hasExplicitPreprocessorMacroSetting()) {
 		await options.context.workspaceState.update(PREPROCESSOR_MACROS_SEEDED_KEY, true);
-		return false;
+		if (
+			options.context.workspaceState.get<number>(PREPROCESSOR_MACROS_PRESET_MIGRATION_KEY, 0) >=
+			PREPROCESSOR_MACROS_PRESET_MIGRATION_VERSION
+		) {
+			return false;
+		}
+		const explicitSetting = readExplicitPreprocessorMacroSetting();
+		if (!explicitSetting) {
+			await options.context.workspaceState.update(
+				PREPROCESSOR_MACROS_PRESET_MIGRATION_KEY,
+				PREPROCESSOR_MACROS_PRESET_MIGRATION_VERSION
+			);
+			return false;
+		}
+		const preset = normalizePreprocessorMacroPreset(await options.fetchPreset());
+		const completion = computePreprocessorMacroPresetCompletion(explicitSetting.value, preset);
+		if (!completion.shouldUpdate) {
+			await options.context.workspaceState.update(
+				PREPROCESSOR_MACROS_PRESET_MIGRATION_KEY,
+				PREPROCESSOR_MACROS_PRESET_MIGRATION_VERSION
+			);
+			if (!completion.eligible) {
+				options.logClient(
+					`skip nsf.preprocessorMacros preset completion: ${completion.reason} ` +
+					`configured=${completion.configuredCount} preset=${completion.presetCount} overlap=${completion.overlapCount}`
+				);
+			}
+			return false;
+		}
+		await workspace
+			.getConfiguration('nsf', explicitSetting.resource)
+			.update('preprocessorMacros', completion.merged, explicitSetting.target);
+		await options.context.workspaceState.update(
+			PREPROCESSOR_MACROS_PRESET_MIGRATION_KEY,
+			PREPROCESSOR_MACROS_PRESET_MIGRATION_VERSION
+		);
+		const sample = completion.missingNames.slice(0, 12).join(', ');
+		options.logClient(
+			`completed old nsf.preprocessorMacros preset with ${completion.missingCount} missing entries` +
+			(sample ? `: ${sample}${completion.missingCount > 12 ? ', ...' : ''}` : '')
+		);
+		return true;
+	}
+	if (
+		options.context.workspaceState.get<number>(PREPROCESSOR_MACROS_PRESET_MIGRATION_KEY, 0) <
+		PREPROCESSOR_MACROS_PRESET_MIGRATION_VERSION
+	) {
+		await options.context.workspaceState.update(
+			PREPROCESSOR_MACROS_PRESET_MIGRATION_KEY,
+			PREPROCESSOR_MACROS_PRESET_MIGRATION_VERSION
+		);
 	}
 	if (options.context.workspaceState.get<boolean>(PREPROCESSOR_MACROS_SEEDED_KEY, false)) {
 		return false;
@@ -335,6 +496,10 @@ export async function seedPreprocessorMacrosSettingIfMissing(
 		.getConfiguration('nsf')
 		.update('preprocessorMacros', preset, ConfigurationTarget.Workspace);
 	await options.context.workspaceState.update(PREPROCESSOR_MACROS_SEEDED_KEY, true);
+	await options.context.workspaceState.update(
+		PREPROCESSOR_MACROS_PRESET_MIGRATION_KEY,
+		PREPROCESSOR_MACROS_PRESET_MIGRATION_VERSION
+	);
 	options.logClient(`seeded nsf.preprocessorMacros workspace setting with ${Object.keys(preset).length} entries`);
 	return true;
 }

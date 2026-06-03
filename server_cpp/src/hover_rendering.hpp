@@ -42,6 +42,7 @@ struct HoverSymbolMarkdownInput {
 struct HoverMacroMarkdownInput {
   std::string code;
   std::string kindLabel;
+  std::vector<std::string> notes;
   std::string definedAt;
   std::string leadingDoc;
   std::string inlineDoc;

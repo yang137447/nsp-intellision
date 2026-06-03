@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -184,6 +185,196 @@ static bool handleLiteralConditionalDirective(
   }
 
   return false;
+}
+
+static std::string uppercaseAsciiCopy(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char ch) {
+                   return static_cast<char>(std::toupper(ch));
+                 });
+  return value;
+}
+
+static std::vector<std::string>
+collectQuotedStringsOutsideComments(const std::string &lineText,
+                                     size_t startOffset,
+                                     bool inBlockCommentAtLineStart) {
+  std::vector<std::string> values;
+  bool inBlockComment = inBlockCommentAtLineStart;
+  bool inString = false;
+  std::string current;
+  for (size_t i = 0; i < lineText.size(); i++) {
+    const char ch = lineText[i];
+    const char next = (i + 1 < lineText.size()) ? lineText[i + 1] : '\0';
+    if (inBlockComment) {
+      if (ch == '*' && next == '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (inString) {
+      if (ch == '"' && (i == 0 || lineText[i - 1] != '\\')) {
+        values.push_back(current);
+        current.clear();
+        inString = false;
+        continue;
+      }
+      if (i >= startOffset)
+        current.push_back(ch);
+      continue;
+    }
+    if (ch == '/' && next == '/') {
+      break;
+    }
+    if (ch == '/' && next == '*') {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    if (i < startOffset)
+      continue;
+    if (ch == '"') {
+      inString = true;
+      current.clear();
+      continue;
+    }
+  }
+  return values;
+}
+
+static bool parseArtDefaultZeroMacroLine(
+    const std::string &uri, const std::string &lineText,
+    const std::vector<LexToken> &tokens, bool inBlockCommentAtLineStart,
+    int lineIndex, ArtDefaultZeroMacro &out) {
+  out = ArtDefaultZeroMacro{};
+  if (tokens.size() < 3 || tokens[0].kind != LexToken::Kind::Punct ||
+      tokens[0].text != "#" || tokens[1].kind != LexToken::Kind::Identifier ||
+      tokens[1].text != "art" || tokens[2].kind != LexToken::Kind::Identifier) {
+    return false;
+  }
+
+  const std::vector<std::string> quoted =
+      collectQuotedStringsOutsideComments(lineText, tokens[2].end,
+                                           inBlockCommentAtLineStart);
+  if (quoted.size() < 2)
+    return false;
+  const std::string artType = uppercaseAsciiCopy(trimRightCopy(
+      trimLeftCopy(quoted[1])));
+  if (artType != "BOOL" && artType != "INT")
+    return false;
+
+  out.name = tokens[2].text;
+  out.artType = artType;
+  out.uri = uri;
+  out.line = lineIndex;
+  out.start =
+      byteOffsetInLineToUtf16(lineText, static_cast<int>(tokens[2].start));
+  out.end =
+      byteOffsetInLineToUtf16(lineText, static_cast<int>(tokens[2].end));
+  if (out.end < out.start)
+    out.end = out.start;
+  return !out.name.empty();
+}
+
+static bool parseStrictIntLiteral(const std::string &text, int &out) {
+  if (text.empty())
+    return false;
+  size_t index = 0;
+  bool negative = false;
+  if (text[index] == '+' || text[index] == '-') {
+    negative = text[index] == '-';
+    index++;
+  }
+  if (index >= text.size())
+    return false;
+
+  int base = 10;
+  if (index + 1 < text.size() && text[index] == '0' &&
+      (text[index + 1] == 'x' || text[index + 1] == 'X')) {
+    base = 16;
+    index += 2;
+    if (index >= text.size())
+      return false;
+  }
+
+  long long value = 0;
+  for (; index < text.size(); index++) {
+    const unsigned char ch = static_cast<unsigned char>(text[index]);
+    int digit = -1;
+    if (ch >= '0' && ch <= '9') {
+      digit = ch - '0';
+    } else if (base == 16 && ch >= 'a' && ch <= 'f') {
+      digit = 10 + ch - 'a';
+    } else if (base == 16 && ch >= 'A' && ch <= 'F') {
+      digit = 10 + ch - 'A';
+    } else {
+      return false;
+    }
+    if (digit >= base)
+      return false;
+    value = value * base + digit;
+    const long long signedValue = negative ? -value : value;
+    if (signedValue < std::numeric_limits<int>::min() ||
+        signedValue > std::numeric_limits<int>::max()) {
+      return false;
+    }
+  }
+  out = static_cast<int>(negative ? -value : value);
+  return true;
+}
+
+static bool parseArtCompanionConstantLine(
+    const std::string &uri, const std::string &lineText,
+    const std::vector<LexToken> &tokens, int lineIndex,
+    ArtCompanionConstant &out) {
+  out = ArtCompanionConstant{};
+  if (tokens.size() != 4 || tokens[0].kind != LexToken::Kind::Punct ||
+      tokens[0].text != "#" || tokens[1].kind != LexToken::Kind::Identifier ||
+      tokens[1].text != "define" ||
+      tokens[2].kind != LexToken::Kind::Identifier) {
+    return false;
+  }
+  int value = 0;
+  if (!parseStrictIntLiteral(tokens[3].text, value))
+    return false;
+
+  out.name = tokens[2].text;
+  out.value = value;
+  out.uri = uri;
+  out.line = lineIndex;
+  out.start =
+      byteOffsetInLineToUtf16(lineText, static_cast<int>(tokens[2].start));
+  out.end =
+      byteOffsetInLineToUtf16(lineText, static_cast<int>(tokens[2].end));
+  if (out.end < out.start)
+    out.end = out.start;
+  return !out.name.empty();
+}
+
+static void recordPendingArtCompanionConstant(
+    const ArtCompanionConstant &constant,
+    std::vector<ArtCompanionConstant> &pending,
+    std::unordered_set<std::string> &blocked) {
+  if (constant.name.empty() || blocked.find(constant.name) != blocked.end())
+    return;
+  for (auto it = pending.begin(); it != pending.end(); ++it) {
+    if (it->name != constant.name)
+      continue;
+    if (it->value != constant.value) {
+      pending.erase(it);
+      blocked.insert(constant.name);
+    }
+    return;
+  }
+  pending.push_back(constant);
+}
+
+static void clearPendingArtCompanionConstants(
+    std::vector<ArtCompanionConstant> &pending,
+    std::unordered_set<std::string> &blocked) {
+  pending.clear();
+  blocked.clear();
 }
 
 static void
@@ -719,6 +910,62 @@ void extractDefinitions(const std::string &uri, const std::string &text,
       }
     }
 
+    lineIndex++;
+  }
+}
+
+void extractArtDefaultZeroMacros(
+    const std::string &uri, const std::string &text,
+    std::vector<ArtDefaultZeroMacro> &artMacrosOut) {
+  std::istringstream stream(text);
+  std::string lineText;
+  bool inBlockComment = false;
+  std::vector<char> mask;
+  int lineIndex = 0;
+  std::vector<LiteralConditionalFrame> conditionalStack;
+  std::vector<ArtCompanionConstant> pendingConstants;
+  std::unordered_set<std::string> blockedPendingConstants;
+
+  while (std::getline(stream, lineText)) {
+    const bool blockAtLineStart = inBlockComment;
+    bool maskBlock = inBlockComment;
+    buildCodeMaskForLine(lineText, maskBlock, mask);
+    inBlockComment = maskBlock;
+
+    const auto rawTokens = lexLineTokens(lineText);
+    std::vector<LexToken> tokens;
+    tokens.reserve(rawTokens.size());
+    for (const auto &t : rawTokens) {
+      if (t.start < mask.size() && mask[t.start])
+        tokens.push_back(t);
+    }
+
+    if (handleLiteralConditionalDirective(tokens, conditionalStack)) {
+      lineIndex++;
+      continue;
+    }
+    if (!literalConditionalStackIsActive(conditionalStack)) {
+      lineIndex++;
+      continue;
+    }
+
+    ArtDefaultZeroMacro artMacro;
+    if (parseArtDefaultZeroMacroLine(uri, lineText, tokens, blockAtLineStart,
+                                     lineIndex, artMacro)) {
+      artMacro.companionConstants = pendingConstants;
+      artMacrosOut.push_back(std::move(artMacro));
+      clearPendingArtCompanionConstants(pendingConstants,
+                                        blockedPendingConstants);
+      lineIndex++;
+      continue;
+    }
+
+    ArtCompanionConstant companion;
+    if (parseArtCompanionConstantLine(uri, lineText, tokens, lineIndex,
+                                      companion)) {
+      recordPendingArtCompanionConstant(companion, pendingConstants,
+                                        blockedPendingConstants);
+    }
     lineIndex++;
   }
 }

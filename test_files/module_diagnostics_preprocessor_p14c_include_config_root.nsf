@@ -1,0 +1,11 @@
+#include "module_diagnostics_preprocessor_p14c_include_config_shared.hlsl"
+
+float4 P14CIncludeConfigRoot(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14C_INCLUDE_RESULT
+    return float4(uv, 0.0, 1.0);
+#else
+    float2 bad = float4(uv, 0.0, 1.0);
+    return float4(bad, 0.0, 1.0);
+#endif
+}

@@ -2,6 +2,7 @@
 
 #include "diagnostics_prerequisites.hpp"
 #include "json.hpp"
+#include "preprocessor_view.hpp"
 
 #include <cstdint>
 #include <string>
@@ -34,6 +35,9 @@ struct DiagnosticsBuildOptions {
   int indeterminateMaxItems = 200;
   bool indeterminateSuppressWhenErrors = true;
   bool typeConversionRiskWarningsEnabled = false;
+  // Optional debug/audit cache scope for active-unit compiler macro analysis
+  // inputs. Normal publish paths leave this empty.
+  std::string compilerPrivateConstantCacheScope;
 };
 
 struct DiagnosticsBuildResult {
@@ -50,6 +54,10 @@ struct DiagnosticsBuildResult {
   // prerequisites were unavailable. Skips are debug/audit metadata, not
   // user-visible diagnostics.
   DiagnosticsPrerequisiteSkipStats prerequisiteSkips;
+  // Macro-state-machine health metrics for debug/audit reports. These counts
+  // are derived from the same PreprocessorView consumed by diagnostics and do
+  // not affect published diagnostics.
+  PreprocessorMacroHealthMetrics macroHealth;
   double elapsedMs = 0.0;
 };
 

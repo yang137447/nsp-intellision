@@ -1,0 +1,26 @@
+float4 P14CConfiguredMacroEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14C_CONFIG_EXPR == 3
+    float2 configuredExprPath = uv;
+#else
+    float2 configuredExprPath = float4(uv, 0.0, 1.0);
+#endif
+
+#define P14C_CONFIG_OVERRIDE 7
+#if P14C_CONFIG_OVERRIDE == 7
+    float2 sourceOverridePath = uv;
+#else
+    float2 sourceOverridePath = float4(uv, 0.0, 1.0);
+#endif
+
+#if P14C_CONFIG_EMPTY
+    float2 emptyConfigPath = float4(uv, 0.0, 1.0);
+#else
+    float2 emptyConfigPath = uv;
+#endif
+
+#if P14C_CONFIG_MISSING_EXPR == 1 || P14C_CONFIG_MISSING_ALIAS == 2
+#endif
+
+    return float4(configuredExprPath + sourceOverridePath + emptyConfigPath, 0.0, 1.0);
+}

@@ -57,6 +57,31 @@ Json serializeFileEntry(const std::string &path, const FileMeta &meta) {
     includes.a.push_back(makeString(inc));
   }
   file.o["includes"] = std::move(includes);
+
+  Json artDefaults = makeArray();
+  for (const auto &macro : meta.artDefaultZeroMacros) {
+    Json item = makeObject();
+    item.o["name"] = makeString(macro.name);
+    item.o["artType"] = makeString(macro.artType);
+    item.o["uri"] = makeString(macro.uri);
+    item.o["line"] = makeNumber(macro.line);
+    item.o["start"] = makeNumber(macro.start);
+    item.o["end"] = makeNumber(macro.end);
+    Json companionConstants = makeArray();
+    for (const auto &constant : macro.companionConstants) {
+      Json constantItem = makeObject();
+      constantItem.o["name"] = makeString(constant.name);
+      constantItem.o["value"] = makeNumber(constant.value);
+      constantItem.o["uri"] = makeString(constant.uri);
+      constantItem.o["line"] = makeNumber(constant.line);
+      constantItem.o["start"] = makeNumber(constant.start);
+      constantItem.o["end"] = makeNumber(constant.end);
+      companionConstants.a.push_back(std::move(constantItem));
+    }
+    item.o["companionConstants"] = std::move(companionConstants);
+    artDefaults.a.push_back(std::move(item));
+  }
+  file.o["artDefaultZeroMacros"] = std::move(artDefaults);
   return file;
 }
 
@@ -135,6 +160,63 @@ bool deserializeFileEntry(const Json &file, std::string &outPath,
         continue;
       if (!inc.s.empty())
         meta.includes.push_back(inc.s);
+    }
+  }
+
+  const Json *artDefaultsV = getObjectValue(file, "artDefaultZeroMacros");
+  if (artDefaultsV && artDefaultsV->type == Json::Type::Array) {
+    for (const auto &item : artDefaultsV->a) {
+      if (item.type != Json::Type::Object)
+        continue;
+      ArtDefaultZeroMacro macro;
+      const Json *nameV = getObjectValue(item, "name");
+      const Json *typeV = getObjectValue(item, "artType");
+      const Json *uriV = getObjectValue(item, "uri");
+      const Json *lineV = getObjectValue(item, "line");
+      const Json *startV = getObjectValue(item, "start");
+      const Json *endV = getObjectValue(item, "end");
+      macro.name = nameV ? getStringValue(*nameV) : "";
+      macro.artType = typeV ? getStringValue(*typeV) : "";
+      macro.uri = uriV ? getStringValue(*uriV) : "";
+      macro.line = lineV ? static_cast<int>(getNumberValue(*lineV)) : 0;
+      macro.start = startV ? static_cast<int>(getNumberValue(*startV)) : 0;
+      macro.end = endV ? static_cast<int>(getNumberValue(*endV)) : macro.start;
+      const Json *companionV = getObjectValue(item, "companionConstants");
+      if (companionV && companionV->type == Json::Type::Array) {
+        for (const auto &constantItem : companionV->a) {
+          if (constantItem.type != Json::Type::Object)
+            continue;
+          ArtCompanionConstant constant;
+          const Json *constantNameV = getObjectValue(constantItem, "name");
+          const Json *constantValueV = getObjectValue(constantItem, "value");
+          const Json *constantUriV = getObjectValue(constantItem, "uri");
+          const Json *constantLineV = getObjectValue(constantItem, "line");
+          const Json *constantStartV = getObjectValue(constantItem, "start");
+          const Json *constantEndV = getObjectValue(constantItem, "end");
+          constant.name =
+              constantNameV ? getStringValue(*constantNameV) : "";
+          constant.value = constantValueV
+                               ? static_cast<int>(getNumberValue(
+                                     *constantValueV))
+                               : 0;
+          constant.uri = constantUriV ? getStringValue(*constantUriV) : "";
+          constant.line = constantLineV
+                              ? static_cast<int>(getNumberValue(
+                                    *constantLineV))
+                              : 0;
+          constant.start = constantStartV
+                               ? static_cast<int>(getNumberValue(
+                                     *constantStartV))
+                               : 0;
+          constant.end = constantEndV
+                             ? static_cast<int>(getNumberValue(*constantEndV))
+                             : constant.start;
+          if (!constant.name.empty() && !constant.uri.empty())
+            macro.companionConstants.push_back(std::move(constant));
+        }
+      }
+      if (!macro.name.empty() && !macro.uri.empty())
+        meta.artDefaultZeroMacros.push_back(std::move(macro));
     }
   }
 

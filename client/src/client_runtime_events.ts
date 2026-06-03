@@ -76,6 +76,7 @@ export function registerClientRuntimeEvents(
 		}
 		if (
 			event.affectsConfiguration('nsf.intellisionPath') ||
+			event.affectsConfiguration('nsf.shaderCompilerPath') ||
 			event.affectsConfiguration('nsf.include.validUnderline') ||
 			event.affectsConfiguration('nsf.shaderFileExtensions') ||
 			event.affectsConfiguration('nsf.defines') ||

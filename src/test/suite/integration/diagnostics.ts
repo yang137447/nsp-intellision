@@ -16,6 +16,7 @@ import {
 	waitForClientQuiescent,
 	waitForDiagnostics,
 	waitForDiagnosticsWithTouches,
+	waitForHoverText,
 	waitForIndexingIdle,
 	withTemporaryIntellisionPath
 } from '../test_helpers';
@@ -222,6 +223,511 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'));
 	});
 
+	itWithDiagnosticsMode('full', 'uses the shared P14A sequential macro state machine for #if diagnostics', async () => {
+		const document = await openFixture('module_diagnostics_preprocessor_p14a_state_machine.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Undefined macro in preprocessor expression: P14A_MISSING_ONCE.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14A_LEFT_MISSING.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14A_RIGHT_MISSING.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14A_EXISTENCE_NUMERIC.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14A_RESET.')
+				);
+			},
+			'P14A sequential preprocessor diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		const countMessage = (message: string): number =>
+			diagnostics.filter((diag) => diag.message === message).length;
+		assert.strictEqual(
+			countMessage('Undefined macro in preprocessor expression: P14A_MISSING_ONCE.'),
+			1,
+			messages
+		);
+		assert.strictEqual(
+			countMessage('Undefined macro in preprocessor expression: P14A_RESET.'),
+			2,
+			messages
+		);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14A_LEFT_MISSING.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14A_RIGHT_MISSING.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14A_EXISTENCE_ONLY.'), messages);
+		assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+	});
+
+	itWithDiagnosticsMode('full', 'carries include-order #ifndef defaults and later overrides through the P14A macro state', async () => {
+		const document = await openFixture('module_diagnostics_preprocessor_p14a_include_state.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					!messages.includes('Undefined macro in preprocessor expression: P14A_INCLUDE_DEFAULT.') &&
+					!messages.includes('Undefined macro in preprocessor expression: P14A_INCLUDE_OVERRIDE.') &&
+					!messages.includes('Assignment type mismatch: float2 = float4.') &&
+					!messages.includes('Implicit truncation conversion: float4 -> float2.')
+				);
+			},
+			'P14A include-order macro state diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14A_INCLUDE_DEFAULT.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14A_INCLUDE_OVERRIDE.'), messages);
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+		assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+	});
+
+	itWithDiagnosticsMode('full', 'uses P14B inactive branch probes while continuing after merge with the active branch state', async () => {
+		const document = await openFixture('module_diagnostics_preprocessor_p14b_branch_merge.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Undefined macro in preprocessor expression: P14B_INACTIVE_BODY_MISSING.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14B_INACTIVE_ELIF_MISSING.')
+				);
+			},
+			'P14B inactive branch probe diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14B_INACTIVE_BODY_MISSING.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14B_INACTIVE_ELIF_MISSING.'), messages);
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+		assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+	});
+
+	itWithDiagnosticsMode('full', 'runs P14B branch probes through included macro state without changing the active include result', async () => {
+		const root = await openFixture('module_diagnostics_preprocessor_p14b_include_branch_root.nsf');
+		try {
+			await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+			await waitForClientQuiescent('P14B include branch root active unit settled');
+
+			const document = await openFixture('module_diagnostics_preprocessor_p14b_include_branch_shared.hlsl');
+			const diagnostics = await waitForDiagnosticsWithTouches(
+				document,
+				(value) => {
+					const messages = diagnosticMessages(value);
+					return messages.includes('Undefined macro in preprocessor expression: P14B_INCLUDE_INACTIVE_MISSING.');
+				},
+				'P14B include branch probe diagnostics'
+			);
+
+			const messages = diagnosticMessages(diagnostics);
+			assert.ok(messages.includes('Undefined macro in preprocessor expression: P14B_INCLUDE_INACTIVE_MISSING.'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14B_INCLUDE_MERGED.'), messages);
+			assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+			assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+		} finally {
+			await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+			await waitForClientQuiescent('P14B include branch active unit cleanup settled');
+		}
+	});
+
+	itWithDiagnosticsMode('full', 'resolves P14C object-like symbol chains and reports missing leaf macros once', async () => {
+		const document = await openFixture('module_diagnostics_preprocessor_p14c_symbol_chain.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return messages.includes('Undefined macro in preprocessor expression: P14C_CHAIN_MISSING_LEAF.');
+			},
+			'P14C symbol-chain preprocessor diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		const countMessage = (message: string): number =>
+			diagnostics.filter((diag) => diag.message === message).length;
+		assert.strictEqual(
+			countMessage('Undefined macro in preprocessor expression: P14C_CHAIN_MISSING_LEAF.'),
+			1,
+			messages
+		);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14C_CHAIN_MISSING_TOP.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14C_CHAIN_MISSING_ALIAS.'), messages);
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+		assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+	});
+
+	itWithDiagnosticsMode('full', 'uses P14C configured macro expressions as shared preprocessor inputs', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
+		const originalMacros = inspectedMacros?.workspaceValue;
+		try {
+			await configuration.update(
+				'preprocessorMacros',
+				{
+					P14C_CONFIG_BASE: '2',
+					P14C_CONFIG_EXPR: '(P14C_CONFIG_BASE + 1)',
+					P14C_CONFIG_OVERRIDE: '1',
+					P14C_CONFIG_EMPTY: '',
+					P14C_CONFIG_MISSING_EXPR: 'P14C_CONFIG_MISSING_LEAF + 1',
+					P14C_CONFIG_MISSING_ALIAS: 'P14C_CONFIG_MISSING_LEAF + 2'
+				},
+				vscode.ConfigurationTarget.Workspace
+			);
+			await waitForClientQuiescent('P14C configured macro setting settled');
+
+			const document = await openFixture('module_diagnostics_preprocessor_p14c_configured_macros.nsf');
+			const diagnostics = await waitForDiagnosticsWithTouches(
+				document,
+				(value) => {
+					const messages = diagnosticMessages(value);
+					return messages.includes('Undefined macro in preprocessor expression: P14C_CONFIG_MISSING_LEAF.');
+				},
+				'P14C configured macro diagnostics'
+			);
+
+			const messages = diagnosticMessages(diagnostics);
+			const countMessage = (message: string): number =>
+				diagnostics.filter((diag) => diag.message === message).length;
+			assert.strictEqual(
+				countMessage('Undefined macro in preprocessor expression: P14C_CONFIG_MISSING_LEAF.'),
+				1,
+				messages
+			);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14C_CONFIG_MISSING_EXPR.'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14C_CONFIG_MISSING_ALIAS.'), messages);
+			assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+			assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+		} finally {
+			await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);
+			await waitForClientQuiescent('P14C configured macro cleanup settled');
+		}
+	});
+
+	itWithDiagnosticsMode('full', 'applies P14C configured macro chains inside active-unit include context', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
+		const originalMacros = inspectedMacros?.workspaceValue;
+		try {
+			await configuration.update(
+				'preprocessorMacros',
+				{
+					P14C_INCLUDE_CONFIG_BASE: '4',
+					P14C_INCLUDE_CONFIG_EXPR: 'P14C_INCLUDE_CONFIG_BASE + 1',
+					P14C_INCLUDE_SOURCE_OVERRIDE: '1',
+					P14C_INCLUDE_MISSING_EXPR: 'P14C_INCLUDE_MISSING_LEAF + 1'
+				},
+				vscode.ConfigurationTarget.Workspace
+			);
+			await waitForClientQuiescent('P14C include configured macro setting settled');
+
+			const root = await openFixture('module_diagnostics_preprocessor_p14c_include_config_root.nsf');
+			await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+			await waitForClientQuiescent('P14C include configured macro root active unit settled');
+
+			const document = await openFixture('module_diagnostics_preprocessor_p14c_include_config_shared.hlsl');
+			const diagnostics = await waitForDiagnosticsWithTouches(
+				document,
+				(value) => {
+					const messages = diagnosticMessages(value);
+					return messages.includes('Undefined macro in preprocessor expression: P14C_INCLUDE_MISSING_LEAF.');
+				},
+				'P14C include configured macro diagnostics'
+			);
+
+			const messages = diagnosticMessages(diagnostics);
+			assert.ok(messages.includes('Undefined macro in preprocessor expression: P14C_INCLUDE_MISSING_LEAF.'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14C_INCLUDE_CONFIG_EXPR.'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14C_INCLUDE_SOURCE_OVERRIDE.'), messages);
+			assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+			assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+		} finally {
+			await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+			await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);
+			await waitForClientQuiescent('P14C include configured macro cleanup settled');
+		}
+	});
+
+	itWithDiagnosticsMode('full', 'expands P14D function-like macros in shared preprocessor expressions', async () => {
+		const document = await openFixture('module_diagnostics_preprocessor_p14d_function_macros.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Undefined macro in preprocessor expression: P14D_MISSING_ARG.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14D_MISSING_BOUND.') &&
+					messages.includes('Macro stringization is not numeric in preprocessor expression: P14D_STRINGIZE.') &&
+					messages.includes('Recursive macro expansion in preprocessor expression: P14D_RECURSE.')
+				);
+			},
+			'P14D function-like macro preprocessor diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		const stringizeDiag = diagnostics.find(
+			(diag) => diag.message === 'Macro stringization is not numeric in preprocessor expression: P14D_STRINGIZE.'
+		);
+		const recursiveDiag = diagnostics.find(
+			(diag) => diag.message === 'Recursive macro expansion in preprocessor expression: P14D_RECURSE.'
+		);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14D_MISSING_ARG.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14D_MISSING_BOUND.'), messages);
+		assert.ok(stringizeDiag, messages);
+		assert.strictEqual(stringizeDiag!.severity, vscode.DiagnosticSeverity.Warning);
+		assert.ok(recursiveDiag, messages);
+		assert.strictEqual(recursiveDiag!.severity, vscode.DiagnosticSeverity.Warning);
+		assert.ok(!messages.includes('Function-like macro is not supported in preprocessor expression'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: MODE.'), messages);
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+		assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+	});
+
+	itWithDiagnosticsMode('full', 'expands P14D function-like macros inside active-unit include context', async () => {
+		const root = await openFixture('module_diagnostics_preprocessor_p14d_include_root.nsf');
+		try {
+			await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
+			await waitForClientQuiescent('P14D include function-like macro root active unit settled');
+
+			const document = await openFixture('module_diagnostics_preprocessor_p14d_include_shared.hlsl');
+			const diagnostics = await waitForDiagnosticsWithTouches(
+				document,
+				(value) => {
+					const messages = diagnosticMessages(value);
+					return messages.includes(
+						'Undefined macro in preprocessor expression: P14D_INCLUDE_VALUE_P14D_INCLUDE_MISSING_SUFFIX.'
+					);
+				},
+				'P14D include function-like macro diagnostics'
+			);
+
+			const messages = diagnosticMessages(diagnostics);
+			assert.ok(
+				messages.includes(
+					'Undefined macro in preprocessor expression: P14D_INCLUDE_VALUE_P14D_INCLUDE_MISSING_SUFFIX.'
+				),
+				messages
+			);
+			assert.ok(!messages.includes('Function-like macro is not supported in preprocessor expression'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: MODE.'), messages);
+			assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+			assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+		} finally {
+			await vscode.commands.executeCommand('nsf._clearActiveUnitForTests');
+			await waitForClientQuiescent('P14D include function-like macro cleanup settled');
+		}
+	});
+
+	itWithDiagnosticsMode('full', 'keeps P14F focus selector macros explicit without guessing global defaults', async () => {
+		const document = await openFixture('module_diagnostics_preprocessor_p14f_focus_macros.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Undefined macro in preprocessor expression: COLOR_CHANGE_MODE.') &&
+					messages.includes('Undefined macro in preprocessor expression: EMISSIVE_MODE.') &&
+					messages.includes('Undefined macro in preprocessor expression: FOLIAGE_MODE.')
+				);
+			},
+			'P14F focus selector macro diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: COLOR_CHANGE_MODE.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: EMISSIVE_MODE.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: FOLIAGE_MODE.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: COLOR_CHANGE_PICKER.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: EMISSIVE_COLOR.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: FOLIAGE_GRASS_LEAF.'), messages);
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+		assert.ok(!messages.includes('Implicit truncation conversion: float4 -> float2.'), messages);
+	});
+
+	itWithDiagnosticsMode('full', 'uses P14H #art BOOL/INT default zero as shared preprocessor input', async () => {
+		await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'p14h_art_defaults')], async () => {
+			await waitForIndexingIdle('indexing idle for P14H art default diagnostics');
+			const document = await openFixture('p14h_art_defaults/module_diagnostics_preprocessor_p14h_art_default.nsf');
+
+			const diagnostics = await waitForDiagnostics(
+				document,
+				(value) => {
+					const messages = diagnosticMessages(value);
+					return (
+						messages.includes('Assignment type mismatch: float3 = float2.') &&
+						messages.includes('Undefined macro in preprocessor expression: P14H_ART_FLOAT_VALUE.') &&
+						messages.includes('Undefined macro in preprocessor expression: P14H_COMMENTED_ART.') &&
+						messages.includes('Undefined macro in preprocessor expression: P14H_ART_MISSING_ENUM.') &&
+						messages.includes('Undefined macro in preprocessor expression: P14H_ART_CONFLICT_PICKER.') &&
+						!messages.includes('Undefined macro in preprocessor expression: P14H_ART_DEFAULT_MODE.') &&
+						!messages.includes('Undefined macro in preprocessor expression: P14H_ART_DEFAULT_INT.') &&
+						!messages.includes('Undefined macro in preprocessor expression: P14H_ART_MODE_PICKER.') &&
+						!messages.includes('Undefined macro in preprocessor expression: P14H_ART_CONFLICT_MODE.')
+					);
+				},
+				'P14H #art default-zero diagnostics'
+			);
+
+			const messages = diagnosticMessages(diagnostics);
+			const mismatchCount = diagnostics.filter(
+				(diag) => diag.message === 'Assignment type mismatch: float3 = float2.'
+			).length;
+			assert.strictEqual(mismatchCount, 1, messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14H_ART_DEFAULT_MODE.'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14H_ART_DEFAULT_INT.'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14H_ART_MODE_PICKER.'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14H_ART_CONFLICT_MODE.'), messages);
+			assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14H_ART_SOURCE_MODE.'), messages);
+			assert.ok(messages.includes('Undefined macro in preprocessor expression: P14H_ART_FLOAT_VALUE.'), messages);
+			assert.ok(messages.includes('Undefined macro in preprocessor expression: P14H_COMMENTED_ART.'), messages);
+			assert.ok(messages.includes('Undefined macro in preprocessor expression: P14H_ART_MISSING_ENUM.'), messages);
+			assert.ok(messages.includes('Undefined macro in preprocessor expression: P14H_ART_CONFLICT_PICKER.'), messages);
+
+			const hoverPosition = positionOf(document, 'P14H_ART_DEFAULT_MODE');
+			const hovers = await waitForHoverText(
+				document,
+				hoverPosition,
+				(text) => text.includes('Active value: `0`') && text.includes('#art BOOL/INT default zero'),
+				'P14H #art default-zero macro hover'
+			);
+			const hoverText = hoverToText(hovers);
+			assert.ok(hoverText.includes('Defined at:'), hoverText);
+
+			const companionHoverPosition = positionOf(document, 'P14H_ART_MODE_PICKER');
+			const companionHovers = await waitForHoverText(
+				document,
+				companionHoverPosition,
+				(text) => text.includes('Active value: `1`') && text.includes('#art companion enum constant'),
+				'P14H #art companion enum macro hover'
+			);
+			const companionHoverText = hoverToText(companionHovers);
+			assert.ok(companionHoverText.includes('Defined at:'), companionHoverText);
+		});
+	});
+
+	itWithDiagnosticsMode('full', 'lets configured preprocessor macros override P14H #art default zero', async () => {
+		await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'p14h_art_defaults')], async () => {
+			await waitForIndexingIdle('indexing idle for P14H art config override');
+			const configuration = vscode.workspace.getConfiguration('nsf');
+			const inspectedMacros = configuration.inspect<Record<string, string | number | boolean>>('preprocessorMacros');
+			const originalMacros = inspectedMacros?.workspaceValue;
+			try {
+				await configuration.update(
+					'preprocessorMacros',
+					{ P14H_ART_CONFIG_MODE: '1' },
+					vscode.ConfigurationTarget.Workspace
+				);
+				await waitForClientQuiescent('P14H configured art macro settled');
+				const document = await openFixture(
+					'p14h_art_defaults/module_diagnostics_preprocessor_p14h_art_config_override.nsf'
+				);
+				const diagnostics = await waitForDiagnostics(
+					document,
+					(value) => diagnosticMessages(value).includes('Assignment type mismatch: float3 = float2.'),
+					'P14H configured macro override diagnostics'
+				);
+				const messages = diagnosticMessages(diagnostics);
+				assert.ok(messages.includes('Assignment type mismatch: float3 = float2.'), messages);
+				assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14H_ART_CONFIG_MODE.'), messages);
+			} finally {
+				await configuration.update('preprocessorMacros', originalMacros, vscode.ConfigurationTarget.Workspace);
+				await waitForClientQuiescent('P14H configured art macro cleanup settled');
+			}
+		});
+	});
+
+	itWithDiagnosticsMode('full', 'uses P14I active-closure compiler private numeric constants before source order', async () => {
+		const document = await openFixture(
+			'p14i_compiler_private_constants/module_diagnostics_preprocessor_p14i_private_constants.nsf'
+		);
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Undefined macro in preprocessor expression: P14I_CONFLICT_ENUM.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14I_UNDEF_ENUM.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14I_EXPR_ENUM.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14I_FUNCTION_ENUM.') &&
+					messages.includes('Undefined macro in preprocessor expression: P14I_INACTIVE_ENUM.') &&
+					!messages.includes('Undefined macro in preprocessor expression: P14I_FORWARD_ENUM.') &&
+					!messages.includes('Undefined macro in preprocessor expression: P14I_OVERRIDE_ENUM.')
+				);
+			},
+			'P14I compiler private constant diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14I_FORWARD_ENUM.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14I_OVERRIDE_ENUM.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14I_CONFLICT_ENUM.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14I_UNDEF_ENUM.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14I_EXPR_ENUM.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14I_FUNCTION_ENUM.'), messages);
+		assert.ok(messages.includes('Undefined macro in preprocessor expression: P14I_INACTIVE_ENUM.'), messages);
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+
+		const hoverPosition = positionOf(document, 'P14I_FORWARD_ENUM');
+		const hovers = await waitForHoverText(
+			document,
+			hoverPosition,
+			(text) =>
+				text.includes('Active value: `3`') &&
+				text.includes('active unit compiler private numeric constant'),
+			'P14I compiler private constant hover'
+		);
+		const hoverText = hoverToText(hovers);
+		assert.ok(hoverText.includes('p14i_private_constant_defs.hlsl'), hoverText);
+	});
+
+	itWithDiagnosticsMode('full', 'uses P14K C++ compiler macro snapshot aliases before source order', async () => {
+		const document = await openFixture(
+			'p14k_compiler_macro_snapshot/module_diagnostics_preprocessor_p14k_compiler_snapshot.nsf'
+		);
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					!messages.includes('Undefined macro in preprocessor expression: P14K_PUBLIC_MODE.') &&
+					!messages.includes('Undefined macro in preprocessor expression: P14K_MODE_TWO.') &&
+					!messages.includes('Undefined macro in preprocessor expression: P14K_MISSING_BRANCH.') &&
+					!messages.includes('Undefined macro in preprocessor expression: P14K_OVERRIDE_MODE.') &&
+					!messages.includes('Undefined macro in preprocessor expression: P14K_MISSING_OVERRIDE_BRANCH.') &&
+					!messages.includes('Assignment type mismatch: float2 = float4.')
+				);
+			},
+			'P14K compiler macro snapshot diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14K_PUBLIC_MODE.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14K_MODE_TWO.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14K_MISSING_BRANCH.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14K_OVERRIDE_MODE.'), messages);
+		assert.ok(!messages.includes('Undefined macro in preprocessor expression: P14K_MISSING_OVERRIDE_BRANCH.'), messages);
+		assert.ok(!messages.includes('Assignment type mismatch: float2 = float4.'), messages);
+
+		const hoverPosition = positionOf(document, 'P14K_PUBLIC_MODE');
+		const hovers = await waitForHoverText(
+			document,
+			hoverPosition,
+			(text) =>
+				text.includes('Active value: `2`') &&
+				text.includes('active unit compiler macro snapshot'),
+			'P14K compiler macro snapshot hover'
+		);
+		const hoverText = hoverToText(hovers);
+		assert.ok(hoverText.includes('P14K_PUBLIC_MODE P14K_MODE_TWO'), hoverText);
+	});
+
 	it('uses active-unit prefix macros when a target include has a dot segment', async () => {
 		const root = await openFixture('module_diagnostics_active_unit_dot_include_root.nsf');
 		try {
@@ -323,9 +829,34 @@ export function registerDiagnosticsTests(): void {
 			'API_SUPPORT_SV_VERTEX_ID',
 			'API_SUPPORT_FRAGCOORD',
 			'API_SUPPORT_TEXTURE_GATHER',
+			'GL3_PROFILE',
 			'SYSTEM_SUPPORT_DEPTH_BUFFER_AS_TEXTURE',
 			'GLES_USE_UBO',
 			'SYSTEM_SUPPORT_SRGB'
+		];
+		const stableSourceConstantMacros: Record<string, string> = {
+			EMISSIVE_COLOR: '1',
+			FOLIAGE_TREE_BRANCH: '1',
+			FOLIAGE_TREE_LEAF: '2',
+			FOLIAGE_GRASS_BRANCH: '3',
+			FOLIAGE_GRASS_LEAF: '4'
+		};
+		const legacyUndefinedZeroMacros = [
+			'COLOR_CHANGE_PICKER',
+			'COLOR_CHANGE_MULTIPLE',
+			'COLOR_CHANGE_GRADIENT',
+			'CHANNEL_COLOR_CHANGE',
+			'CHANNEL_COLOR_CHANGE_GRADIENT',
+			'CHANNEL_COLOR_CHANGE_ID',
+			'EMISSIVE_FLOW',
+			'EMISSIVE_FLOW_UV1',
+			'EMISSIVE_PEARL',
+			'EMISSIVE_DISSOLVE_DISSORT',
+			'EMISSIVE_THIN_FILM',
+			'RENDER_VELOCITY',
+			'HAS_THIN_TRANSLUCENT',
+			'DYNAMIC_GI_TYPE',
+			'IS_MEADOW_LOD'
 		];
 		assert.ok(Object.keys(preset).length >= 100, 'Expected a complete builtin preprocessor macro preset.');
 		assert.strictEqual(preset.QUALITY_SUPPORT_MIDDLE, '(SHADER_QUALITY!=QUALITY_LOW)');
@@ -334,6 +865,12 @@ export function registerDiagnosticsTests(): void {
 		assert.strictEqual(preset.CLUSTERED_NONE, '0');
 		for (const macro of compilerContextMacros) {
 			assert.strictEqual(preset[macro], '0', `Expected compiler context macro ${macro} in preset.`);
+		}
+		for (const [macro, value] of Object.entries(stableSourceConstantMacros)) {
+			assert.strictEqual(preset[macro], value, `Expected stable source constant ${macro} in preset.`);
+		}
+		for (const macro of legacyUndefinedZeroMacros) {
+			assert.strictEqual(preset[macro], '0', `Expected legacy undefined-zero macro ${macro} in preset.`);
 		}
 		const configuration = vscode.workspace.getConfiguration('nsf');
 		const inspectedMacros = configuration.inspect<Record<string, unknown>>('preprocessorMacros');
@@ -353,6 +890,12 @@ export function registerDiagnosticsTests(): void {
 						compilerContextMacros.every(
 							(macro) => !messages.includes(`Undefined macro in preprocessor expression: ${macro}.`)
 						) &&
+						Object.keys(stableSourceConstantMacros).every(
+							(macro) => !messages.includes(`Undefined macro in preprocessor expression: ${macro}.`)
+						) &&
+						legacyUndefinedZeroMacros.every(
+							(macro) => !messages.includes(`Undefined macro in preprocessor expression: ${macro}.`)
+						) &&
 						!messages.includes('Assignment type mismatch: float2 = float4.')
 					);
 				},
@@ -367,6 +910,12 @@ export function registerDiagnosticsTests(): void {
 			assert.ok(!settledMessages.includes('Undefined macro in preprocessor expression: QUALITY_SUPPORT_MIDDLE.'));
 			assert.ok(!settledMessages.includes('Undefined macro in preprocessor expression: PLAYERS_SELF.'));
 			for (const macro of compilerContextMacros) {
+				assert.ok(!settledMessages.includes(`Undefined macro in preprocessor expression: ${macro}.`));
+			}
+			for (const macro of Object.keys(stableSourceConstantMacros)) {
+				assert.ok(!settledMessages.includes(`Undefined macro in preprocessor expression: ${macro}.`));
+			}
+			for (const macro of legacyUndefinedZeroMacros) {
 				assert.ok(!settledMessages.includes(`Undefined macro in preprocessor expression: ${macro}.`));
 			}
 			assert.ok(!settledMessages.includes('Assignment type mismatch: float2 = float4.'));

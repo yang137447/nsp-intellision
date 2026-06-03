@@ -1,0 +1,12 @@
+#define P14B_INCLUDE_ACTIVE 0
+#include "module_diagnostics_preprocessor_p14b_include_branch_shared.hlsl"
+
+float4 P14BIncludeBranchEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14B_INCLUDE_MERGED == 2
+    return float4(uv, 0.0, 1.0);
+#else
+    float2 bad = float4(uv, 0.0, 1.0);
+    return float4(bad, 0.0, 1.0);
+#endif
+}

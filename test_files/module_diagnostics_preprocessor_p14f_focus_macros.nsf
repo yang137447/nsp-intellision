@@ -1,0 +1,31 @@
+#define COLOR_CHANGE_PICKER 1
+#define EMISSIVE_COLOR 1
+#define FOLIAGE_GRASS_LEAF 1
+
+#if COLOR_CHANGE_MODE == COLOR_CHANGE_PICKER
+#define P14F_COLOR_BRANCH 1
+#else
+#define P14F_COLOR_BRANCH 0
+#endif
+
+#if EMISSIVE_MODE == EMISSIVE_COLOR
+#define P14F_EMISSIVE_BRANCH 1
+#else
+#define P14F_EMISSIVE_BRANCH 0
+#endif
+
+#if FOLIAGE_MODE == FOLIAGE_GRASS_LEAF
+#define P14F_FOLIAGE_BRANCH 1
+#else
+#define P14F_FOLIAGE_BRANCH 0
+#endif
+
+float4 P14FFocusMacroEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14F_COLOR_BRANCH || P14F_EMISSIVE_BRANCH || P14F_FOLIAGE_BRANCH
+    float2 shouldStayInactive = float4(uv, 0.0, 1.0);
+    return float4(shouldStayInactive, 0.0, 1.0);
+#else
+    return float4(uv, 0.0, 1.0);
+#endif
+}

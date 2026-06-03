@@ -30,6 +30,9 @@ struct ServerRequestContext {
   std::unordered_map<std::string, Document> documents;
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;
+  // Optional shadercompiler root/executable path used only as a read-only
+  // profile-source discovery root by shared server-side providers.
+  std::string shaderCompilerPath;
   std::vector<std::string> shaderExtensions;
   SemanticTokenLegend semanticLegend;
   bool inlayHintsEnabled = true;

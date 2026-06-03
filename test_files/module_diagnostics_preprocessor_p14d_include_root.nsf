@@ -1,0 +1,11 @@
+#include "module_diagnostics_preprocessor_p14d_include_shared.hlsl"
+
+float4 P14DIncludeFunctionMacroEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14D_INCLUDE_SELECTED
+    return float4(uv, 0.0, 1.0);
+#else
+    float2 bad = float4(uv, 0.0, 1.0);
+    return float4(bad, 0.0, 1.0);
+#endif
+}

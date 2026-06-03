@@ -1353,559 +1353,1313 @@ P9 full audit 已把默认 `balanced` diagnostics 从 463556 降到 69902；P10 
 - 是否补齐 focused fixture 或稳定 real audit sample：本阶段不新增 fixture，已生成稳定 phase-13 full audit sample。
 - 是否重新跑了对应验证并记录结果：是。
 
-## Phase 14 (P14): 宏上下文缺口闭环治理
+## Phase 14 (P14): active-branch 宏上下文契约
+
+### 重置说明
+
+2026-05-19 起，P14 全量推翻重来。此前围绕 histogram、owner taxonomy、稳定常量试探、阶段 workspace preset 试探、`GL3_PROFILE` / `FOLIAGE_MODE` / 旧版 `P14B` / 旧版 `P14C` 子批次的执行记录、返工记录和“已完成/已关闭”结论，均已作废并从本文删除，不再作为执行依据、验收依据或趋势比较依据。
+
+本次重置只保留一个新前提：P14 的问题定义改为“active branch 所需的宏上下文契约是否成立”，而不是“是否继续推导更多宏值”。
 
 ### 背景
 
-P13 full audit 剩余 `preprocessor-context` 共 `10549` 条，全部归入 `Undefined macro in preprocessor expression: <macro>.`。典型样本包括 `RENDER_VELOCITY`、`COLOR_CHANGE_MODE`、`COLOR_CHANGE_PICKER`、`COLOR_CHANGE_MULTIPLE`、`COLOR_CHANGE_GRADIENT`。
+P13 full audit 剩余 `preprocessor-context` 共 `10549` 条，典型样本集中在 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE`、`RENDER_VELOCITY` 等宏。
 
-这类问题已经不应默认归因给 parser、type 或 scope。它们表示当前 audit preset 未覆盖真实编译配置下的宏输入，或源码确实依赖未定义宏。宏 active branch 会影响 duplicate、unreachable、missing-return、undefined identifier 和 type diagnostics，因此需要优先把宏 owner 分清。
+2026-05-22 问答确认后，P14 进一步收敛为“共享预处理宏推导核心层”。它不是给若干业务宏补固定值，而是按当前 unit、include 顺序、分支状态和用户配置构建可追踪的宏状态机，供 hover、跳转和 diagnostics 共用。
+
+核心矛盾不是“LSP 还缺多少默认值”，而是当前 active unit 是否拿到了足够的上下文，使预处理器在使用点能够确认两件事：
+
+- 这个宏在此处是否已定义。
+- 当前 `#if` / `#elif` 应该进入哪条 active branch。
 
 ### 目标
 
-P14 不以“产出 histogram”为终态目标。最终目标是让真实 workspace diagnostics 使用更接近 shadercompiler 的预处理上下文，实际降低 `Undefined macro in preprocessor expression` / `preprocessor-context`，并且不通过 diagnostics-local suppress、allowlist、fallback 或猜测默认值来达成。
+建立共享宏推导核心层。hover、跳转、diagnostics 必须消费同一份宏推导快照；编辑态能力同优先，且必须满足项目现有性能指标。
 
-第一步仍需把 `Undefined macro in preprocessor expression` 从一个 canonical message group 拆成可执行的 macro owner 清单，明确哪些属于：
+P14 的完成标准不再是“收集了多少宏候选值”，而是：
 
-- compiler context / platform / quality preset。
-- enum-like stable constant，例如被 selector 引用的稳定宏值。
-- selector / profile macro，例如 material / feature / unit-local compile profile 输入。
-- source / generated config，例如 shader stage、generated header、source include 或 workspace 配置缺失。
+- 严格宏状态机成立，覆盖 include 顺序、分支状态、`#define`、`#undef`、`#ifdef`、`#ifndef`、`defined(...)`、符号链、用户配置、函数式宏和缺失后补 `0`。
+- `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 三类主痛点宏都完成独立验收，不能只打通其中一类就关闭 P14。
+- shared runtime / debug / audit 能明确区分真实来源、`#ifndef` 默认值、用户配置、缺失后补 `0`、展开链异常、分支汇合和非 active 分支状态。
+
+### 已确认规则
+
+宏来源与优先级：
+
+- 合法来源为当前 unit 可见宏和用户配置宏。当前 unit 包含 unit 本体以及按真实 include 展开顺序可见的 include 内容。
+- 同名冲突时，当前 unit 的当前链路状态优先，用户配置只补缺口；源码后续 `#define` 可以覆盖用户配置，且不报错。
+- 用户配置只支持定义宏，不支持用户侧 `undef`；空值配置按已定义且值为 `0`。
+- 用户配置表达式属于 P14 最终语义范围，按 C 预处理表达式求值；其中的符号链和缺失叶子宏继续走同一套推导规则。
+- 如果用户配置表达式能力需要扩展现有用户配置语法或改变现有字段解释方式，必须按公开配置行为变化单独确认，并同步 `README.md`、`docs/resources.md` 和 `docs/testing.md`。
+
+顺序宏状态机：
+
+- 严格按 include 展开顺序和源码顺序处理 `#define`、`#undef`、`#ifdef`、`#ifndef`、`defined(...)`、`!defined(...)`。
+- `#ifndef` / `!defined(...)` 中的默认定义只有在当前链路里位于使用点之前且确实生效时，才算当前 unit 的正式来源。
+- `#undef` 会真实清空当前宏状态；之后再次数值使用同一宏时，进入新的缺失周期并重新报错、补 `0`。
+- `#define FOO` 这种无 replacement 宏视为已定义且值为 `0`，并可沿符号链继续传播。
+- 同一路径重复 `#define` 时以后一个为准，不额外发布重定义诊断。
+
+缺失与补值：
+
+- `#ifdef FOO`、`#ifndef FOO`、`defined(FOO)` 这类存在性判断中，`FOO` 未定义不算错误。
+- `#if FOO`、`#if FOO == 1` 或混合表达式中的数值使用，如果宏未定义，则在该数值使用位置发布 `宏初始定义缺失` Error，再补 `0` 继续推导。
+- 同一表达式中同一个缺失叶子宏只报一次；同一分支中同一个缺失叶子宏只在首次使用位置报一次，后续复用补值。
+- 缺失后补出的 `0` 在当前分支内同时具备数值态和已定义态；后续 `defined(FOO)` 视为 true。
+- 补值先只在当前分支生效，不立即污染其他分支；跨 include 返回后，只要仍在同一条推导链上，补值继续有效。
+- 如果后续出现真实 `#define`，从该位置开始切换为真实值，不回溯重算前面的推导结果。
+
+分支推导：
+
+- 开发态不做全局剪枝，各分支按各自的宏状态继续推导，未激活分支里的 Error 也默认进入 diagnostics。
+- 分支汇合后发布 Info，后续采用 active branch 的宏状态继续；其他分支状态和值作为 info/debug 元数据保留。
+- 同一位置、同类、同叶子根因的多分支错误在展示层默认分组；组内保留触发 unit、上下文摘要和 include 链。
+- 底层 diagnostics 去重键至少包含文件位置、宏名 / 叶子根因、触发 unit、上下文摘要和 include 链；展示分组可以按文件位置、错误类型、宏名 / 叶子根因收敛。
+- 底层 diagnostics entity 必须逐 context 保留；展示分组只属于 presentation 层，必须通过 stable group id / diagnostic data 保留组内明细，不能改变底层计数、audit 统计或跳转来源。
+- 仅未激活分支命中的错误组需要明显标记；同时命中 active branch 的错误组也要标明 active branch 命中。排序先按是否命中 active branch，再按严重级别。
+- 不提供用户可见的 active-only 过滤开关；全分支结果默认可见。
+
+符号链和宏展开：
+
+- 符号链必须尽量解析到最终值；若链路断在缺失叶子宏，例如 `A -> B` 但 `B` 缺失，则报 `B` 宏未定义，给 `B=0` 后继续推导整条链。
+- `function-like macro`、嵌套实参、变参宏、`__VA_ARGS__`、`##` token pasting 和 `#` stringization 都属于 P14 完整语义范围。
+- 函数式宏实参先按同一套规则求值和补缺，再进入宏体展开；宏体内部引用到的外部宏也按同一套规则处理。
+- 函数式宏参数替换只在本次展开作用域内生效，不污染外部宏状态；实参拆分必须按真实预处理规则处理嵌套括号、嵌套调用和逗号。
+- `##` 拼出的新 token 若形成宏名，需要继续作为普通宏递归解析；`##` / `#` 产出非法 token 或无法继续解析时，按 `展开链异常` Warning 处理，落点在原始未展开位置。
+- 宏展开必须有严格递归 / 深度保护；触发保护时发布 `展开链异常` Warning，再按可继续路径补 `0` 推导。
+
+导航、hover 与 diagnostics：
+
+- hover 主展示只看当前 active unit + active branch 的当前值；其他分支候选值、补 `0`、展开异常、`#ifndef` 默认值路径、符号链和用户配置表达式求值过程放次级信息。
+- 如果 active branch 当前值来自补 `0`，hover 主展示仍显示该补值；若其他分支有真实值，只放次级信息。
+- 如果 active branch 当前值稳定真实，但其他分支存在补 `0` 或展开链异常，hover 主展示保持 active 值，同时给轻提示并把详情放次级信息。
+- 多步符号链主展示最终值，次级展示完整链路；若链路中有补 `0`，次级链路标明 synthesized。
+- 多次状态切换的宏，hover 次级信息展示状态时间线；长时间线默认显示摘要和关键节点，完整时间线按需展开。关键节点至少包含首次定义 / 首次缺失、`#undef`、分支汇合、覆盖来源切换、展开链异常和 `#ifndef` 默认值生效。
+- 用户配置来源不作为 `Go to Definition` 的默认 Location；当当前值来自用户配置时，`Go to Definition` 默认返回空结果，不跳到用户配置，hover 显示用户定义宏 / 用户配置表达式来源。真实 define 位于 include 中时，跳转直接到 include 的真实定义。
+- 用户配置被源码真实 define 覆盖时不进 diagnostics；hover / debug 次级信息保留“用户配置值被源码覆盖”的说明。
+- 当前生效值若来自缺失后补 `0`，跳转到这次 Error 对应的首次缺失位置；如果位置在 include 中，直接跳到 include 的首次缺失处，并给轻量交互提示，不新增 diagnostics。
+- include 内 diagnostics 挂在 include 的实际使用位置，同时保留触发 unit 和 include 链路；同一 include 位置被不同 unit / 不同上下文触发时，底层诊断不归并。
+
+缓存与刷新：
+
+- 词法 / 解析结果可以缓存，宏推导结果必须上下文敏感；缓存键至少包含宏值摘要、active branch 路径、include 调用栈和进入位置。
+- hover、跳转、diagnostics 优先基于同一份快照返回；连续快速编辑时合并抖动，只保留最新一次重算，旧任务取消即作废。
+- 对外已发布的 hover / 跳转 / diagnostics 可以来自上一份完整且内部一致的快照；freshness / pending 只表示后台调度状态，不阻止已发布快照被消费，也不得让三个能力分别读取不同版本的部分结果。
+- 为等待统一快照可以显示轻量 loading / 状态提示；旧任务取消后静默切到新快照，不额外提示。
+- 受影响文件较多时，小批量合并推送结果，避免逐文件抖动，也不等待全量结束。
+- freshness / pending 标记只用于 debug / audit，不向用户暴露；粒度为上下文实例级，即 unit + include 链 + branch 路径 + 宏摘要。
+
+### 问答案例
+
+基础解析伪代码：
+
+```text
+resolve_macro(name, usage):
+  if current_unit_chain_has_live_value(name):
+    return unit live value
+
+  if user_config_has_value(name):
+    return user config value
+
+  if usage is existence check:
+    return undefined without diagnostic
+
+  emit Error at numeric usage: macro initial definition missing
+  define synthesized name = 0 in current branch state
+  return 0
+```
+
+`#ifndef` 默认值只在当前链路和使用点之前生效：
+
+```c
+#ifndef COLOR_CHANGE_MODE
+#define COLOR_CHANGE_MODE 0
+#endif
+
+#if COLOR_CHANGE_MODE == COLOR_CHANGE_PICKER
+#endif
+```
+
+如果这段默认定义按真实 include 顺序位于使用点之前，`COLOR_CHANGE_MODE=0` 是 unit 内正式来源，不报缺失。如果默认定义位于使用点之后，则使用点仍按缺失处理，先报 Error，再补 `0` 继续推导，后续走到真实 `#define` 后从该位置开始切换。
+
+`#undef` 会开启新的缺失周期：
+
+```c
+#if FOO == 0
+#endif
+
+#undef FOO
+
+#if FOO == 0
+#endif
+```
+
+第一次数值使用 `FOO` 时若缺失，报一次并补 `0`。`#undef FOO` 会清空当前状态，后续再次使用 `FOO` 时视为新的缺失周期，需要重新报错并再次补 `0`。
+
+存在性判断不报缺失，数值使用才报：
+
+```c
+#if defined(FOO) && FOO == 1
+#endif
+```
+
+如果 `FOO` 未定义，`defined(FOO)` 正常求为 false，不报错；后面的 `FOO == 1` 是数值使用，即使左侧已足以决定短路结果，也仍然报 `FOO` 缺失并补 `0`，因为 diagnostics 要完整扫描表达式。
+
+同一表达式里的多个缺失宏都要收集：
+
+```c
+#if FOO == 1 && BAR == 2
+#endif
+```
+
+即使 `FOO` 补 `0` 后左侧已经足以决定表达式结果，`BAR` 仍需要继续求值、报缺失并补 `0`。同一表达式里同一个缺失宏重复出现时，只报一次。
+
+分支内各自推导，汇合后按 active branch 收敛：
+
+```c
+#if A
+#define X 1
+#else
+#define X 2
+#endif
+
+#if X == 1
+#endif
+```
+
+两个分支都记录各自的 `X` 值并继续推导。汇合点发布 Info，后续主链使用 active branch 的 `X` 值；其他分支值进入 hover 次级信息和 debug 元数据，不污染 active hover 主展示。
+
+符号链缺失定位到叶子宏：
+
+```c
+#define A B
+#define C B
+
+#if A == 1 || C == 2
+#endif
+```
+
+真正缺失的是叶子宏 `B`。同一表达式内 `B` 只报一次，给 `B=0` 后继续完成 `A`、`C` 的推导；如果换到另一分支，另一分支可以有自己的首次缺失 Error，但元数据要标明共享同一个叶子根因。
+
+空 replacement 按 `0` 沿链传播：
+
+```c
+#define FOO
+#define BAR FOO
+
+#if BAR == 1
+#endif
+```
+
+`FOO` 视为已定义且值为 `0`，`BAR -> FOO -> 0`，因此 `BAR` 也按 `0` 参与分支判断。
+
+函数式宏先处理实参，再展开宏体：
+
+```c
+#define IS_MODE(x) ((x) == DEFAULT_MODE)
+
+#if IS_MODE(FOO_MODE)
+#endif
+```
+
+`FOO_MODE` 作为实参先按同一套规则解析；宏体里的 `DEFAULT_MODE` 也按同一套规则解析。两者任何一个缺失，都在对应原始使用位置报错、补 `0` 后继续展开和求值。
+
+函数式宏多参数和变参都按实参逐个处理：
+
+```c
+#define IN_RANGE(x, minv, maxv) ((x) >= (minv) && (x) <= (maxv))
+#define LOG(fmt, ...) DEBUG(fmt, __VA_ARGS__)
+
+#if IN_RANGE(FOO, 1, BAR)
+#endif
+```
+
+`FOO`、`BAR` 这类缺失实参各自报错、各自补 `0`，再进入整体展开；变参宏中的每个 `__VA_ARGS__` 实参也按同一规则处理后再组装。
+
+`##` 拼出的新宏名继续解析：
+
+```c
+#define CAT(a, b) a##b
+#define PICK(name) CAT(COLOR_, name)
+
+#if PICK(CHANGE_MODE) == 1
+#endif
+```
+
+`PICK(CHANGE_MODE)` 最终形成 `COLOR_CHANGE_MODE` 后，需要继续当普通宏解析。如果 `COLOR_CHANGE_MODE` 缺失，就在原始未展开位置发布缺失 Error 并补 `0` 继续推导。
+
+`#` stringization 和非法拼接都按真实预处理链路处理：
+
+```c
+#define TO_STR(x) #x
+#define BAD_JOIN(a, b) a##b
+```
+
+字符串化结果按真实预处理语义继续流转；`##` / `#` 产出非法 token 或无法继续解析时，统一发布 `展开链异常` Warning，落点在原始未展开位置。
+
+用户配置表达式定位到配置里的缺失叶子：
+
+```text
+FOO = BAR + 1
+BAZ = BAR + 2
+```
+
+如果 `BAR` 没有 unit 来源也没有用户配置来源，正式 Error 挂在用户配置里的 `BAR`，只报一次并给 `BAR=0`；`FOO`、`BAZ` 继续复用这次补值结果。源码侧使用 `FOO` 的位置只保留触发关联信息。
+
+include 中触发的问题挂实际 include 位置：
+
+```c
+// unit.nsf
+#include "common.hlsl"
+
+// common.hlsl
+#if MISSING_MACRO == 1
+#endif
+```
+
+正式 diagnostics 挂在 `common.hlsl` 的实际使用位置，同时保留触发 unit 和 include 链。若当前值来自缺失后补 `0` 且无真实定义，跳转默认落到首次缺失位置；如果该位置在 include 内，就直接跳到 include 内。
+
+同一 include 多次引入必须按进入上下文重算：
+
+```c
+#define MODE 1
+#include "common.hlsl"
+
+#undef MODE
+#define MODE 2
+#include "common.hlsl"
+```
+
+两次进入 `common.hlsl` 的宏状态不同，不能复用同一份宏推导结果；只能复用词法 / 解析结果，宏推导快照必须带上下文敏感缓存键。
+
+hover 和跳转展示规则：
+
+```text
+active branch: A -> B -> C -> 1
+other branch:  A -> B -> MISSING, synthesized 0
+```
+
+hover 主展示当前 active branch 的最终值 `A=1`，次级信息展示完整链路、其他分支候选值和补 `0` 情况。若当前 active 值来自用户配置，跳转不跳到配置位置，只在 hover 中显示用户定义来源；若来自 include 内真实 `#define`，跳转直接到 include 内定义。
+
+用户配置被源码覆盖只进入 hover / debug：
+
+```text
+user config: FOO = 1
+unit chain:
+  #if FOO == 1
+  #endif
+  #define FOO 2
+  #if FOO == 2
+  #endif
+```
+
+前半段先用用户配置，走到源码 `#define FOO 2` 后切换为真实值。该覆盖不报 diagnostics；hover 次级信息保留用户配置曾给值、后续被源码覆盖的时间线。
+
+
+### 子阶段拆分
+
+P14A：严格顺序宏状态机。
+
+- 覆盖 `#define`、`#undef`、`#ifdef`、`#ifndef`、`defined(...)`、include 顺序、无 replacement 按 `0`、缺失后补 `0`。
+
+P14B：分支敏感推导与汇合。
+
+- 覆盖全分支推导、未激活分支 diagnostics、active branch 收敛、分支汇合 Info、错误分组展示和分支元数据。
+
+P14C：符号链与用户配置增强。
+
+- 覆盖符号链终值解析、缺失叶子定位、用户配置宏、空值按 `0`、用户配置表达式求值。若这部分改变 `nsf.preprocessorMacros` / `nsf.defines` 的公开语义，必须先停下来确认。
+
+P14D：function-like macro 完整展开。
+
+- 覆盖固定参数、嵌套实参、变参、`__VA_ARGS__`、`##`、`#`、递归 / 深度保护和展开链异常。
+
+P14E：编辑态共享集成与 audit 指标。
+
+- 覆盖 hover / 跳转 / diagnostics 共用宏推导核心层、性能指标、健康度 audit、以及 `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` / `FOLIAGE_MODE` 三类主痛点宏的收益验收。
+
+子阶段关闭要求：每个子阶段必须同时给出纯语义最小用例、至少一个真实链路组合样例、debug / audit 可观察证据，以及不会绕过共享宏推导核心层的说明。P14A / P14B 可以先形成内部语义闭环，但不能单独声明 P14 完成。
+
+### 验证计划
+
+验证分两层推进：
+
+- 先补纯宏推导语义用例，按语义点覆盖 `#define`、`#undef`、`defined`、`#ifndef`、include 顺序、缺失补 `0`、分支汇合、符号链、函数式宏、变参、`##`、`#`。
+- 再补真实链路组合用例，优先顺序为：`include + #ifndef 默认值 + 后续 #undef/#define 覆盖`，`多分支并行推导 + 分支汇合后按 active branch 收敛`，`function-like macro + 变参 + ##/# + 符号链求值`。
+- 首批真实主样本先用 `#ifndef` 默认值链路打底，再用 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 做主验收。
+- 编辑态验证必须证明 hover、跳转、diagnostics 基于同一宏推导快照且行为一致。
+- 性能验收使用项目现有测试指标，不另行发明临时性能口径。
+
+Audit 需要新增宏推导链路健康度指标：
+
+- 宏来源分布：unit、user、`#ifndef` default、synthesized zero。
+- 缺失叶子宏 top list 和补 `0` 次数。
+- 展开链异常次数、分支汇合次数、上下文敏感缓存命中率。
+- `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 三类主痛点宏的剩余缺失次数、补 `0` 次数、真实来源次数、active branch 命中次数、非 active 分支错误次数，以及 hover / 跳转 / diagnostics 一致性 sample 引用。
+
+audit 指标落地时必须定义 JSON 字段名、计数口径和分母：例如缓存命中率的分母是上下文敏感宏推导请求数，补 `0` 次数按缺失叶子宏事件计数，分支汇合次数按 context 实例内 merge point 计数。
+
+这些 audit 指标属于测试口径变化，落地实现时必须同步 `docs/testing.md`。
 
 ### 方案
 
-1. 扩展 audit 输出或新增定向提取脚本，生成 undefined macro histogram，至少包含 macro name、diagnostic count、affected unit count、affected file count、top sample line 和 sample active unit。
-2. 对 histogram 做四类分流：
-   - compiler context / platform / quality 宏：如果来自 shadercompiler 的稳定编译上下文，才能进入 `language/preprocessor_macros` 资源生成链或阶段 workspace preset。
-   - enum-like stable constant：只在确认来源和值后进入稳定常量候选；例如 `SHADINGMODELID_DEFAULT_LIT` 与 `SHADINGMODELID_HAIR`。
-   - selector / profile macro：应由真实 active unit compile profile、参数 include 或 workspace `nsf.preprocessorMacros` 提供，不进入全局资源默认值；例如 `SHADINGMODELID` 与 `COLOR_CHANGE_MODE`。
-   - source / generated config：保留为 source/generated config review，不在 LSP 内补。
-3. 对确认进入资源 preset 的宏，必须通过资源生成脚本或资源 bundle 更新；如果只是阶段审计需要的真实 workspace 值，优先更新 phase workspace copy，避免污染真实 workspace。
-4. 不在 diagnostics rule 里新增 macro allowlist、fallback 或静默默认值。
-5. 跑 5-unit / 50-unit audit，观察 `preprocessor-context` 下降以及 `semantic-source-rule` 是否随 active branch 收敛而迁移；宏影响面大时再跑 full audit。
+1. 重置 P14 baseline：后续一律以“新 P14”名义记录，旧 P14 的任何下降数据、临时 preset 试探和阶段结论不得继续引用。
+2. 第一批实现必须从共享宏推导核心层开始，不能先做 diagnostics 专用实现再回抽。
+3. P14A 到 P14E 可分阶段落地；若用户配置表达式或 function-like macro 完整展开被拆成子阶段，P14 完成前必须补齐。
+4. 除本文已通过问答确认的 P14 行为外，任何新增或偏离本文的 `nsf.preprocessorMacros` / `nsf.defines` 语义、用户配置 schema、正式资源或公开 hover / 跳转 / diagnostics 行为变化，都必须先停下来确认。
+5. focused 验证从“某宏是否被注入”升级为“宏推导快照是否正确、可追踪、可导航、可复用”。
+6. audit 口径同步升级：除 diagnostics 数量外，必须输出宏推导链路健康度指标。
+7. 宏推导核心层落地后必须同步 `docs/architecture.md`；audit 指标落地后必须同步 `docs/testing.md`。
 
 ### 验收标准
 
-- 产出 macro histogram 和 owner 分类表。
-- 每个拟新增或修改默认值的 macro 都有来源、默认值和风险说明。
-- 至少完成一批已确认宏上下文的正式治理，使 `preprocessor-context` 在 5-unit / 50-unit audit 中下降，且没有引入新的 top group。
-- full audit 能证明 P14 治理后的下降趋势成立；如果只完成部分批次，必须记录剩余 owner、阻塞项和下一批入口，不能把“只分流不下降”视为 P14 完成。
-- 如果资源 bundle 或默认 preset 变化，已更新 `docs/resources.md`、相关生成脚本说明和资源校验结果。
-- 如果改变公开 diagnostics 行为，最终说明明确记录行为变化范围。
+- 本文中旧 P14 相关记录已全部删除，且明确声明作废。
+- 新 P14 baseline 已重置，后续记录不再沿用旧阶段编号或旧趋势结论。
+- 已完成独立宏推导核心层，hover、跳转、diagnostics 只消费该核心层产出的快照。
+- P14A 到 P14E 全部完成。
+- `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 三类主痛点宏都完成可复现验收：正确推导、正确 branch、hover / 跳转 / diagnostics 一致、有可观测 diagnostics 收益。
+- “可观测 diagnostics 收益”不要求固定百分比，但必须在同口径 5-unit / 50-unit / full 或明确替代样本中证明对应宏族的 `preprocessor-context`、缺失叶子宏数或补 `0` 次数下降；若未下降，必须用最小复现证明剩余问题已超出 P14 边界。
+- 对仍 unresolved 或需要移出 P14 的问题，必须有最小复现样例、正确宏推导结果证据、hover / 跳转 / diagnostics 三者一致证据，以及为什么它已超出 P14 边界的结论说明。
+- 如果后续需要修改正式资源、workspace 默认配置或公开 hover / 跳转 / diagnostics 行为，仍需单独停下来确认，并同步更新对应事实文档。
 
-### Phase 14 执行记录
+### P14A 执行记录
 
-状态：已落地 undefined macro histogram 和 owner hint 分流；未修改资源 preset、阶段 workspace preset 或 diagnostics 发布行为。
+状态：已落地严格顺序宏状态机的 focused 语义闭环；P14A 不能单独声明 P14 完成，P14B-P14E 仍待推进。
 
 实现内容：
 
-- `src/test/suite/realWorkspace.diagnostics-audit.test.ts` 的 real workspace diagnostics audit 报告新增 `undefinedMacros` 结构化字段。
-- `undefinedMacros` 按 macro name 聚合 `Undefined macro in preprocessor expression`，记录 diagnostic count、affected unit count、affected file count、sample line、sample active unit，以及 owner hint。
-- owner hint 分为：
-  - `compiler-context-platform-quality`：只作为 shadercompiler context / platform / quality preset 候选，必须确认稳定来源后才能进入资源生成链。
-  - `material-feature-unit-profile`：应由 active unit compile profile、workspace `nsf.preprocessorMacros` 或 `nsf.defines` 提供，不进入全局资源默认值。
-  - `source-or-workspace-config`：保留为源码 include、生成头或 workspace 配置审核项，不在 LSP 内补。
-- Markdown report 新增 `Undefined Macro Histogram` 章节，包含 owner summary 和 top undefined macro 表。
-- `docs/testing.md` 已记录 audit 报告的 `undefinedMacros` histogram 口径和“owner hint 不改变 diagnostics 行为、不自动补默认宏”的边界。
+- `preprocessor_view.*` 继续作为共享预处理宏推导核心入口，diagnostics、active include context 和 expression typing 仍消费同一份 `PreprocessorView`，未新增 diagnostics-local 特判路径。
+- `#if` / `#elif` 数值表达式中的未定义 object-like macro 现在在当前 live state 首次使用处发布 `Undefined macro in preprocessor expression: <macro>.`，随后合成 `0` 并作为已定义宏继续参与后续推导，直到真实 `#define` 或 `#undef` 改变状态。
+- 同一表达式里重复出现的同一缺失宏只报一次；同一 live state 后续数值使用复用合成 `0`；`#undef` 后再次数值使用会开启新的缺失周期并重新报错。
+- `defined(...)`、`#ifdef`、`#ifndef` 的存在性判断不为未定义宏报错；混合表达式中即使左侧已决定逻辑结果，右侧数值使用仍会被扫描并收集缺失宏。
+- `#define FOO` 这种无 replacement macro 现在按已定义且值为 `0` 处理；旧的 object-like 算术 fixture 已改为 `#define ENABLE_FEATURE 1`，保持该测试继续覆盖显式数值 replacement 算术展开。
+- `PreprocessorConditionDiagnostic` / `PreprocessorMacroEvent` 补充 `macroName` / `synthesizedZero` 元数据，作为 P14A debug / audit 可观察基础；正式 audit 健康度字段仍属于 P14E 范围。
 
-全量 owner 分流结果：
+新增验证：
 
-| Owner | Macros | Diagnostics | 代表样本 |
-| --- | ---: | ---: | --- |
-| `material-feature-unit-profile` | 69 | 8819 | `EMISSIVE_MODE`、`COLOR_CHANGE_MODE`、`DYNAMIC_GI_TYPE`、`RENDER_VELOCITY`、`CHAMELEON_COLOR_ENABLE` |
-| `source-or-workspace-config` | 36 | 1000 | `PS_INPUT_HAS_INSTANCE_ID`、`SHADINGMODELID`、`NEOX_COMPUTE_SHADER`、`NEOX_PARAM_DECLARE_DOMAIN`、`DEFERRED_LIGHTING` |
-| `compiler-context-platform-quality` | 2 | 730 | `GL3_PROFILE`、`NEOX_FLOATRT_SUPPORT` |
+- 纯语义最小用例：`test_files/module_diagnostics_preprocessor_p14a_state_machine.nsf` 覆盖空 replacement 按 `0`、同表达式去重、逻辑表达式不短路收集、`defined(...)` 不报错、数值使用补 `0` 和 `#undef` 后重新报错。
+- 真实链路组合样例：`test_files/module_diagnostics_preprocessor_p14a_include_state.nsf` + `module_diagnostics_preprocessor_p14a_include_state_defs.hlsl` 覆盖 include 顺序、`#ifndef` 默认值和后续 `#undef/#define` 覆盖。
 
-Top macro histogram：
+已运行验证：
 
-| Macro | Diagnostics | Affected units | Affected files | Owner |
-| --- | ---: | ---: | ---: | --- |
-| `EMISSIVE_MODE` | 1452 | 242 | 1 | `material-feature-unit-profile` |
-| `COLOR_CHANGE_MODE` | 1428 | 238 | 1 | `material-feature-unit-profile` |
-| `DYNAMIC_GI_TYPE` | 761 | 720 | 2 | `material-feature-unit-profile` |
-| `GL3_PROFILE` | 722 | 722 | 1 | `compiler-context-platform-quality` |
-| `RENDER_VELOCITY` | 293 | 293 | 1 | `material-feature-unit-profile` |
-| `CHAMELEON_COLOR_ENABLE` | 270 | 270 | 1 | `material-feature-unit-profile` |
-| `EMISSIVTEXTURE_ENABLE` | 261 | 259 | 1 | `material-feature-unit-profile` |
-| `PS_INPUT_HAS_INSTANCE_ID` | 212 | 212 | 1 | `source-or-workspace-config` |
-| `TERRAIN_TECH_TYPE` | 180 | 15 | 1 | `material-feature-unit-profile` |
-| `PBR_PARAM_TEX` | 166 | 166 | 1 | `material-feature-unit-profile` |
-
-默认值和风险结论：
-
-- 本阶段没有任何 macro 被确认可以新增或修改默认值，因此没有更新 `server_cpp/resources/language/preprocessor_macros`，也没有更新阶段 workspace copy 的 `nsf.preprocessorMacros`。
-- `GL3_PROFILE` 和 `NEOX_FLOATRT_SUPPORT` 是 compiler/platform 候选，但仍需回到 shadercompiler 稳定编译上下文确认来源、默认值和 target 差异；在确认前不进入资源 preset。
-- `EMISSIVE_MODE`、`COLOR_CHANGE_MODE`、`DYNAMIC_GI_TYPE`、`RENDER_VELOCITY` 等大头是材质 / feature / unit-local compile profile 输入；给它们猜全局默认值会错误改变大量 active branch，因此本阶段只分流，不补值。
-- `PS_INPUT_HAS_INSTANCE_ID`、`SHADINGMODELID`、`NEOX_PARAM_DECLARE_DOMAIN` 等需要源码 include / generated header / workspace 配置 owner 审核；不在 diagnostics rule 中 suppress 或 allowlist。
-
-验证结果：
-
+- `cmake --build .\server_cpp\build` 通过。
 - `npm run compile` 通过。
-- 5-unit smoke audit 使用可比阶段 workspace `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace` 通过，输出 `real-workspace-diagnostics-audit.phase-14-macro-histogram-smoke-5.{json,md}`；`diagnosticsTotal=555`，`preprocessor-context=183`，undefined macro `25` 个，其中 `material-feature-unit-profile=173`、`compiler-context-platform-quality=5`、`source-or-workspace-config=5`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
-- 50-unit trend audit 使用同一可比阶段 workspace 通过，输出 `real-workspace-diagnostics-audit.phase-14-macro-histogram-trend-50.{json,md}`；`diagnosticsTotal=4420`，`preprocessor-context=1482`，undefined macro `33` 个，其中 `material-feature-unit-profile=1377`、`source-or-workspace-config=55`、`compiler-context-platform-quality=50`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
-- full 813-unit audit 使用同一可比阶段 workspace 通过，输出 `real-workspace-diagnostics-audit.phase-14-macro-histogram-full.{json,md}`，同时写出 timestamp 归档 `real-workspace-diagnostics-audit.2026-05-18T06-10-44-034Z.{json,md}`；`diagnosticsTotal=41719`，`preprocessor-context=10549`，undefined macro `107` 个，`fileErrors=0`，`truncatedFiles=1`，`timedOutFiles=1`。
-- full audit 的 `truncatedFiles` / `timedOutFiles` 与 P13 full、2026-05-16 baseline 持平，未增加。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 首次运行中旧 fixture `module_diagnostics_preprocessor_object_macro_expr.nsf` 因空 replacement 新语义不再进入旧 active 分支而超时；确认是测试预期迁移点后，把该 fixture 改为显式 `#define ENABLE_FEATURE 1`。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 重跑通过，`78 passing / 1 pending`。
+- `npm run test:client:repo` 全量运行到 editor runtime defaults 时失败 2 条，失败断言为当前 VS Code 环境中 `editor.quickSuggestions.other` 实际值 `offWhenInlineCompletions` 与测试期望 `on` 不一致；该失败位于 client editor defaults 用例，和本次 C++ preprocessor / diagnostics 改动无关，未修改不相关测试。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14a-state-machine-smoke-5.{json,md}`；`diagnosticsTotal=532`、`preprocessor-context=160`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14a-state-machine-trend-50.{json,md}`；`diagnosticsTotal=4295`、`preprocessor-context=1357`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
 
 阶段关闭判断：
 
 - 命令是否变化：否。
-- 路径或命名是否变化：新增 phase-14 audit 报告输出；无运行时路径、资源路径或命名规则变化。
-- 架构或单一事实来源是否变化：否，本阶段只扩展 audit 报告，不改变 server 语义入口。
-- 测试策略是否变化：是，real diagnostics audit 报告现在包含 undefined macro histogram 和 owner hint；已更新 `docs/testing.md`。
-- 文档是否已同步：已更新 `docs/testing.md` 和本执行计划；README、AGENTS、architecture、resources、development 和对象类型 / 方法契约均无当前事实变化。
-- 是否改变公开 diagnostics 行为：否。
+- 路径或命名是否变化：新增 P14A focused fixture；无运行时路径、资源路径或命名规则变化。
+- 架构或单一事实来源是否变化：是，`preprocessor_view.*` 的共享宏状态机契约补齐缺失宏补 `0`、空 replacement 和 `#undef` 后缺失周期语义。
+- 测试策略是否变化：是，`docs/testing.md` 已补充共享 preprocessor 状态机改动的推荐验证入口。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md`、`preprocessor_view.hpp` 和本执行计划；README、resources、development 和对象类型 / 方法契约无变化。
+- 是否改变公开 diagnostics 行为：是，空 replacement macro 在数值表达式里从旧行为的 truthy 改为已定义且值为 `0`；未定义数值宏首次报错后会在同一 live state 合成 `0`，后续复用不重复报错，`#undef` 后重新报错。
 - 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
 - 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
-- 是否补齐 focused fixture 或稳定 real audit sample：本阶段不新增 fixture，已生成 phase-14 5-unit / 50-unit / full real audit sample。
-- 是否重新跑了对应验证并记录结果：是。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 focused fixture、include 链路组合样例，以及 phase-14a 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是；C++ build、TS compile、diagnostics repo 定向回归、5-unit smoke audit 和 50-unit trend audit 均通过；全 repo 回归存在上述不相关 editor defaults 环境失败。
 
-阶段验收说明：
+### P14B 执行记录
 
-- 已产出 macro histogram 和 owner 分类表。
-- 没有拟新增或修改默认值的 macro；每个 owner hint 均标明 `not assigned by audit` 和风险边界。
-- `preprocessor-context` 未下降，这是刻意保持的结果：缺少真实编译配置确认时不猜默认值、不污染资源 preset、不改变 diagnostics 行为。后续若拿到真实 compile profile 或 shadercompiler context 来源，再用本阶段 histogram 驱动单独的配置 / 资源更新阶段。
-
-### Phase 14 返工前置规划（执行前同步）
-
-触发点：
-
-- 人工复核指出 `SHADINGMODELID_DEFAULT_LIT` 这类宏不是 profile selector，而是 enum-like 常量；只要稳定常量有默认数值，`SHADINGMODELID` 就可以按 unit / material profile 定义为 `SHADINGMODELID_DEFAULT_LIT` 等常量之一。
-- 原 P14 owner hint 把 `SHADINGMODELID_*`、`COLOR_CHANGE_*`、`EMISSIVE_*` 等常量和 `SHADINGMODELID`、`COLOR_CHANGE_MODE`、`EMISSIVE_MODE` 这类 selector 混在 source/config 或 material profile 桶里，分流粒度不够，后续无法判断哪些可安全补稳定常量，哪些仍必须来自真实 compile profile。
-
-修正后的宏分层：
-
-- enum-like stable constant：稳定枚举 / 常量宏，例如 `SHADINGMODELID_DEFAULT_LIT`、`SHADINGMODELID_HAIR`、`COLOR_CHANGE_PICKER`、`COLOR_CHANGE_MULTIPLE`、`EMISSIVE_COLOR`、`EMISSIVE_FLOW`、`FOLIAGE_GRASS_LEAF`、`DYNAMIC_GI_SH`、`SPARKLE_MODE_GLITTER`。这类宏可以作为“补稳定常量值”的候选，但必须先找到来源和值。
-- selector / profile macro：选择当前变体的宏，例如 `SHADINGMODELID`、`COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`DYNAMIC_GI_TYPE`、`FOLIAGE_MODE`、`SPARKLE_ENABLE`。这类宏不应给全局默认值，应来自 active unit compile profile、参数 include、workspace `nsf.preprocessorMacros` 或 `nsf.defines`。
-- compiler context / platform / quality macro：例如 `GL3_PROFILE`、`NEOX_FLOATRT_SUPPORT`。这类宏只有确认来自 shadercompiler 稳定编译上下文后，才能进入资源 preset 或阶段 workspace preset。
-- source / generated config macro：例如 `PS_INPUT_HAS_INSTANCE_ID`、`NEOX_PARAM_DECLARE_DOMAIN`、`NEOX_COMPUTE_SHADER`。这类宏多半来自生成阶段、shader stage 或 include 注入，应单独确认生成链和源码 owner。
-
-返工方案：
-
-1. 先更新 audit histogram owner hint，把 enum-like stable constant 与 selector / profile macro 分开；该步骤只改变审计报告，不改变公开 diagnostics 行为。
-2. 在 full histogram 中重新统计：
-   - enum-like stable constant 的宏名、诊断数、影响 unit/file、样本行。
-   - selector / profile macro 的宏名、诊断数、影响 unit/file、样本行。
-   - compiler context / generated config 候选。
-3. 对 enum-like stable constant 做来源和值的证据采集：
-   - 优先查 `shader-source` 参数 include / generated `.fx` 的 `#define <macro> <value>`。
-   - 其次查 shadercompiler variant / failure log 中的 `define_str` 或 CSV/JSON variant 数据。
-   - 只记录候选值，不在 diagnostics rule 中写 allowlist 或局部默认。
-4. 如果只是为了阶段审计验证，可在 `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace` 的 `nsf.preprocessorMacros` 里补确认过的稳定常量，重跑 5-unit / 50-unit / full audit 观察 `preprocessor-context` 和 branch 迁移；该 copy workspace 不代表正式资源变更。
-5. 若决定把稳定常量写入正式默认 preset，必须先停下来确认，因为这会修改 `server_cpp/resources/language/preprocessor_macros` 并改变公开 diagnostics 行为；确认后必须通过资源生成脚本或 bundle 更新，并同步 `docs/resources.md`。
-
-本轮重新执行边界：
-
-- 允许：更新 audit owner taxonomy、重跑 P14 smoke / trend / full audit，必要时只更新 phase workspace copy 进行阶段验证。
-- 暂停确认：正式修改 `language/preprocessor_macros` 资源、生成脚本、默认 preset 或任何会影响用户公开 diagnostics 行为的宏默认值。
-- 禁止：在 diagnostics rule 中新增 macro suppress、allowlist、fallback 或静默默认值。
-
-### Phase 14 返工执行记录
-
-状态：已按“返工前置规划”重新执行；只更新 audit taxonomy、报告口径和文档，不修改 `server_cpp/resources/language/preprocessor_macros`、生成脚本、阶段 workspace preset 或 diagnostics 发布行为。
+状态：已落地分支敏感推导与汇合的 focused 语义闭环；P14B 不能单独声明 P14 完成，P14C-P14E 仍待推进。
 
 实现内容：
 
-- `src/test/suite/realWorkspace.diagnostics-audit.test.ts` 的 `UndefinedMacroOwner` 已从旧三类改为四类：
-  - `enum-like-stable-constant`
-  - `selector-profile-macro`
-  - `compiler-context-platform-quality`
-  - `source-generated-config`
-- `classifyUndefinedMacroOwner` 先识别 selector / profile 宏，例如 `SHADINGMODELID`、`COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`DYNAMIC_GI_TYPE`、`FOLIAGE_MODE`、`SPARKLE_ENABLE`、`SMAA_QUALITY`、`HAIR_COLOR_MODE`。
-- `classifyUndefinedMacroOwner` 再识别 enum-like constant 宏，例如 `SHADINGMODELID_*`、`COLOR_CHANGE_*`、`CHANNEL_COLOR_CHANGE*`、`EMISSIVE_*`、`FOLIAGE_GRASS_*`、`SPARKLE_MODE_*`、`HAIR_COLOR_*`、`CHANGE_INOUTDOOR_*`。
-- `PS_INPUT_HAS_INSTANCE_ID`、`NEOX_COMPUTE_SHADER`、`NEOX_PARAM_DECLARE_DOMAIN`、`VAT_PER_INSTANCE_INPUT` 等明确归入 source/generated config。
-- `IS_ADRENO_6XX` 与 `GL3_PROFILE`、`NEOX_FLOATRT_SUPPORT` 一起归入 compiler context / platform / quality。
-- owner hint 仍只用于 audit 分流；`defaultValue` 对 enum-like constant 只写 `stable value candidate; not assigned by audit`，不在 audit 中补值。
+- `preprocessor_view.*` 新增 inactive branch probe：主解释链仍按 active branch 写入 `lineActive`、active include closure 和汇合后的宏状态；未激活分支使用隔离宏快照继续解释 `#if/#elif/#else` 子树，只把 preprocessor condition diagnostics 和 branch merge metadata 合并回共享 `PreprocessorView`。
+- `PreprocessorConditionDiagnostic` 补充 `inactiveBranch`、`branchId`、`branchIndex` 元数据；`PreprocessorView` 新增 `branchMerges`，记录 merge line、branch id、active branch index 和 branch count，作为 P14B debug / audit 可观察基础。
+- active branch 收敛保持不变：分支汇合后主链继续采用 active branch 的宏状态，未激活分支里的 `#define/#undef` 不污染后续 hover / diagnostics / expression typing 的 active 查询。
+- include 链路保持实际位置语义：root unit 不把 include 内 condition diagnostics 错挂到 root 文本；打开 include 且存在 active unit context 时，include 自身 diagnostics 消费同一份 included-document `PreprocessorView`。
+- 本阶段没有实现 presentation 层的 stable group id / 组内明细 UI，也没有把 branch merge info 发布为用户可见 Information diagnostic；这些属于 P14E 的编辑态共享集成与 audit/展示指标范围。
 
-全量 owner 分流结果：
+新增验证：
 
-| Owner | Macros | Diagnostics | 代表样本 |
-| --- | ---: | ---: | --- |
-| `selector-profile-macro` | 53 | 5887 | `EMISSIVE_MODE`、`COLOR_CHANGE_MODE`、`DYNAMIC_GI_TYPE`、`RENDER_VELOCITY`、`SHADINGMODELID` |
-| `enum-like-stable-constant` | 32 | 3278 | `EMISSIVE_DISSOLVE_DISSORT`、`COLOR_CHANGE_PICKER`、`FOLIAGE_GRASS_LEAF`、`SHADINGMODELID_DEFAULT_LIT`、`SPARKLE_MODE_GLITTER` |
-| `compiler-context-platform-quality` | 3 | 735 | `GL3_PROFILE`、`NEOX_FLOATRT_SUPPORT`、`IS_ADRENO_6XX` |
-| `source-generated-config` | 19 | 649 | `PS_INPUT_HAS_INSTANCE_ID`、`NEOX_COMPUTE_SHADER`、`NEOX_PARAM_DECLARE_DOMAIN`、`DEFERRED_LIGHTING`、`IS_MEADOW_LOD` |
+- 纯语义最小用例：`test_files/module_diagnostics_preprocessor_p14b_branch_merge.nsf` 覆盖 inactive `#else` body 诊断、inactive `#elif` condition 诊断，以及 merge 后继续使用 active branch 的 `P14B_MERGED_VALUE=1`。
+- 真实链路组合样例：`test_files/module_diagnostics_preprocessor_p14b_include_branch_root.nsf` + `module_diagnostics_preprocessor_p14b_include_branch_shared.hlsl` 覆盖 active unit include context 下，include 文件内 inactive branch probe 发布 condition diagnostic，同时不改变 active include merge result。
 
-全量缺失宏清单（括号为 diagnostics count）：
+已运行验证：
 
-- `enum-like-stable-constant`：`EMISSIVE_DISSOLVE_DISSORT` (248)、`EMISSIVE_FLOW_UV1` (248)、`EMISSIVE_THIN_FILM` (248)、`EMISSIVE_FLOW` (245)、`EMISSIVE_PEARL` (245)、`EMISSIVE_COLOR` (242)、`CHANNEL_COLOR_CHANGE` (241)、`CHANNEL_COLOR_CHANGE_GRADIENT` (241)、`CHANNEL_COLOR_CHANGE_ID` (241)、`COLOR_CHANGE_GRADIENT` (241)、`COLOR_CHANGE_MULTIPLE` (241)、`COLOR_CHANGE_PICKER` (241)、`FOLIAGE_GRASS_LEAF` (106)、`FOLIAGE_GRASS_BRANCH` (55)、`CHANGE_INOUTDOOR_OUTDOOR` (22)、`SHADINGMODELID_PREINTEGRATED_SKIN` (20)、`SHADINGMODELID_ANISOTROPY` (15)、`SHADINGMODELID_CLEAR_COAT` (15)、`SHADINGMODELID_CLOTH` (15)、`SHADINGMODELID_HAIR` (15)、`CHANGE_INOUTDOOR_INDOOR` (11)、`CHANGE_INOUTDOOR_INDOORCUBE` (10)、`SHADINGMODELID_DEFAULT_LIT` (10)、`SHADINGMODELID_EYE` (10)、`SHADINGMODELID_SUBSURFACE` (10)、`SHADINGMODELID_TWOSIDED_FOLIAGE` (10)、`HAIR_COLOR_VERTEX_COLOR` (7)、`HAIR_COLOR_PICKER` (5)、`SHADINGMODELID_DIFFUSE` (5)、`SHADINGMODELID_UNLIT` (5)、`SPARKLE_MODE_GLITTER` (5)、`SPARKLE_MODE_RANDOM` (5)。
-- `selector-profile-macro`：`EMISSIVE_MODE` (1452)、`COLOR_CHANGE_MODE` (1428)、`DYNAMIC_GI_TYPE` (761)、`RENDER_VELOCITY` (293)、`CHAMELEON_COLOR_ENABLE` (270)、`EMISSIVTEXTURE_ENABLE` (261)、`EMISSIV_ENABLE` (244)、`TERRAIN_TECH_TYPE` (180)、`PBR_PARAM_TEX` (166)、`FOLIAGE_MODE` (161)、`HAS_SPECULAR` (130)、`SHADINGMODELID` (130)、`EDGE_DEFOTMATION_ENABLE` (70)、`CHANGE_INOUTDOOR` (43)、`HAS_AMBIENT_OCCLUSION` (30)、`HAS_ANISOTROPY` (25)、`USE_REDUNDANT_DEPTH` (18)、`VOLUMETRIC_LOCAL_LIGHT_ENABLE` (15)、`HAS_EMISSIVE` (15)、`REFLECTION_ENV_USE_CUBE_ARRAY` (15)、`ENABLE_TRANSPARENT_VELOCITY` (13)、`HAIR_COLOR_MODE` (12)、`SMAA_QUALITY` (12)、`ENABLE_GBUFFER_VELOCITY` (10)、`SPARKLE_ENABLE` (10)、`LANCHAO_NORMAL_ENABLE` (9)、`SCREEN_DOOR_TRANS` (8)、`HAIR_COLOR_ENABLE` (7)、`FLOW_MAP_ENABLE` (6)、`MEADOW_COLOR` (6)、`RDIA_TEX_ENABLE` (6)、`EMISSIVE_ENBALE` (6)、`ENABLE_REFLECTION_PROBE` (5)、`HAS_BOTTOM_NORMAL` (5)、`HAS_CUSTOMIZED_IBL` (5)、`HAS_PROBE_BOX_PROJECTION` (5)、`HAS_REALTIME_SKYLIGHT` (5)、`HAS_SHADOW_CASTER_NORMAL_BIAS` (5)、`HAS_TWO_SIDE` (5)、`PROBE_USE_PER_PIXEL_BLEND` (5)、`UES_FAKE_SHADOW` (5)、`USE_SEPARATED_CHARACTER_LIGHTING` (5)、`POINT_NUM` (4)、`ENABLE_3U_AO` (4)、`ENABLE_HEIGHT_FADE` (3)、`WATER_VTF_ENABLE` (3)、`EMISSIVE_FLOW_ENABLE` (2)、`HAS_VERTEX_ALPHA` (2)、`UNDER_WATER_ENABLE` (2)、`HAS_HAIR_MASK` (2)、`ENABLE_INLINE_DENOISE` (1)、`SEASON_SUPPORT` (1)、`USE_UPSAMPLE` (1)。
-- `compiler-context-platform-quality`：`GL3_PROFILE` (722)、`NEOX_FLOATRT_SUPPORT` (8)、`IS_ADRENO_6XX` (5)。
-- `source-generated-config`：`PS_INPUT_HAS_INSTANCE_ID` (212)、`NEOX_COMPUTE_SHADER` (89)、`NEOX_PARAM_DECLARE_DOMAIN` (79)、`DEFERRED_LIGHTING` (70)、`IS_MEADOW_LOD` (48)、`ENCODE_F45` (28)、`IS_TRANSPARENT` (20)、`CLEAR_COAT_BOTTOM_NORMAL` (15)、`DEFERRED_GBUFFER_GEN` (15)、`PRECOMPUTE_FILTER` (14)、`IsFace` (12)、`DEBUG_MORPH_FACTOR` (10)、`DEBUG_MORPH_OFFSET` (10)、`CUBE_UV_ENABLE_LANCHAO` (6)、`HEIGHTFADE_ENABLE_LANCHAO` (6)、`INFLUENCE_ALPHA` (6)、`IBL_SPATIAL_MIXING` (5)、`VAT_PER_INSTANCE_INPUT` (2)、`SSAO_USE_HZB` (2)。
-
-enum-like constant 值证据：
-
-| Macro family | Confirmed value evidence | Decision |
-| --- | --- | --- |
-| `SHADINGMODELID_*` | `const_macros.hlsl`: `UNLIT=0`, `DEFAULT_LIT=1`, `SUBSURFACE=2`, `PREINTEGRATED_SKIN=3`, `TWOSIDED_FOLIAGE=4`, `HAIR=5`, `CLOTH=6`, `EYE=7`, `ANISOTROPY=8`, `DIFFUSE=9`, `CLEAR_COAT=10` | stable constant evidence exists; formal preset change still needs confirmation |
-| `FOLIAGE_GRASS_*` | `foliage_anim_functions.hlsl`: `FOLIAGE_GRASS_BRANCH=3`, `FOLIAGE_GRASS_LEAF=4` | stable constant evidence exists; formal preset change still needs confirmation |
-| `SPARKLE_MODE_*` | `surface_sparkle.hlsl`: `SPARKLE_MODE_GLITTER=1`, `SPARKLE_MODE_RANDOM=2` | stable constant evidence exists; formal preset change still needs confirmation |
-| `CHANGE_INOUTDOOR_*` | `pbr_glass_parameters.hlsl`: `OUTDOOR=1`, `INDOOR=2`, `INDOORCUBE=3` | source value evidence exists, but owner remains parameter/source include review |
-| `HAIR_COLOR_*` | `pbr_hair_test_parameters.hlsl`: `PICKER=1`, `VERTEX_COLOR=2` | source value evidence exists, but owner remains parameter/source include review |
-| `COLOR_CHANGE_*` / `CHANNEL_COLOR_CHANGE*` | parameter includes show conflicting values such as `COLOR_CHANGE_PICKER=0/1`, `COLOR_CHANGE_MULTIPLE=0/2`, `COLOR_CHANGE_GRADIENT=0/3`, `CHANNEL_COLOR_CHANGE=1/4`, `CHANNEL_COLOR_CHANGE_GRADIENT=2/5`, `CHANNEL_COLOR_CHANGE_ID=0/3/7` | not safe as global defaults without authoritative source decision |
-| `EMISSIVE_*` | parameter includes show mixed values such as `EMISSIVE_COLOR=1`, `EMISSIVE_FLOW=2/3`, `EMISSIVE_FLOW_UV1=0/3`, `EMISSIVE_PEARL=0/2/3/4`, `EMISSIVE_DISSOLVE_DISSORT=0/5`, `EMISSIVE_THIN_FILM=0/6` | not safe as global defaults without authoritative source decision |
-
-验证结果：
-
+- `cmake --build .\server_cpp\build` 通过。
 - `npm run compile` 通过。
-- 5-unit smoke audit 使用 `phase-14-macro-taxonomy-smoke-5` 通过；`unitsScanned=5`，`diagnosticsTotal=555`，`preprocessor-context=183`，undefined macro `25` 个，其中 `selector-profile-macro=101`、`enum-like-stable-constant=72`、`compiler-context-platform-quality=5`、`source-generated-config=5`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
-- 50-unit trend audit 使用 `phase-14-macro-taxonomy-trend-50` 通过；`unitsScanned=50`，`diagnosticsTotal=4420`，`preprocessor-context=1482`，undefined macro `33` 个，其中 `selector-profile-macro=828`、`enum-like-stable-constant=549`、`source-generated-config=55`、`compiler-context-platform-quality=50`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
-- full audit 第一次使用 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=600000` 在 `225/813` unit 时触发 Mocha timeout；这是验证配置超时，不是分类或 diagnostics 断言失败。
-- full audit 第二次使用 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=3600000` 和 `phase-14-macro-taxonomy-full` 通过；`unitsScanned=813`，`diagnosticsTotal=41711`，`preprocessor-context=10549`，undefined macro `107` 个，`fileErrors=0`、`truncatedFiles=1`、`timedOutFiles=1`。输出 `real-workspace-diagnostics-audit.phase-14-macro-taxonomy-full.{json,md}` 和 timestamp 归档 `real-workspace-diagnostics-audit.2026-05-18T07-51-05-015Z.{json,md}`。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 首次运行中 root unit 侧 include probe 断言超时；确认根因是 include 内 diagnostics 不应错挂到 root 文本后，将测试改为设置 active unit 并在 included `.hlsl` 上断言。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 重跑通过，`80 passing / 1 pending`。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14b-branch-probe-smoke-5.{json,md}`；`diagnosticsTotal=546`、`preprocessor-context=174`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。相对 P14A smoke，新增的 preprocessor-context 主要来自 inactive branch probe 暴露的未激活分支宏缺口。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14b-branch-probe-trend-50.{json,md}`；`diagnosticsTotal=4396`、`preprocessor-context=1458`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。相对 P14A trend，preprocessor-context 上升符合 P14B “未激活分支 Error 默认进入 diagnostics” 的公开行为变化预期。
 
 阶段关闭判断：
 
-- 命令是否变化：否；只是 full audit 本次执行将测试 timeout 从 `600000` 调高到 `3600000`，未改变 package script 或默认命令。
-- 路径或命名是否变化：新增 phase-14 taxonomy audit 报告输出；无运行时路径、资源路径或命名规则变化。
-- 架构或单一事实来源是否变化：否，本阶段只扩展 audit owner taxonomy，不改变 server 语义入口。
-- 测试策略是否变化：是，real diagnostics audit 的 undefined macro owner hint 从旧三类改为四类；已更新 `docs/testing.md`。
-- 文档是否已同步：已更新 `docs/testing.md` 和本执行计划；README、AGENTS、architecture、resources、development、client editor features 和 type/method contract 均无当前事实变化。
-- 是否改变公开 diagnostics 行为：否。
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P14B focused fixture；无运行时路径、资源路径或命名规则变化。
+- 架构或单一事实来源是否变化：是，`preprocessor_view.*` 现在统一承载 inactive branch probe、branch merge metadata 和 active branch 汇合后主状态。
+- 测试策略是否变化：否，沿用 P14A 已写入 `docs/testing.md` 的共享 preprocessor 状态机验证入口。
+- 文档是否已同步：已更新 `docs/architecture.md`、`preprocessor_view.hpp` 和本执行计划；README、resources、testing、development 和对象类型 / 方法契约无变化。
+- 是否改变公开 diagnostics 行为：是，未激活分支中的 preprocessor condition Error 现在会默认进入 diagnostics；汇合后的 semantic / expression diagnostics 仍只跟随 active branch 状态。
 - 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
 - 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
-- 是否补齐 focused fixture 或稳定 real audit sample：本阶段不新增 fixture，已生成 phase-14 taxonomy 5-unit / 50-unit / full real audit sample。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 focused fixture、include 链路组合样例，以及 phase-14b 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是；C++ build、TS compile、diagnostics repo 定向回归、5-unit smoke audit 和 50-unit trend audit 均通过。
+
+### P14C 执行记录
+
+状态：已落地符号链与用户配置增强的 focused 语义闭环；P14C 不能单独声明 P14 完成，P14D-P14E 仍待推进。
+
+实现内容：
+
+- `preprocessor_view.*` 继续作为共享预处理宏推导核心入口；本阶段确认 object-like macro replacement 会在同一 live macro state 中递归求值，符号链断在缺失叶子宏时发布叶子宏 diagnostic，并合成 `0` 供同一表达式 / 同一分支后续复用。
+- 用户配置 `nsf.preprocessorMacros` 继续作为 configured macro replacement 初始表进入同一状态机；字符串表达式、空 replacement 和源码 `#define` 覆盖配置值均通过共享 `PreprocessorView` 验证，未新增 diagnostics-local 特判路径。
+- `preprocessor_view.hpp` 补齐接口契约说明：object-like 符号链和配置宏表达式通过同一 live state 递归求值，缺失 diagnostic 以叶子宏为根因，合成 `0` 后保持状态一致。
+- `docs/architecture.md` 已同步 `preprocessor_view.*` 对符号链 / 用户配置表达式 / 缺失叶子宏补 `0` 的共享职责。
+- `docs/testing.md` 已把符号链 / 用户配置表达式求值纳入共享 preprocessor 状态机改动的推荐验证入口。
+- 本阶段没有实现 function-like macro 展开、变参、`##`、`#`、hover / 跳转展示或正式 audit 健康度字段；这些仍属于 P14D / P14E。
+
+新增验证：
+
+- 纯语义最小用例：`test_files/module_diagnostics_preprocessor_p14c_symbol_chain.nsf` 覆盖 object-like 符号链终值解析、空 replacement 沿链按 `0` 推导、同一缺失叶子宏只报一次，且不把中间宏误报为缺失根因。
+- 用户配置用例：`test_files/module_diagnostics_preprocessor_p14c_configured_macros.nsf` 覆盖 configured macro expression、空配置按 `0`、源码 `#define` 覆盖配置值、配置表达式缺失叶子宏定位。
+- 真实链路组合样例：`test_files/module_diagnostics_preprocessor_p14c_include_config_root.nsf` + `module_diagnostics_preprocessor_p14c_include_config_shared.hlsl` 覆盖 active unit include context 下 configured macro chain、include 内源码覆盖配置值，以及 include 文档上的缺失叶子宏 diagnostic。
+
+已运行验证：
+
+- `npm run compile` 通过。
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`83 passing / 1 pending`；新增 P14C 三条 focused / include-context 回归均通过。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14c-symbol-config-smoke-5.{json,md}`；`diagnosticsTotal=546`、`preprocessor-context=174`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，与 P14B 同口径持平。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14c-symbol-config-trend-50.{json,md}`；`diagnosticsTotal=4396`、`preprocessor-context=1458`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，与 P14B 同口径持平。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P14C focused fixture 和 include 组合 fixture；无运行时路径、资源路径或命名规则变化。
+- 架构或单一事实来源是否变化：是，`preprocessor_view.*` 的共享宏状态机契约补齐 object-like 符号链、用户配置表达式和缺失叶子宏定位语义。
+- 测试策略是否变化：是，`docs/testing.md` 已补充共享 preprocessor 状态机验证入口中的符号链 / 用户配置表达式范围；正式 audit 健康度指标仍属 P14E，未在本阶段落地。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md`、`preprocessor_view.hpp` 和本执行计划；README、resources、development 和对象类型 / 方法契约无变化。
+- 是否改变公开 diagnostics 行为：否；本阶段锁定并回归已确认的 P14 用户配置表达式 / 符号链语义，没有扩展 `nsf.preprocessorMacros` / `nsf.defines` schema 或新增公开配置解释方式。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 focused fixture、include 链路组合样例，以及 phase-14c 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是；TS compile、C++ build、diagnostics repo 定向回归、5-unit smoke audit 和 50-unit trend audit 均通过。
+
+### P14D 执行记录
+
+状态：已落地 function-like macro 在共享 preprocessor expression 中的 focused 语义闭环；P14D 不能单独声明 P14 完成，P14E 的编辑态共享集成与正式 audit 健康度指标仍待推进。
+
+实现内容：
+
+- `preprocessor_view.*` 继续作为共享预处理宏推导核心入口；本阶段将 `#if/#elif` 中的 function-like macro 从旧的 unsupported diagnostic 路径迁移为共享展开路径，diagnostics、active include context 和后续 consumer 仍消费同一份 `PreprocessorView`。
+- function-like macro 定义会记录固定参数、变参和 replacement tokens；表达式求值时按 invocation 实参展开固定参数、嵌套 invocation、变参 / `__VA_ARGS__`、`##` token paste 和 `#` stringization。
+- `##` 拼出的 token 会继续进入普通宏递归解析；递归 / 深度保护、stringization 非数值使用、token paste 非法 token 或实参数不匹配会发布 preprocessor warning 并按可继续路径使用 `0` 推导，不新增 diagnostics-local suppress 或 fallback。
+- `nsf_lexer.*` 补齐 `##` 和 `...` token 识别，供共享 preprocessor function-like macro 参数和 token paste 解析使用。
+- `preprocessor_view.hpp` 补齐接口契约说明：function-like macro 展开属于 shared preprocessor expression evaluator 的职责；`lookupActivePreprocessorMacroReplacement(...)` 仍只提供 active replacement metadata，不作为通用 HLSL 宏展开 API。
+- `docs/architecture.md` 已同步 `preprocessor_view.*` 对 function-like macro 展开、变参、token paste、stringization warning 和递归 / 深度保护 warning 的共享职责。
+- `docs/testing.md` 已把 function-like macro、变参 / `__VA_ARGS__`、`##` / `#` 纳入共享 preprocessor 状态机改动的推荐验证入口。
+- 本阶段没有实现 hover / 跳转共用宏推导快照展示、presentation 层分组、性能 / 健康度正式 audit 字段，`COLOR_CHANGE_MODE` / `EMISSIVE_MODE` / `FOLIAGE_MODE` 主痛点宏收益验收仍属于 P14E。
+
+公开行为变化：
+
+- 可展开的 function-like macro 不再发布 `Function-like macro is not supported in preprocessor expression`，而是按共享 preprocessor expression 结果参与 branch 判断和缺失叶子宏定位。
+- function-like macro 展开异常现在以 warning 表达，例如 stringization 非数值使用、递归 / 深度保护、非法 token paste 和实参数不匹配；这些 warning 来自共享 preprocessor 状态机，不是 rule-local suppress。
+
+新增验证：
+
+- 纯语义最小用例：`test_files/module_diagnostics_preprocessor_p14d_function_macros.nsf` 覆盖固定参数、嵌套 invocation、变参 / `__VA_ARGS__`、`##` token paste 后继续递归解析、缺失实参宏定位、`#` stringization warning 和递归保护 warning。
+- 真实链路组合样例：`test_files/module_diagnostics_preprocessor_p14d_include_root.nsf` + `module_diagnostics_preprocessor_p14d_include_shared.hlsl` 覆盖 active unit include context 下 function-like macro、嵌套 token paste 和 include 文档上的缺失 pasted macro diagnostic。
+
+已运行验证：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`85 passing / 1 pending`；新增 P14D 两条 focused / include-context 回归均通过。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14d-function-macro-smoke-5.{json,md}`；`diagnosticsTotal=546`、`preprocessor-context=174`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，与 P14C 同口径持平。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14d-function-macro-trend-50.{json,md}`；`diagnosticsTotal=4396`、`preprocessor-context=1458`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，与 P14C 同口径持平。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P14D focused fixture 和 include 组合 fixture；无运行时路径、资源路径或命名规则变化。
+- 架构或单一事实来源是否变化：是，`preprocessor_view.*` 的共享宏状态机契约补齐 function-like macro 展开、变参、token paste、stringization warning 和递归 / 深度保护 warning。
+- 测试策略是否变化：是，`docs/testing.md` 已补充共享 preprocessor 状态机验证入口中的 function-like macro / `##` / `#` 范围；正式 audit 健康度指标仍属 P14E，未在本阶段落地。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md`、`preprocessor_view.hpp` 和本执行计划；README、resources、development 和对象类型 / 方法契约无变化。
+- 是否改变公开 diagnostics 行为：是，可展开 function-like macro 不再报 unsupported error；展开异常改由共享 preprocessor 状态机发布 warning。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 focused fixture、include 链路组合样例，以及 phase-14d 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是；C++ build、TS compile、diagnostics repo 定向回归、5-unit smoke audit 和 50-unit trend audit 均通过。
+
+### P14E 执行记录
+
+状态：已落地编辑态共享集成与 audit 健康度指标；P14 的共享宏推导核心层现在同时被 diagnostics、macro hover 和 macro definition 消费，并具备正式 real audit 可观察字段。三类主痛点宏仍有剩余 undefined 计数，后续应继续从 active unit compile profile、参数 include 或 workspace 配置来源确认值，不在 P14E 中补全局默认。
+
+实现内容：
+
+- `PreprocessorView` 新增 `macroHealth` 统计，字段包括 initial configured macros、numeric defines、source define / undef、`#ifndef` default define、synthesized zero、condition diagnostics、undefined macro diagnostics、macro expansion warning、inactive branch diagnostics、branch merge 和 active include reference 计数。
+- diagnostics debug 构建响应 `nsf/_debugBuildDiagnostics` 新增 `macroHealth` JSON；real diagnostics audit 聚合为 `summary.macroHealth`，Markdown 新增 `Macro Health` 表。
+- real diagnostics audit 新增 `macroFocus`，固定跟踪 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE` 和 `FOLIAGE_MODE` 的剩余 undefined diagnostics、affected units 和 affected files。
+- macro hover / definition 新增共享查询路径 `resolveActivePreprocessorMacroAtLine(...)`，通过 `buildDiagnosticsPreprocessorContext(...)` 构建同一份 active-unit-sensitive `PreprocessorView`，再查询 active replacement / active integer value。
+- hover 对 active macro usage 展示 active value 或 active replacement，并标记来源：active unit preprocessor state、active `#ifndef` default define、configured preprocessor macro / active unit profile input 或 synthesized zero。
+- definition 对 source / `#ifndef` default macro 跳到真实 `#define`；对 synthesized zero 跳到首次缺失数值使用；对 configured macro / active profile input 返回空结果，不把用户配置当作默认 source location。
+- 新增 focused fixture `test_files/module_hover_preprocessor_p14e_shared_state.nsf`，覆盖 source define、`#ifndef` default、synthesized zero 和 configured macro 的 hover / definition 一致性。
+- `docs/architecture.md` 已同步 `preprocessor_view.*` 作为 diagnostics expression typing、macro hover 和 macro definition 的共享 consumer-ready 入口，并注明 `macroHealth` 只用于 debug / audit。
+- `docs/testing.md` 已同步 `macroHealth` JSON 字段口径、`macroFocus` 口径和共享 preprocessor 状态机推荐验证范围。
+
+公开行为变化：
+
+- macro usage hover 会优先展示共享宏状态机解析出的 active value / replacement 和来源信息。
+- macro definition 会优先按共享宏状态跳转；configured macro / active profile input 不再落到 workspace 里同名宏定义，synthesized zero 会跳到首次缺失数值使用位置。
+
+新增验证：
+
+- 纯语义最小用例：沿用 P14A-D diagnostics fixtures 覆盖宏状态机语义；P14E 新增 interactive focused fixture 覆盖 hover / definition 共享消费。
+- 真实链路组合样例：phase-14e 5-unit / 50-unit real audit 输出 `macroHealth` 与 `macroFocus`，并继续以 `.nsf` unit include closure 统计真实 workspace。
+
+已运行验证：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`85 passing / 1 pending`；P14A-D diagnostics focused 回归均通过。
+- `$env:NSF_TEST_FILE_FILTER='client.interactive-runtime'; npm run test:client:repo` 通过，`54 passing`；新增 P14E macro hover / definition focused 回归通过。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14e-macro-health-smoke-5.{json,md}`；`diagnosticsTotal=546`、`preprocessor-context=174`、`macroHealth.synthesizedZeroEvents=160`、`macroHealth.branchMergeCount=4332`、`macroHealth.expansionWarningDiagnosticCount=0`、`macroFocus`: `COLOR_CHANGE_MODE=5` / `EMISSIVE_MODE=5` / `FOLIAGE_MODE=4`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14e-macro-health-trend-50.{json,md}`；`diagnosticsTotal=4396`、`preprocessor-context=1458`、`macroHealth.synthesizedZeroEvents=1357`、`macroHealth.branchMergeCount=36095`、`macroHealth.expansionWarningDiagnosticCount=0`、`macroFocus`: `COLOR_CHANGE_MODE=43` / `EMISSIVE_MODE=43` / `FOLIAGE_MODE=11`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- `$env:NSF_TEST_FILE_FILTER='interactive-core'; npm run test:client:repo` 实际加载 `0` 个 test file；该命令不作为有效验证，已改用 `client.interactive-runtime` 过滤覆盖新增用例。
+- `npm run test:client:repo` 全量尝试未通过：首次 300s 超时；加长超时后出现 6 个失败。顺序重跑后，`client.references-rename` 的 3 个 conditional branch references / rename 用例仍超时，`client.editing-runtime-layered` 的 global context snapshot id neutral-edit 断言仍失败，`client.editor-runtime-defaults` 的 `editor.autoClosingQuotes.other` 仍为 VS Code 当前返回的 `offWhenInlineCompletions` 而非旧期望 `on`。这些失败不在 P14E 新增 hover / definition / macroHealth 定向验收路径内，已在最终汇报中作为剩余验证风险列出，未在本阶段改业务逻辑迁就。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P14E focused fixture 和 phase-14e audit 报告；无运行时路径、资源路径或命名规则变化。
+- 架构或单一事实来源是否变化：是，macro hover / definition 与 diagnostics 共同消费 `PreprocessorView` 的 active macro 查询和 integer evaluation。
+- 测试策略是否变化：是，real diagnostics audit 新增 `summary.macroHealth` 和 `macroFocus`；`docs/testing.md` 已同步字段口径和推荐验证范围。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md`、`preprocessor_view.hpp` 和本执行计划；README、resources、development 和对象类型 / 方法契约无变化。
+- 是否改变公开 diagnostics 行为：diagnostics 发布策略未变化；hover / definition 公开行为有变化，已在开工前确认。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 P14E focused fixture，以及 phase-14e 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是；C++ build、TS compile、diagnostics repo 定向回归、interactive runtime repo 定向回归、5-unit smoke audit 和 50-unit trend audit 均通过。
+
+### P14F 执行记录
+
+状态：已落地 P14 收尾证据增强和 include source location 修正；不新增 `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` / `FOLIAGE_MODE` 全局默认值，不改变 diagnostics 发布策略。
+
+实现内容：
+
+- `PreprocessorMacroReplacement` / `PreprocessorMacroEvent` 补充 source URI、source line 和 source range；宏事件现在同时保留“当前 view 可见位置”和“真实来源位置”。
+- include 传播出来的宏状态会携带真实 `#define` / `#ifndef` default / synthesized zero 来源；macro hover / definition 通过同一 `PreprocessorView` 查询后，source define 会跳到 include 内真实定义，synthesized zero 仍跳到首次缺失数值使用。
+- real diagnostics audit 的 `macroFocus` 从单纯计数扩展为 owner/source boundary/sample 证据表，固定跟踪 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE` 和 `FOLIAGE_MODE` 剩余 undefined 样例，明确它们仍属于 selector/profile input 边界。
+- `macroHealth` 继续把 `synthesizedZeroEvents` 作为真实缺失补 `0` 事件计数；include 可见性传播不会被重复计为新的 synthesized-zero 缺失。
+- 新增 focused fixture `test_files/module_diagnostics_preprocessor_p14f_focus_macros.nsf`，用三类 focus selector 宏证明 LSP 不猜全局默认值，同时 active branch 继续按 synthesized `0` 推导。
+- 新增 focused fixture `test_files/module_hover_preprocessor_p14f_include_root.nsf` / `test_files/module_hover_preprocessor_p14f_include_defs.hlsl`，覆盖 include source define、include `#ifndef` default 和 root synthesized zero 的 hover / definition 一致性。
+- `docs/architecture.md` 已同步 `preprocessor_view.*` 的 active macro source location 契约；`docs/testing.md` 已同步 `macroFocus` owner/source/sample 口径。
+
+公开行为变化：
+
+- 对从 include 传播到当前文件的 active macro，hover / definition 现在使用真实 source location；此前这类事件可能落在父文件 include directive 或缺少可用 source location。
+- diagnostics 发布策略未变化；focus selector 宏仍不会被 LSP 猜默认值。
+
+新增验证：
+
+- 纯语义最小用例：P14F focus selector fixture 覆盖 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 缺少 source/config 时保持 undefined diagnostic，并确认稳定 enum-like 常量不误报。
+- 编辑态组合样例：P14F include hover fixture 覆盖 include source define、include `#ifndef` default 和 root synthesized zero 的 hover / definition 一致。
+- 真实链路组合样例：phase-14f 5-unit / 50-unit real audit 输出 `macroFocus` owner/source/sample 证据，并继续以 `.nsf` unit include closure 统计真实 workspace。
+
+已运行验证：
+
+- `npm run compile` 通过。
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`86 passing / 1 pending`；新增 P14F focus selector 回归通过。
+- `$env:NSF_TEST_FILE_FILTER='client.interactive-runtime'; npm run test:client:repo` 通过，`55 passing`；新增 P14F include macro hover / definition source-location 回归通过。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14f-focus-source-smoke-5.{json,md}`；`diagnosticsTotal=546`、`preprocessor-context=174`、`macroHealth.synthesizedZeroEvents=160`、`macroHealth.branchMergeCount=4332`、`macroHealth.expansionWarningDiagnosticCount=0`、`macroFocus`: `COLOR_CHANGE_MODE=5` / `EMISSIVE_MODE=5` / `FOLIAGE_MODE=4`，三者 owner 均为 `selector-profile-macro`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14f-focus-source-trend-50.{json,md}`；`diagnosticsTotal=4396`、`preprocessor-context=1458`、`macroHealth.synthesizedZeroEvents=1357`、`macroHealth.branchMergeCount=36095`、`macroHealth.expansionWarningDiagnosticCount=0`、`macroFocus`: `COLOR_CHANGE_MODE=43` / `EMISSIVE_MODE=43` / `FOLIAGE_MODE=11`，三者 owner 均为 `selector-profile-macro`，source boundary 均为 active unit compile profile / parameter include / workspace config，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P14F focused fixtures 和 phase-14f audit 报告；无运行时路径、资源路径或命名规则变化。
+- 架构或单一事实来源是否变化：是，active macro source location 继续收敛在 `PreprocessorView`，hover / definition 不再自行猜 include source。
+- 测试策略是否变化：是，real diagnostics audit 的 `macroFocus` 补充 owner/source boundary/sample；`docs/testing.md` 已同步。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md`、`preprocessor_view.hpp`、`server_request_handler_common.hpp` 和本执行计划；README、resources、development 和对象类型 / 方法契约无变化。
+- 是否改变公开 diagnostics 行为：否；公开 hover / definition source location 有变化，属于 P14 已确认的共享宏状态机行为。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 P14F focused fixtures，以及 phase-14f 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是；C++ build、TS compile、diagnostics repo 定向回归、interactive runtime repo 定向回归、5-unit smoke audit 和 50-unit trend audit 均通过。
+
+### P14G 计划：selector/profile 宏来源闭环
+
+状态：新增执行阶段，目标是治理 P14F 后仍剩余的 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` selector/profile 输入缺口。P14G 不是继续扩展宏推导算法，也不是补全局默认值；它专门回答“这些宏在当前 active unit 下本该从哪里来”。
+
+背景：
+
+- P14F 50-unit audit 中三类 focus 宏仍剩余：`COLOR_CHANGE_MODE=43`、`EMISSIVE_MODE=43`、`FOLIAGE_MODE=11`。
+- P14A-F 已证明共享宏状态机、include 顺序、function-like macro、hover / definition / diagnostics 共享消费和 audit 可观察性成立。
+- 剩余问题被 `macroFocus` 归为 `selector-profile-macro`，source boundary 是 active unit compile profile、parameter include、workspace `nsf.preprocessorMacros` 或 `nsf.defines`。
+- 后续 P15-P18 不会正面治理这类 selector/profile 输入来源，因此必须在 P14 后新增收口阶段，避免问题被带入 parser / scope / call-type 阶段。
+
+目标：
+
+- 对每个 focus macro 的剩余 undefined 样例，输出 per-unit profile 证据：active unit、触发 include / 行、profile source kind/path、shader key、total row count、selected row count、selected row signature、selection hint source、是否已注入、是否 unresolved、是否 profile source 缺失。
+- 区分三类结论：
+  - LSP provider 缺口：profile source 存在，宏在 source 中可解析，但 provider 未正确注入 / 未正确暴露 unresolved。
+  - 外部输入缺口：profile source 缺失、缺少 active unit variant selection、或 shadercompiler/material 没导出 per-unit selector。
+  - workspace/source 配置缺口：应由参数 include、`nsf.preprocessorMacros` 或 `nsf.defines` 明确提供。
+- 在没有权威值时继续保留 diagnostics；不得为 selector/profile 宏猜默认值。
+
+子阶段：
+
+P14G-A：audit-only profile evidence。
+
+- 只增强 real diagnostics audit / debug 证据，不改变公开 diagnostics、hover、completion、signature help 或 semantic tokens 行为。
+- `macroFocus` 追加 per-unit profile evidence，供阶段报告直接判断 focus macro 是 injected、unresolved、source missing、source no macro 还是 runtime debug unavailable。
+- 同步 `docs/testing.md` 的 audit 字段口径。
+
+P14G-B：source integration。
+
+- 基于 P14G-A 证据决定是否修 `unit_macro_profile_provider.*`、需要 shadercompiler 导出新 selection source，或需要 workspace/source 配置。
+- 只有在 profile source 已有权威值且 provider 漏读 / 漏收敛时，才修改 shared provider。
+- 如果需要新增配置语义、资源默认值、正式资源 bundle 或改变 diagnostics 行为，必须先停下来确认。
+
+验收标准：
+
+- P14G-A 报告中每个 focus macro 至少有 top affected unit 的 profile evidence，能明确说明该 unit 是 profile unresolved、profile source missing、profile source no macro、profile injected 但仍诊断，还是 runtime debug 缺失。
+- 若发现 provider 缺口，P14G-B 必须新增 focused fixture 证明 provider 修复；若不是 provider 缺口，必须给出证据并把剩余问题移交外部 profile / workspace 配置。
+- 不新增 diagnostics-local suppress、fallback、shim、feature flag 或全局默认值。
+- 5-unit / 50-unit audit 继续保持 `truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+### P14G-A 执行记录
+
+状态：已落地 audit-only profile evidence；未改变公开 diagnostics 行为。
+
+实现内容：
+
+- real diagnostics audit 的 `macroFocus` 已扩展 `profileStatusSummary` 与 `profileEvidence`，固定对 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 记录 per-unit active-unit compile profile 证据。
+- 每条 profile evidence 记录 active unit、status、profile source kind/path、shader key、total row count、selected row count、selected row signature、selection hint source、unresolved macros 和 injected value。
+- Markdown 报告新增 `P14 Focus Profile Evidence` 表，便于直接从阶段报告判断 focus macro 是 `profile-injected`、`profile-unresolved`、`profile-source-missing`、`profile-source-empty`、`profile-no-selected-row`、`profile-source-no-macro`、`active-unit-mismatch` 还是 `runtime-debug-missing`。
+- `docs/testing.md` 已同步 `macroFocus` profile evidence/status summary 口径。
+
+验证结果：
+
+- `npm run compile` 通过。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14g-profile-evidence-smoke-5.{json,md}`；`diagnosticsTotal=546`，`macroFocus`: `COLOR_CHANGE_MODE=5` / `EMISSIVE_MODE=5` / `FOLIAGE_MODE=4`，三者 profile status 均为 `profile-source-missing=1`、`profile-source-no-macro=4`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14g-profile-evidence-trend-50.{json,md}`；`diagnosticsTotal=4396`，`macroFocus`: `COLOR_CHANGE_MODE=43` / `EMISSIVE_MODE=43` / `FOLIAGE_MODE=11`，三者 profile status 均为 `profile-source-missing=7`、`profile-source-no-macro=43`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+P14G-A 结论：
+
+- 证据未显示现有 `gimlocalvariants.json` / `used_shader_variants.csv` provider 漏读了 focus macro；相反，已命中的 profile source 对 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 没有可注入的权威值，也没有把它们暴露为 unresolved profile macro。
+- 补充源码审计显示，`FOLIAGE_MODE` 的 source default 位于 `shaderlib/foliage_anim_functions.hlsl`，但典型 affected unit 先 include `shaderlib/season_uniforms.hlsl` 后 include `foliage_anim_functions.hlsl`，因此按严格预处理顺序在 `season_uniforms.hlsl` 使用处仍为 undefined。
+- `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` 的 defaults 主要位于 pbr parameter include；典型 grass unit 没有在 `common_pbr.hlsl` 使用 `surface_functions.hlsl` / `surface_emissive.hlsl` 前引入这些 parameter include，`shaderlib/surface_functions.hlsl` 与 `shaderlib/surface_emissive.hlsl` 中对应默认定义当前还是注释状态。
+- 补充检查 `shadercompiler/check/shader_macro_combinations`：50-unit 样本中 `COLOR_CHANGE_MODE` 与 `EMISSIVE_MODE` 均为 missing；`FOLIAGE_MODE` 仅 2 个 unit 是 stable `0`，2 个 unit 冲突，46 个 unit missing。因此把 `shader_macro_combinations` 作为新 profile source 也只能局部覆盖 `FOLIAGE_MODE`，不能解决三类 focus macro 的主体缺口。
+
+P14G-B 判断：
+
+- 当前不应在 LSP 内为这些 selector/profile 宏补全局默认值，也不应通过 diagnostics suppress 掩盖 undefined；这会重新引入 P14 明确禁止的猜测性默认。
+- 若要继续治理，需要先确认一个公开行为变化方向：要么由真实源码调整 include/default 顺序，要么由 shadercompiler/material 导出 per-unit selector 值，要么把某个新 profile source（例如 `shader_macro_combinations`）正式升格进 `unit_macro_profile_provider.*`。第三种仍只能部分解决 `FOLIAGE_MODE`，且需要新增 provider 来源、focused fixture、C++ 构建、repo m4 回归和 5/50 audit 复验。
+
+### P14H 补充计划：`#art` 美术宏默认 0 契约
+
+状态：已确认新增 P14 补充阶段。P14G-A 把问题定位到“profile 未提供权威值”，但人工复核确认 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 等大量剩余宏属于 Neox `#art` 美术宏：实际材质实例未启用或未覆盖时应按默认 `0` 参与 shader 预处理，不应作为普通 undefined macro 报错。
+
+根因修正：
+
+- P14G-A 的证据结论“现有 active-unit profile source 没有值”仍成立，但这不等同于“应继续报 undefined”。
+- 对 `#art NAME "..." "BOOL"` / `#art NAME "..." "INT"` 声明过的美术宏，权威默认来源不是 `gimlocalvariants.json` / `used_shader_variants.csv`，而是 shader 源码里的 Neox art directive 语义。
+- 当前 LSP 只把 `#art` 当作可 hover 的项目指令，没有把它升格为预处理宏默认来源，因此这类宏先报 undefined，再 synthesized `0` 继续推导；这会造成误报。
+
+目标：
+
+- 建立共享 `#art` 美术宏默认值入口：workspace / include roots 中出现过 `#art NAME "..." "BOOL"` 或 `#art NAME "..." "INT"` 的宏，在 active unit profile、workspace config、`nsf.defines` 和源码 `#define/#undef` 都未给值时，按默认 `0` 注入预处理环境。
+- 该默认来源必须进入 shared preprocessor input，而不是 diagnostics-local suppress；hover、definition、diagnostics 和 audit 应看到同一来源。
+- profile、workspace `nsf.preprocessorMacros`、workspace `nsf.defines` 和源码 `#define/#undef` 继续按既有优先级覆盖 `#art` default zero。
+- debug / audit 需要能区分该来源是 `art-default-zero`，不能把它伪装成 active unit profile injected。
+
+实施边界：
+
+- 只对 `#art` 类型为 `BOOL` 或 `INT` 的宏注入默认 `0`；其它类型先只记录为 directive metadata，不进入 preprocessor default。
+- 不从注释中的 `#art` 或注释中的 `#ifndef/#define` 推断默认值。
+- 不为未出现 `#art` 声明的 selector/profile 宏新增默认值。
+- 不改变 `nsf.preprocessorMacros` schema，不新增资源 bundle，不引入 feature flag、fallback、shim 或 diagnostics suppress。
+
+验收标准：
+
+- focused fixture 证明 `#art BOOL/INT` 宏在未配置、未 profile、未源码 define 时不再发布 `Undefined macro in preprocessor expression`，并按 `0` 走 inactive branch。
+- focused fixture 证明 workspace/profile/config/source 显式值仍覆盖 `#art` default zero。
+- 5-unit / 50-unit audit 中 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 的剩余 undefined diagnostics 应显著下降；若仍有残留，必须通过 `macroFocus` / 新增 evidence 区分“未发现 #art 声明”与“其它真实缺口”。
+- 继续保持 `truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+验证计划：
+
+- `cmake --build .\server_cpp\build`
+- `npm run compile`
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo`
+- 如 hover / definition 来源展示变化，补跑 interactive hover / definition repo 定向回归。
+- phase-14h 5-unit smoke audit 和 50-unit trend audit。
+
+### P14H 执行记录
+
+状态：已落地 `#art` BOOL/INT default-zero 共享预处理输入；改变公开 preprocessor diagnostics 行为。
+
+实现内容：
+
+- 新增 `art_macro_defaults.hpp` 作为 `#art` default-zero source metadata 结构，记录宏名、类型、source uri、line/range。
+- `workspace_index.*` / `workspace_summary_runtime.*` 现在索引 active、非注释的 `#art NAME "..." "BOOL"` / `"INT"` 声明，并以 workspace summary 查询接口暴露；非 BOOL/INT、注释中的 `#art` 不进入 default-zero 输入。
+- `preprocessor_view.*` 初始宏播种顺序调整为 `#art` default zero < `nsf.preprocessorMacros` < active unit profile / `nsf.defines`，源码 `#define/#undef` 继续按顺序覆盖；macro replacement/source metadata 增加 `sourceArtDefaultZero`。
+- `global_context_runtime.*` 将 workspace `#art` default-zero macros 纳入 active unit snapshot/debug；macro hover/definition 会把 default-zero 来源标为 `#art BOOL/INT default zero` 并可跳转到 `#art` 声明。
+- diagnostics audit 的 `macroHealth` 增加 `initialArtDefaultZeroMacroCount`，`macroFocus` evidence/status summary 可显示 `art-default-zero` 及 source path/line。
+- 新增 focused fixtures `test_files/p14h_art_defaults/*`，覆盖 workspace 级 `#art` default zero、非 BOOL/INT 不默认、注释中 `#art` 不默认、source `#define` 覆盖和 `nsf.preprocessorMacros` 覆盖。
+- 已同步 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md` 和相关头文件契约。
+
+公开行为变化：
+
+- workspace / include roots 中出现过 `#art NAME "..." "BOOL"` 或 `"INT"` 的宏，在 profile、`nsf.preprocessorMacros`、`nsf.defines` 和源码都没有给值时，不再发布 `Undefined macro in preprocessor expression: NAME.`，而是按默认 `0` 参与 `#if/#elif` 求值。
+- `nsf.preprocessorMacros`、active unit profile、`nsf.defines`、源码 `#define/#undef` 对同名宏仍保持高优先级覆盖；source `#undef` 后的后续 undefined 使用仍按真实 undefined 处理。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='client.diagnostics'; npm run test:client:repo` 通过，88 passing；覆盖 P14H default-zero / source override / config override focused fixtures。
+- `$env:NSF_TEST_FILE_FILTER='interactive-runtime'; npm run test:client:repo` 通过，55 passing；复核宏 hover / definition 共享 preprocessor state 未回归。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14h-art-default-smoke-5.{json,md}`；`diagnosticsTotal=508`，`macroFocus`: `COLOR_CHANGE_MODE=0` / `EMISSIVE_MODE=0` / `FOLIAGE_MODE=0`，三者 status 均为 `art-default-zero=5`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14h-art-default-trend-50.{json,md}`；`diagnosticsTotal=4089`，`macroFocus`: `COLOR_CHANGE_MODE=0` / `EMISSIVE_MODE=0` / `FOLIAGE_MODE=0`，三者 status 均为 `art-default-zero=50`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。相对 P14G-A 50-unit evidence run 的 focus macro `43/43/11` 已全部归零。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 focused fixture 与阶段 audit 报告；workspace index cache key bump 用于刷新新字段，无用户可见运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：是，Neox `#art` BOOL/INT default-zero 现在由 workspace summary 作为单一事实来源进入 shared preprocessor input。
+- 测试策略是否变化：是，新增 P14H focused fixture，并在 real diagnostics audit 中增加 `art-default-zero` evidence 与 `initialArtDefaultZeroMacroCount`。
+- 文档是否已同步：已更新 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md`、本执行计划及相关头文件；`AGENTS.md`、`docs/client-editor-features.md`、`docs/type-method-interface-contract.md`、`docs/development.md` 无需更新。
+- 是否改变公开 diagnostics 行为：是，`#art` BOOL/INT 宏默认 `0` 后不再作为普通 undefined macro 报错。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：是，新增 repo focused fixtures，并生成 phase-14h 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是；C++ build、TS compile、diagnostics repo、interactive-runtime repo、5-unit smoke audit 和 50-unit trend audit 均通过。
+
+### P14I 计划：shadercompiler private numeric 常量语义对齐
+
+状态：已确认新增 P14 后续阶段。P14H 后 `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` / `FOLIAGE_MODE` selector/profile 类美术宏已按 `#art` 默认 `0` 收敛，但 50-unit audit 仍剩余一批 enum-like 右值常量；人工复核和 shadercompiler 对照显示它们不是同一种缺口。
+
+根因判断：
+
+- `FOLIAGE_TREE_BRANCH` / `FOLIAGE_TREE_LEAF` / `FOLIAGE_GRASS_BRANCH` / `FOLIAGE_GRASS_LEAF` 在 affected grass/base 单元中属于“先使用、后定义”的 active include closure 内 private numeric `#define`。真实 shadercompiler 会先全文收集 private macros，再全局替换 `#if/#elif` 表达式，因此不报 unresolved；当前 LSP 仍按严格预处理顺序解释，导致误报。
+- `COLOR_CHANGE_*` / `CHANNEL_COLOR_CHANGE*` / `EMISSIVE_*` 在 affected base 单元中不是简单 include 顺序迟到；它们主要定义在 `pbr/nodes/*_parameters.hlsl`，当前 active include closure 没有引入对应 parameter include，且不同 parameter 文件中的值存在冲突。直接补全局默认值会误激活分支。
+- shadercompiler 对 `base/animated_grass_noseason.nsf` 的宏收集验证显示：`FOLIAGE_*` 已进入 `private_macros`，而 `COLOR_CHANGE_*` / `EMISSIVE_*` 仍在 `unresolved_macros`；因此 P14I 只治理前者这一类 compiler-order-insensitive private constants。
+
+目标：
+
+- 在 shared `PreprocessorView` 层对齐 shadercompiler 的一条关键规则：当前 active unit include closure 内稳定、无冲突、无 `#undef` 干扰的 object-like numeric private `#define`，可作为最低优先级初始宏输入，使 `#if/#elif` 中“先用后定义”的同名常量不再报 undefined。
+- 该来源必须是 active unit closure 局部来源，不能扫描全 workspace，不能从未参与当前 unit 的 parameter include 中捞值。
+- 该来源必须进入共享 preprocessor state，而不是 diagnostics-local suppress；hover、definition、diagnostics、audit 看到同一来源。
+
+实施边界：
+
+- 只收集 object-like、单 token 整数 numeric `#define NAME value`，且同名定义值一致、当前 closure 内无 `#undef NAME` 时才注入。
+- function-like 宏、表达式宏、字符串宏、条件复杂宏、同名冲突值、出现 `#undef` 的宏均不注入，继续按真实源码/配置状态诊断。
+- 不为 `COLOR_CHANGE_*` / `EMISSIVE_*` 建全局 enum catalog；它们后续需要单独确认源码 include 调整、shadercompiler builtin/catalog 或正式导出的权威 enum source。
+- 不新增资源 bundle、feature flag、compat/shim 或 diagnostics suppress。
+
+验收标准：
+
+- focused fixture 覆盖“include 后部定义 numeric private constant、前部 `#if` 使用”的场景，不再发布 undefined macro diagnostic。
+- focused fixture 覆盖同名冲突值不注入、`#undef` 干扰不注入、非 active include 不注入、function-like/表达式宏不注入。
+- 50-unit audit 预期 active closure 内已定义的 `FOLIAGE_*` 先用后定义误报下降；若仍有残留，必须区分“当前 unit closure 未包含定义来源”与“include 顺序迟到”。`COLOR_CHANGE_*` / `EMISSIVE_*` 保留，并在报告中继续归为需要权威来源确认的 enum-like stable constant 候选。
+- C++ build、TS compile、diagnostics focused repo、interactive hover/definition 回归和 phase-14i 5/50 real audit 通过。
+
+执行结果：
+
+- `PreprocessorView` 新增 active unit include-closure compiler private numeric constants 收集：先用严格预处理视图枚举 active include closure，再从 root/include root lines 收集 object-like 单 token 整数 `#define NAME value`；同名值冲突、function-like、表达式 replacement、非整数均不注入。P14O 进一步确认 `#undef NAME` 应清空当前候选而不是永久阻断，后续稳定 `#define NAME value` 可以重新建立候选；最终没有后续稳定定义的仍不注入。
+- 该来源作为 `#art` default zero 之后、`nsf.preprocessorMacros` / active unit profile / `nsf.defines` 之前的初始宏输入，源码 `#define/#undef` 仍按顺序覆盖；macro source metadata 标记为 `sourceCompilerPrivateConstant` / `compilerPrivateConstant`，hover 显示 `active unit compiler private numeric constant`。
+- audit/debug `macroHealth` 增加 `initialCompilerPrivateConstantCount`；real diagnostics audit 在同一 active unit 的多文件扫描中通过显式 `compilerPrivateConstantCacheScope` 复用 compiler-private 常量收集结果，避免每个 closure 文件重复全量扫描。普通 LSP publish/interactive 路径不启用该 audit cache scope。
+- 新增 focused fixture `test_files/p14i_compiler_private_constants/*`，覆盖 include 后部 numeric private constant 的前序使用、冲突值、`#undef` 干扰、表达式/function-like 宏和非 active include 不注入。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='client.diagnostics'; npm run test:client:repo` 通过，89 passing。
+- `$env:NSF_TEST_FILE_FILTER='interactive-runtime'; npm run test:client:repo` 通过，55 passing。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14i-compiler-private-smoke-5.{json,md}`；`diagnosticsTotal=487`、`preprocessor-context=115`、`macroHealth.initialCompilerPrivateConstantCount=50965`、`macroFocus`: `COLOR_CHANGE_MODE=0` / `EMISSIVE_MODE=0` / `FOLIAGE_MODE=0`，三者 status 均为 `art-default-zero=5`，`FOLIAGE_*` undefined 样本为 0，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-14i-compiler-private-trend-50.{json,md}`；相对 P14H trend：`diagnosticsTotal 4089 -> 4029`、`preprocessor-context 1151 -> 1091`、`synthesizedZeroEvents 1088 -> 1032`、`undefinedMacroDiagnosticCount 1151 -> 1091`、`macroHealth.initialCompilerPrivateConstantCount=433218`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit 中 `FOLIAGE_GRASS_BRANCH` / `FOLIAGE_GRASS_LEAF` / `FOLIAGE_TREE_BRANCH` / `FOLIAGE_TREE_LEAF` 各从 11 条降到 7 条；剩余样本集中在 `base/blast*.nsf`、`base/external_lightmap*.nsf`、`base/decal_bluetide_plane.nsf`、`base/dm51_bg_allround.nsf` 等只 include `shaderlib/season_uniforms.hlsl`、未 include `shaderlib/foliage_anim_functions.hlsl` 的 unit。该残留不是 include 顺序迟到，而是 active closure 内没有定义来源；P14I 按边界不能从全 workspace 或未参与的 parameter/include 文件注入。
+- `COLOR_CHANGE_*` / `CHANNEL_COLOR_CHANGE*` / `EMISSIVE_*` 仍保留为 enum-like stable constant 候选，典型剩余为每个宏 43 条；它们的定义主要在未进入 affected base unit closure 的 parameter include 中，且存在跨 parameter 文件值域冲突，不能由 P14I 建全局默认或全局 enum catalog。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P14I focused fixture 与 phase-14i audit 报告；无用户可见资源路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：是，active unit compiler private numeric constants 成为 `preprocessor_view.*` 的共享初始宏输入来源，只限当前 active include closure。
+- 测试策略是否变化：是，real diagnostics audit macroHealth 增加 `initialCompilerPrivateConstantCount`，并在 audit debug 请求中启用 per-unit compiler-private 收集 cache scope。
+- 文档是否已同步：已更新 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md`、本执行计划及相关头文件；`AGENTS.md`、`docs/client-editor-features.md`、`docs/type-method-interface-contract.md`、`docs/development.md` 无需更新。
+- 是否改变公开 diagnostics / hover 行为：是，当前 active closure 内安全的先用后定义 compiler private numeric constants 不再作为 undefined macro 报错，hover/definition 可显示其真实来源。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：是，新增 repo focused fixture，并生成 phase-14i 5-unit / 50-unit real audit sample。
+- 是否重新跑了对应验证并记录结果：是；C++ build、TS compile、diagnostics repo、interactive-runtime repo、5-unit smoke audit 和 50-unit trend audit 均通过。
+
+### P14J 计划：用户指定 shadercompiler 权威输入根
+
+状态：已确认新增 P14 收口阶段。P14I 后剩余问题不应继续由插件猜宏值解决；后续需要让 `nsf_lsp` 消费真实 shadercompiler / material pipeline 的权威导出数据。
+
+根因判断：
+
+- 当前 `unit_macro_profile_provider.*` 只从 workspace/include roots 自动发现 `gimlocalvariants.json`、`used_shader_variants.csv` 和 `active_unit_variant_selection.csv`。当真实 shadercompiler 位于 workspace 外，或项目没有把 compiler 导出目录放进 `nsf.intellisionPath` 时，LSP 无法定位权威 profile source。
+- 由 client 调用 shadercompiler 会把语言真相放到 client 侧，违反当前架构；但由 server 在普通 hover/diagnostics 热路径直接执行完整编译，又会引入性能、副作用和环境依赖风险。
+
+目标：
+
+- 新增 `nsf.shaderCompilerPath` 用户配置，由 client 只负责同步配置，server / `nsf_lsp` 负责消费。
+- P14J 先落地只读 provider 边界：把 `shaderCompilerPath` 作为 `unit_macro_profile_provider.*` 的额外发现根，读取 compiler 已导出的 profile JSON/CSV，不 spawn 外部编译进程。
+- `shaderCompilerPath` 必须参与 active-unit analysis context fingerprint；配置变化后应刷新 active unit profile、diagnostics 和 debug metadata。
+
+实施边界：
+
+- 接受 shadercompiler 根目录或可执行文件路径；如果是可执行入口，provider 可从其父目录尝试发现导出数据。
+- 当前只读取已支持的 `gimlocalvariants.json`、`used_shader_variants.csv`、`active_unit_variant_selection.csv`，并额外覆盖 `check/check_used_shader_variants/trunk/` 这类 shadercompiler 根目录布局。
+- 不在 P14J 中执行完整 shadercompiler，不新增外部进程调用、不新增 fallback guessed defaults、不把 `COLOR_CHANGE_*` / `EMISSIVE_*` 提升为全局 enum catalog。
+
+验收标准：
+
+- package / client config 支持 `nsf.shaderCompilerPath`，配置变化无需重启 server 即可刷新 runtime config。
+- focused repo test 证明：当 `nsf.intellisionPath` 不包含 profile 文件，但 `nsf.shaderCompilerPath` 指向 compiler 导出根时，active unit profile 仍能注入稳定宏，debug source path 指向 shaderCompilerPath 下的文件。
+- C++ build、TS compile、`analysis-context-unit-profile` 定向回归通过。
+
+执行结果：
+
+- 新增用户配置 `nsf.shaderCompilerPath`，支持 shadercompiler 根目录或可执行文件路径。client 只做配置读取、规范化和同步；server 侧保存到 request/global context。
+- `unit_macro_profile_provider.*` 新增 `shaderCompilerPath` 发现根；除既有 workspace/include roots 外，还会在该路径及其父目录下查找已支持的 `gimlocalvariants.json`、`used_shader_variants.csv`、`active_unit_variant_selection.csv`，并新增 `check/check_used_shader_variants/trunk/` 布局候选，用于直接指向 shadercompiler 根目录的场景。
+- `GlobalContextRuntimeOptions` / `ActiveUnitSnapshot` 增加 `shaderCompilerPath` 与 fingerprint，确保配置变化会刷新 active-unit analysis context，不复用旧 profile source。
+- 新增 focused fixture `test_files/shadercompiler_path_fixture/check/check_used_shader_variants/trunk/gimlocalvariants.json`；新增 `analysis-context-unit-profile` 用例，证明 `nsf.intellisionPath` 不包含 profile 文件时，`nsf.shaderCompilerPath` 仍能让 active unit 注入 `TARGET_VARIANT_PROFILE=1`，且 debug source path 指向 shadercompiler path fixture。
+- P14J 不执行外部 shadercompiler 进程；当前仍只读消费已导出的 profile source，不改变 `COLOR_CHANGE_*` / `EMISSIVE_*` 的权威来源结论。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `node .\out\test\runCodeTests.js --mode repo --file-filter analysis-context-unit-profile` 通过，6 passing。
+- `npm run test:client:repo:m4` 通过。
+- `$env:NSF_TEST_FILE_FILTER='client.diagnostics'; npm run test:client:repo` 通过，89 passing。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增用户配置 `nsf.shaderCompilerPath`；新增 focused fixture 路径 `test_files/shadercompiler_path_fixture/`。
+- 架构或单一事实来源是否变化：是，active unit profile source 发现根从 workspace/include roots 扩展到可选 `nsf.shaderCompilerPath`，仍由 server 侧 `unit_macro_profile_provider.*` 作为单一入口消费。
+- 测试策略是否变化：是，`analysis-context-unit-profile` 增加 shaderCompilerPath provider root 覆盖；`docs/testing.md` 已同步。
+- 文档是否已同步：已更新 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md`、本执行计划和相关头文件；`AGENTS.md`、`docs/client-editor-features.md`、`docs/type-method-interface-contract.md`、`docs/development.md` 无需更新。
+- 是否改变公开行为：是，用户设置 `nsf.shaderCompilerPath` 后，LSP 可从该路径读取 compiler 导出的 per-unit profile 宏，影响 active branch / diagnostics / hover 等共享分析结果；未设置时保持原行为。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否执行 shadercompiler 外部进程：否。
+- 是否重新跑了对应验证并记录结果：是；C++ build、TS compile、unit-profile、M4 和 diagnostics repo 定向均通过。
+
+### P14K-A 计划：shadercompiler 临时输出调用探针
+
+状态：已确认新增 P14 补充探针阶段。P14J 已允许用户指定 `nsf.shaderCompilerPath` 作为只读 profile source root，但它仍依赖 compiler / material pipeline 已经生成并保持新鲜的导出数据。用户编辑 `.nsf/.hlsl` 后，`K:\future\res\shader` 这类生成目录不一定同步刷新，因此不能直接把既有生成文件当作永远新鲜的 LSP 真相。
+
+根因判断：
+
+- 剩余 enum-like / profile 宏问题需要更接近真实 shadercompiler 的 active unit 上下文；仅从源码 include closure 或静态 profile JSON/CSV 继续猜值，会把 compiler 规则重新实现到 LSP 里。
+- 但 shadercompiler 完整编译有 Python 2、`.pyd`、工作目录、输出目录、shadermap 和临时文件等环境/副作用要求；在 hover、completion、diagnostics 热路径直接执行会破坏当前 server 调度契约。
+- 因此 P14K-A 只验证“是否能由 `nsf_lsp` 背景任务安全调用 shadercompiler 生成临时快照”，不做运行时接入。
+
+目标：
+
+- 找到可由 server 后台任务复用的 shadercompiler 单文件入口、参数、工作目录和最小环境要求。
+- 验证输出是否能定向到 `%TEMP%` 下的临时目录，而不是写回源码目录或 `K:\future\res\shader`。
+- 记录不可避免的副作用文件、耗时、失败条件和可用于 P14K-B 的输出内容。
+
+实施边界：
+
+- 只做人工/本机 feasibility probe，不修改 server 运行时代码，不新增公开配置，不改变 diagnostics / hover / completion 行为。
+- 探针必须使用临时输出目录；不得写入真实 res shader 目录，不覆盖源码，不依赖 `K:\future\res\shader` 作为新鲜真相。
+- 若后续进入 P14K-B，compiler invocation 只能在 background lane / worker 中 debounce + latest-only 执行；结果必须绑定 active unit、document version / fingerprint 和 source snapshot，过期即丢弃。
+- compiler 输出只能作为 active branch / profile / enum-like 宏权威输入，不替换 source AST、definition 位置或源码 include graph。
+
+验收标准：
+
+- 明确记录可执行命令、输入 unit、临时输出目录、生成文件列表、宏证据和副作用范围。
+- 明确说明 `fx_process.py` / `compile_all_git.py` 哪个入口适合未来 server 调用，以及当前不能直接接入的原因。
+- 形成 P14K-B 设计边界：后台调度、超时/取消、临时目录生命周期、fingerprint stale 丢弃、debug metadata 和失败降级策略。
+
+### P14K-A 执行记录
+
+状态：已完成本机 feasibility probe；未修改 server/client 运行时代码，未改变公开行为。
+
+探针环境：
+
+- shadercompiler root：`C:\Software\WorkTemp\G66ShaderDevelop\shadercompiler`
+- Python：`C:\Python27\python.exe`，版本 `Python 2.7.17`
+- 单文件入口：`fx_process.py`
+- 探针策略：用临时 cwd 启动脚本，并把 `-o` 指向 `%TEMP%` 下的临时 `res\shader`，避免调试文件、缓存文件和生成 shader 写入真实目录。
+
+可执行命令形态：
+
+```powershell
+$compiler = "C:\Software\WorkTemp\G66ShaderDevelop\shadercompiler"
+$cwd = "$env:TEMP\nsf-lsp-shaderprobe-<stamp>\cwd"
+$out = "$env:TEMP\nsf-lsp-shaderprobe-<stamp>\res\shader"
+New-Item -ItemType Directory -Force $cwd, $out | Out-Null
+Push-Location $cwd
+& C:\Python27\python.exe -b "$compiler\fx_process.py" `
+  -m 1 `
+  -i "C:\Software\WorkTemp\G66ShaderDevelop\shader-source\base\animated_grass_noseason.nsf" `
+  -o $out `
+  --set-is-future 1 `
+  --is-release 0 `
+  --is-shipping 0
+Pop-Location
+```
+
+成功样本：
+
+- `base\animated_grass_noseason.nsf` 成功，耗时约 `38.6s`，临时根：`%TEMP%\nsf-lsp-shaderprobe-20260527-233852-animated-all`。
+- `pbr\pbr_weapon.nsf` 成功，耗时约 `83.6s`，临时根：`%TEMP%\nsf-lsp-shaderprobe-20260527-234050-pbr-weapon`。
+- 两次成功探针均未发现 shadercompiler root 下顶层文件发生变化；生成文件都落在临时根下。
+
+失败样本：
+
+- `base\animated_grass_noseason.nsf` 携带 `--not-all` 时失败，耗时约 `25.7s`，失败点为 `hlsl_process.py` 中 `compiled[lang][1] = fix_max_rt_count_gl(compiled[lang][1])` 的 `IndexError: list index out of range`。
+- 结论：未来 server 侧不能简单用 `--not-all` 作为低成本模式；至少对该类 unit，需要完整平台输出或更明确的 compiler-supported 快照模式。
+
+输出与副作用范围：
+
+- 临时输出包含 forward / deferred 的 `.fx`、`.nfx2`、`.ps`、`.vs`，例如：
+  - `res\shader\animated_grass_noseason.fx`
+  - `res\shader\animated_grass_noseason.nfx2`
+  - `res\shader\deferred\animated_grass_noseason.nfx2`
+  - `res\common\pipeline\deferred_shadermap.xml`
+- 临时 cwd 会写入调试 / 缓存文件：
+  - `cached_boolean_expr.py`
+  - `tmp_code_origin.hlsl`
+  - `tmp_code_dx9.hlsl` / `tmp_code_dx11.hlsl` / `tmp_code_gles30.hlsl` / `tmp_code_metal.hlsl` / `tmp_code_vulkan.hlsl`
+  - `tmp_compiled_*_vs.hlsl` / `tmp_compiled_*_ps.hlsl`
+- 因此未来若由 server 调用，必须使用 per-job 临时 cwd；不能在 shadercompiler root 下直接启动，否则会污染工具目录。
+
+宏证据：
+
+- `animated_grass_noseason.fx` 中存在 compiler 展开后的 `#define SHADINGMODELID_*`、`#define DYNAMIC_GI_TYPE DYNAMIC_GI_DEFAULT`、`#define FOLIAGE_NONE 0`、`#ifndef FOLIAGE_MODE` / `#define FOLIAGE_MODE FOLIAGE_NONE`。
+- `pbr_weapon.fx` 中存在 `NEOX_SASEFFECT_MACRO(..., "COLOR_CHANGE_MODE", "INT", "COLOR_CHANGE_NONE")`、`NEOX_SASEFFECT_MACRO(..., "EMISSIVE_MODE", "INT", "EMISSIVE_NONE")`，以及 `#define COLOR_CHANGE_NONE 0`、`#define COLOR_CHANGE_PICKER 0`、`#define CHANNEL_COLOR_CHANGE 1`、`#define CHANNEL_COLOR_CHANGE_GRADIENT 2`、`#define CHANNEL_COLOR_CHANGE_ID 3`、`#define EMISSIVE_NONE 0`、`#define EMISSIVE_COLOR 1`、`#define EMISSIVE_FLOW 2`、`#define EMISSIVE_FLOW_UV1 3`、`#ifndef COLOR_CHANGE_MODE` / `#define COLOR_CHANGE_MODE COLOR_CHANGE_NONE`、`#ifndef EMISSIVE_MODE` / `#define EMISSIVE_MODE EMISSIVE_NONE`。
+- 这证明 generated `.fx` 可以作为当前 unit 的 compiler snapshot 来回答 enum-like 常量和美术宏默认值；但它仍是生成结果，必须绑定源码版本/fingerprint，不能把 `K:\future\res\shader` 的已有文件当作总是新鲜。
+
+入口判断：
+
+- `compile_all_git.py` 负责全量/批量 orchestration，依赖 `SHADER_SOURCE_GIT`、`FUTURE_RES_PATH`、`TRUNK_RES_PATH`、`WRITE_TO_ROOT_RES`、`COMPILE_MODE` 等环境，并会调用 `fx_process.py --compile-all`；它不适合作为 LSP 编辑态单文件探针入口。
+- `fx_process.py -i <unit> -o <temp-res-shader> -m 1 --set-is-future 1 --is-release 0 --is-shipping 0` 是当前可行的单文件临时输出入口，但成本较高，且不是可取消的 in-process API。
+
+P14K-B 边界：
+
+- 若进入实现，server 只能在后台 worker 中调用 compiler，使用 debounce + latest-only；hover、completion、signature help、diagnostics 热路径不得同步等待 compiler。
+- 每次 compiler job 必须使用独立临时 cwd 和临时输出根；任务结束后可按 debug 配置保留或清理，但默认不写真实 res。
+- job key 必须包含 active unit path、document version / content fingerprint、include closure fingerprint、`nsf.shaderCompilerPath`、compile mode 参数和 relevant config fingerprint。
+- 结果只允许作为 active branch / profile / enum-like macro authority overlay 输入；不得替换 source AST、源码 definition location、include graph 或 workspace index。
+- compiler job 超时、失败或结果 stale 时，应记录 debug metadata 并丢弃该 job 结果；不得回退到 guessed defaults 或把过期 snapshot 继续注入当前分析。
+- 当前阶段没有新增公开行为；P14K-B 一旦要让 compiler snapshot 影响 diagnostics / hover，必须按公开行为变化再次确认并同步事实文档、头文件契约和测试。
+
+阶段关闭判断：
+
+- 命令是否变化：否；仅记录本机探针命令。
+- 路径或命名是否变化：否；仅使用 `%TEMP%` 临时目录。
+- 架构或单一事实来源是否变化：否；P14K-A 未接入运行时代码。
+- 测试策略是否变化：否；未新增测试入口或 fixture。
+- 文档是否已同步：已更新本执行计划；当前事实文档无需更新，因为没有运行时行为、命令、资源路径或架构契约变化。
+- 是否改变公开行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否执行 shadercompiler 外部进程：是，仅限本机 feasibility probe，输出写入临时目录。
+- 是否重新跑了对应验证并记录结果：是；两条成功单文件临时输出探针和一条 `--not-all` 失败探针已记录。
+
+### P14K-B 计划：C++ compiler macro snapshot server 集成
+
+状态：已按“直接做 C++ 版本”完成方向调整并落地。P14K-B 不再保留 Python helper，也不修改 shadercompiler；compiler snapshot 由 `nsf_lsp` server 内的 C++ provider 从当前 active unit include closure 中提取源码可重建的稳定宏事实。
+
+根因判断：
+
+- P14I 后剩余一类 enum-like / default alias 问题不是 include 顺序本身，而是 shadercompiler 会先收集当前 unit 的宏快照，再用这些 alias 参与前置 `#if/#elif` 求值。
+- P14K-A 证明调用完整 shadercompiler 或 Python helper 成本高、协作复杂，且编辑态 server 不应依赖生成目录是否新鲜。
+- 因此最终方案不调用外部 compiler，不 import Python 依赖，而是在 C++ server 内实现一个保守子集：只收集 active closure 中源码可证明稳定的 object-like 单 token alias 和 `#ifndef` default alias。
+
+实施边界：
+
+- 新增 `server_cpp/src/compiler_macro_snapshot_provider.hpp/.cpp`，并接入 `server_cpp/CMakeLists.txt`。
+- provider 只扫描当前 active unit include closure 中的 `ConditionalAst`，不扫描全 workspace，不执行 shadercompiler，不读生成 `.fx/.nfx2`。
+- 收集范围限定为 root-level object-like single-token alias，以及 root-level `#ifndef NAME` 后跟 `#define NAME token` 的 default alias。
+- 冲突值、function-like macro、表达式 replacement、未实际使用、最终没有稳定定义的候选都会被排除；`#undef` 清空当前候选，后续稳定 `#define` 可以重新建立候选，候选使用 closure 会沿 alias replacement 继续传播。
+- `PreprocessorView` 初始宏优先级更新为 `#art` default zero < compiler private numeric constants < `nsf.preprocessorMacros` < C++ compiler macro snapshot < active unit profile / `nsf.defines` < source `#define/#undef`。
+- hover / definition / diagnostics 仍只消费 `PreprocessorView`，provider 不直接服务 feature 代码；hover source note 新增 `active unit compiler macro snapshot`。
+- audit/debug `macroHealth` 增加 `initialCompilerMacroSnapshotCount`；real diagnostics audit 在同一 active unit 多文件扫描中通过显式 cache scope 复用 compiler private constants 和 compiler macro snapshot，cache 命中时跳过重复的 active-unit strict 预扫描。
+- 删除前一轮 server-owned Python helper 探针残留 `server_cpp/tools/shadercompiler_macro_snapshot.py`，避免形成双路径。
+
+执行结果：
+
+- 新增 C++ provider 并在 `preprocessor_view.*` 中接入初始宏 seed。
+- 新增 P14K focused fixture：`test_files/p14k_compiler_macro_snapshot/module_diagnostics_preprocessor_p14k_compiler_snapshot.nsf`，覆盖 `#if` 在 alias 定义出现前即可用 compiler snapshot 消除 undefined 与错误 active branch。
+- `src/test/suite/integration/diagnostics.ts` 新增 `uses P14K C++ compiler macro snapshot aliases before source order`，同时验证 diagnostics 与 macro hover source。
+- `src/test/suite/realWorkspace.diagnostics-audit.test.ts` 聚合并输出 `initialCompilerMacroSnapshotCount`。
+- 当前事实文档已同步 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md`。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='client.diagnostics'; npm run test:client:repo` 通过，`90 passing`，P14K focused 用例通过。
+- `npm run test:client:repo:m4` 通过，analysis-context 相关 profile / defines / include / workspace 组均通过。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-14k-cpp-snapshot-smoke-5.{json,md}`；`diagnosticsTotal=482`、`preprocessor-context=110`、`initialCompilerMacroSnapshotCount=17483`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 首次在未优化 cache 命中路径时 30 分钟超时，停在 `25/50` units；补齐 cache 命中直接解释路径后通过，输出 `real-workspace-diagnostics-audit.phase-14k-cpp-snapshot-trend-50.{json,md}`；`diagnosticsTotal=3992`、`preprocessor-context=1054`、`initialCompilerMacroSnapshotCount=150202`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- P14 focus macros 仍为 `COLOR_CHANGE_MODE=0` / `EMISSIVE_MODE=0` / `FOLIAGE_MODE=0` 剩余 undefined diagnostics，三者 50-unit evidence 均为 `art-default-zero=50`。
+
+阶段关闭判断：
+
+- 命令是否变化：否；未新增 npm / CMake / 用户命令。
+- 路径或命名是否变化：新增 C++ provider 源文件和 P14K focused fixture；删除未接入运行时的 Python helper 探针残留；无资源 bundle 路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：是；active-unit compiler macro snapshot aliases 成为 `compiler_macro_snapshot_provider.*` + `preprocessor_view.*` 的共享事实来源，已同步当前事实文档。
+- 测试策略是否变化：是；diagnostics repo focused 测试、macroHealth 指标和 real audit cache 口径已同步 `docs/testing.md`。
+- 文档是否已同步：已同步本执行计划、`README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md`。
+- 是否改变公开行为：是；diagnostics / hover 会在 active unit compiler macro snapshot 可证明稳定时把这些 alias 视为初始宏输入。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否执行 shadercompiler 外部进程：否。
 - 是否重新跑了对应验证并记录结果：是。
 
-结论：
-
-- `SHADINGMODELID_DEFAULT_LIT` 这类确实应作为 enum-like constant 处理，而 `SHADINGMODELID` 是 selector / profile macro；两者已经在 audit report 中分开。
-- 部分 enum-like constant 已能找到明确数值证据，例如 `SHADINGMODELID_*`、`FOLIAGE_GRASS_*`、`SPARKLE_MODE_*`。
-- `COLOR_CHANGE_*`、`CHANNEL_COLOR_CHANGE*` 和部分 `EMISSIVE_*` 虽然形态上是 enum-like constant，但当前 source 参数 include 中存在冲突值；在没有确认权威来源前不能直接写全局默认值。
-- 本轮没有补任何默认宏，因此 `preprocessor-context` 没有下降；这是符合边界的结果，避免用猜测默认值改变 active branch。
-
-### Phase 14 目标重设（重新打开）
-
-状态：P14 重新打开。前两轮完成了 owner taxonomy 和证据采集，但没有解决 `preprocessor-context=10549` 的实际下降问题，因此不能进入 P15 作为主线。
-
-重设后的 P14 目标：
-
-1. 先解决“稳定常量缺失”这一类确定性问题：
-   - 首批候选：`SHADINGMODELID_*`、`FOLIAGE_GRASS_*`、`SPARKLE_MODE_*`。
-   - 要求：每个宏都有单一权威值来源；正式写入默认 preset 前必须停下来确认，因为会改变公开 diagnostics 行为。
-   - 禁止：把 `SHADINGMODELID`、`FOLIAGE_MODE`、`SPARKLE_ENABLE` 这类 selector 一并写成全局默认。
-2. 再解决“selector/profile 宏值推导”问题：
-   - 目标不是猜默认值，而是确认 LSP 是否能从 active unit、参数 include、workspace 配置或 shadercompiler profile 获得真实值。
-   - 对 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`DYNAMIC_GI_TYPE`、`SHADINGMODELID` 等高频 selector，必须先证明真实来源：source include 已定义、workspace 配置应提供、还是当前 LSP 上下文推导链漏读。
-   - 如果根因是 include closure / active unit 上下文传播缺失，应在共享预处理上下文层修正，而不是在 diagnostics rule 中局部补。
-3. 再处理 compiler/platform/generated config：
-   - `GL3_PROFILE`、`NEOX_FLOATRT_SUPPORT`、`IS_ADRENO_6XX` 需要确认 shadercompiler context 与 target 差异。
-   - `PS_INPUT_HAS_INSTANCE_ID`、`NEOX_COMPUTE_SHADER`、`NEOX_PARAM_DECLARE_DOMAIN` 需要确认生成链、shader stage 注入或 source owner。
-4. 每一批治理都必须用同一 audit workspace 跑 5-unit / 50-unit；有实际下降且无 top group 回归后，再跑 full audit。
-
-重新设定后的 P14 关闭条件：
-
-- `preprocessor-context` 不能保持 `10549` 原地不动；至少一批 confirmed macro context 已正式进入正确来源，并能在 5-unit / 50-unit / full audit 中证明下降。
-- 每个新增默认宏或上下文推导规则都有来源、值、owner、风险和“为何不是 selector/profile 猜测”的说明。
-- 如果修改 `server_cpp/resources/language/preprocessor_macros` 或生成脚本，必须同步 `docs/resources.md` 并运行资源校验。
-- 如果修改共享预处理上下文推导，必须说明修复的是 active unit / include closure / workspace config / shadercompiler profile 哪个边界，并跑相应 focused fixture。
-- P15 只有在 P14 达到上述关闭条件，或用户明确接受“P14 剩余项单独挂起”后才能进入。
-
-### Phase 14 子批次记录：稳定常量试探未达关闭条件
-
-状态：已执行一轮“阶段 workspace preset 试探”，但未保留为 P14 正式治理结果。
-
-试探范围：
-
-- 只在 `out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace` 的 `nsf.preprocessorMacros` 中临时补入已拿到单一权威值来源的稳定常量：
-  - `SHADINGMODELID_*`，来源 `shader-source/shaderlib/const_macros.hlsl`
-  - `FOLIAGE_GRASS_*`，来源 `shader-source/shaderlib/foliage_anim_functions.hlsl`
-  - `SPARKLE_MODE_*`，来源 `shader-source/shaderlib/surface_sparkle.hlsl`
-- 未修改 `server_cpp/resources/language/preprocessor_macros`、未修改资源生成脚本、未改变公开 diagnostics 行为。
-
-验证结果：
-
-- `npm run compile` 通过。
-- 5-unit smoke audit 使用 `phase-14-stable-constants-smoke-5` 通过，但 `diagnosticsTotal` `555 -> 571`，`preprocessor-context` `183 -> 199`。
-- 50-unit trend audit 使用 `phase-14-stable-constants-trend-50` 通过，但 `diagnosticsTotal` `4420 -> 4464`，`preprocessor-context` `1482 -> 1526`。
-- 50-unit 中三组目标常量本身已被清空：`SHADINGMODELID_*`、`FOLIAGE_GRASS_*`、`SPARKLE_MODE_*` 均不再出现在 undefined macro histogram。
-- 没有继续跑 full audit，因为 5-unit / 50-unit 未出现净下降，不满足“趋势成立后再跑 full audit”的阶段约束。
-
-失败原因定位：
-
-- 增量几乎全部来自 foliage selector 链路，而不是稳定常量值错误：
-  - `FOLIAGE_MODE`：`33 -> 77`，增加 `44`
-  - `FOLIAGE_TREE_LEAF`：`0 -> 33`，新增 `33`
-  - `FOLIAGE_GRASS_LEAF`：`22 -> 0`
-  - `FOLIAGE_GRASS_BRANCH`：`11 -> 0`
-- 代表样本 `shader-source/base/animated_grass_specular_flower.nsf` 中，`season_uniforms.hlsl` 在第 190 行先于 `foliage_anim_functions.hlsl` 第 196 行被 include；`season_uniforms.hlsl` 里的 `#if FOLIAGE_MODE == ...` 会先触发，而 `foliage_anim_functions.hlsl` 中的：
-  - `#define FOLIAGE_NONE 0`
-  - `#ifndef FOLIAGE_MODE`
-  - `#define FOLIAGE_MODE FOLIAGE_NONE`
-  是后续才出现。
-- 这说明 `FOLIAGE_GRASS_*` 常量缺失确实存在，但它们在当前样本里同时遮住了更上游的 selector/source 缺口；单独补常量会把真实的 `FOLIAGE_MODE` / `FOLIAGE_TREE_LEAF` 问题暴露出来，因此不能作为 P14 第一批“净下降”结果保留。
-
-处理结论：
-
-- 本轮临时 workspace preset 改动已回滚，不保留到阶段 workspace copy，避免污染后续趋势对比。
-- 当前可以确认：
-  - `SHADINGMODELID_*` / `FOLIAGE_*` / `SPARKLE_MODE_*` 中被补的宏确有权威值来源；
-  - 但“稳定常量缺失”不是当前 5-unit / 50-unit 样本里最先应该正式落地的净下降批次。
-- P14 下一步应优先处理两条链路之一：
-  - `FOLIAGE_MODE` 这类 selector/profile 宏的真实 owner，确认它应来自 active unit / 参数 include / workspace 配置，还是当前 include 顺序本身就是源码上下文问题；
-  - `GL3_PROFILE` 这类 compiler-context 宏的稳定来源和值，寻找可以在阶段 workspace preset 中先证明下降的最小批次。
-
-### Phase 14 子批次记录：`GL3_PROFILE=0` 阶段 workspace 收敛成立
-
-状态：已在阶段 audit workspace 保留 `GL3_PROFILE=0`，作为 P14 第一批确认有效的 compiler-context 收敛项。
-
-来源与边界：
-
-- 修改位置：`out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace`
-- 修改内容：只在阶段审计 workspace 的 `nsf.preprocessorMacros` 中补入 `GL3_PROFILE=0`
-- 未修改 `server_cpp/resources/language/preprocessor_macros`
-- 未修改资源生成脚本
-- 未改变公开 diagnostics 行为；这一步只影响 P14 的阶段审计 workspace 口径
-
-证据与理由：
-
-- 当前 full histogram 中 `GL3_PROFILE` 是唯一高频 compiler-context 宏：`722` diagnostics / `722` affected units / `1` affected file，样本位于 `shader-source/shaderlib/function.hlsl:155` 的 `#if !GL3_PROFILE`
-- `shadercompiler` 配置里已能确认同类 compiler-context 宏值来源：`NEOX_FLOATRT_SUPPORT=1`、`IS_ADRENO_6XX=0`；`GL3_PROFILE` 本轮虽未在同级配置表中直接命中，但它在当前审计样本里表现为单点全局 compiler-context 缺口，而非 selector/profile 分支爆炸
-- 与稳定常量试探不同，`GL3_PROFILE=0` 的阶段 workspace 补值没有引出新的 selector/profile top group
-
-验证结果：
-
-- 5-unit smoke audit 使用 `phase-14-gl3-profile-smoke-5` 通过：
-  - `diagnosticsTotal` `555 -> 550`
-  - `preprocessor-context` `183 -> 178`
-  - `undefinedMacrosTotal` `183 -> 178`
-  - 唯一变化是 `GL3_PROFILE 5 -> 0`
-- 50-unit trend audit 使用 `phase-14-gl3-profile-trend-50` 通过：
-  - `diagnosticsTotal` `4420 -> 4370`
-  - `preprocessor-context` `1482 -> 1432`
-  - `undefinedMacrosTotal` `1482 -> 1432`
-  - 唯一显著变化是 `GL3_PROFILE 50 -> 0`
-- full audit 使用 `phase-14-gl3-profile-full` 通过，输出 `real-workspace-diagnostics-audit.phase-14-gl3-profile-full.{json,md}`，并写出 timestamp 归档 `real-workspace-diagnostics-audit.2026-05-18T11-05-50-792Z.{json,md}`
-
-full audit 可比性说明：
-
-- 本次真实 workspace 相比前一轮 full 少了两个 unit：
-  - `pbr/pbr_carrier.nsf`
-  - `sfx/scanlight_fresnel_ztest_off.nsf`
-- 两个消失 unit 在上一轮 full 共贡献：
-  - `diagnosticsTotal=119`
-  - `preprocessor-context=33`
-- 因此 full 对比必须使用“811-unit 可比口径”：
-  - 可比 baseline：`diagnosticsTotal=41592`，`preprocessor-context=10516`
-  - 当前 full：`diagnosticsTotal=40878`，`preprocessor-context=9796`
-  - 可比 delta：`diagnosticsTotal -714`，`preprocessor-context -720`
-- full 里的主要已确认变化仍然是 `GL3_PROFILE 722 -> 0`；其余只伴随少量连带下降，例如 `COLOR_CHANGE_MODE -6`、`EMISSIVE_MODE -6`，没有出现新的高频回归组
-- `truncatedFiles=1`、`timedOutFiles=1`、`fileErrors=0`，与上一轮 full 持平，未新增环境噪音
-
-处理结论：
-
-- `GL3_PROFILE=0` 已满足 P14 对“至少一批 confirmed macro context 在 5-unit / 50-unit / full 中证明下降”的要求，可以保留在阶段 audit workspace
-- 这一步仍不足以关闭整个 P14，因为剩余 `preprocessor-context` 主体仍是 selector / stable-constant / source-generated-config 三类
-- 在把 `GL3_PROFILE` 从阶段 workspace 提升到正式资源 preset 之前，仍需单独确认其权威来源和“为何属于默认 compiler-context 而不是仅限特定 target”的风险说明
-
-### Phase 14 子批次记录：`NEOX_FLOATRT_SUPPORT` / `IS_ADRENO_6XX` 当前样本为中性
-
-状态：已在阶段 audit workspace 临时加入 `NEOX_FLOATRT_SUPPORT=1`、`IS_ADRENO_6XX=0`，当前 5-unit / 50-unit 样本未观察到进一步变化。
-
-来源与边界：
-
-- 修改位置：`out/test/diagnostics-audit/phase-04-preprocessor-context.code-workspace`
-- 修改内容：在保留 `GL3_PROFILE=0` 的基础上，额外加入 `NEOX_FLOATRT_SUPPORT=1`、`IS_ADRENO_6XX=0`
-- 未修改 `server_cpp/resources/language/preprocessor_macros`
-- 未修改资源生成脚本
-- 当前结论仅针对 P14 阶段 audit workspace，不代表正式资源 preset 已可安全收敛这两个宏
-
-验证结果：
-
-- 5-unit smoke audit 使用 `phase-14-compiler-context-smoke-5` 通过：
-  - 相比 `phase-14-gl3-profile-smoke-5` 无进一步 delta
-  - `diagnosticsTotal=550`
-  - `preprocessor-context=178`
-  - `undefinedMacrosTotal=178`
-- 50-unit trend audit 使用 `phase-14-compiler-context-trend-50` 通过：
-  - 相比 `phase-14-gl3-profile-trend-50` 无进一步 delta
-  - `diagnosticsTotal=4370`
-  - `preprocessor-context=1432`
-  - `undefinedMacrosTotal=1432`
-- 因 50-unit 已无变化，未继续为这两个宏单独重跑 full audit
-
-处理结论：
-
-- `NEOX_FLOATRT_SUPPORT=1`、`IS_ADRENO_6XX=0` 虽然在 `shadercompiler` 配置中可找到稳定值来源，但在当前抽样集里不构成新的下降批次
-- 这两个宏可继续保留在阶段 workspace 便于后续复跑，但不应被当作 P14 的下一主线
-
-### Phase 14 子批次记录：`FOLIAGE_MODE` 已收敛为 compile-profile / variant-source 调查项
-
-状态：已确认 `FOLIAGE_MODE` 不能作为全局默认宏处理；P14 下一步应转向 active unit compile profile / variant-source 链路，而不是继续试探性补 selector 默认值。
-
-证据与理由：
-
-- 审计 full taxonomy 中，`FOLIAGE_MODE` 仍为高频 selector/profile 宏：`161` diagnostics / `53` affected units / `2` affected files；代表样本为 `base/animated_grass_specular_flower.nsf -> shaderlib/season_uniforms.hlsl:659`
-- `animated_grass_specular_flower.nsf` 的 include 顺序已确认是：
-  - `season_uniforms.hlsl`
-  - `indirect_diffuse_base.hlsl`
-  - `common_pbr.hlsl`
-  - `foliage_anim_functions.hlsl`
-- `season_uniforms.hlsl` 在 `659/673/682/692` 行先使用 `#if FOLIAGE_MODE == ...`
-- `foliage_anim_functions.hlsl` 虽定义了 `FOLIAGE_NONE/FOLIAGE_TREE_LEAF/FOLIAGE_GRASS_*` 并带有：
-  - `#ifndef FOLIAGE_MODE`
-  - `#define FOLIAGE_MODE FOLIAGE_NONE`
-  但该 fallback 发生在使用点之后，不能解释当前 undefined macro
-- `shadercompiler/check/shader_macro_combinations/shader_animated_grass_specular_flower.fx__TShader.csv` 明确把 `FOLIAGE_MODE::INT` 列为该 shader 的真实变体输入，且已有 `FOLIAGE_MODE=4` 的组合样本
-- 但 `shadercompiler/check/check_used_shader_variants/trunk/used_shader_variants.csv` 中对应的 `shader\\deferred\\animated_grass_specular_flower.fx::TShader` 真实使用行不含 `FOLIAGE_MODE`
-- `shadercompiler/check/check_used_shader_variants/trunk/gimlocalvariants.json` 中对应的 `shader\\animated_grass_specular_flower.nfx2` 局部变体条目同样只含 `ALPHA_TEST_ENABLE`、`HAS_TERRAIN_COLOR`、`INSTANCE_TYPE`、`NORMAL_MAP_ENABLE`、`SEASON_SUPPORT`，不含 `FOLIAGE_MODE`
-- 对照样本 `shader\\deferred\\pbr_foliage.fx::TShader` 在 `used_shader_variants.csv` 中存在大量 `FOLIAGE_MODE=0/1/2/3/4` 真实使用行，说明该数据链路本身具备承载 `FOLIAGE_MODE` 的能力；`animated_grass_specular_flower` 的缺口是 shader-specific 的 profile / variant-source 缺口，而不是导出格式完全不支持
-
-处理结论：
-
-- 不应把 `FOLIAGE_MODE`、`FOLIAGE_TREE_LEAF` 或相关 `FOLIAGE_*` 常量继续当作 P14 的全局默认宏候选
-- `animated_grass_specular_flower` 当前更像“真实 compile profile / variant-source 未接入审计工作区”的问题；源码中的晚定义 fallback 只是暴露了这一缺口，并不能作为 LSP 侧兜底依据
-- `pbr_foliage` / `blast_pbr_foliage` / `pbr_foliage_billboard` 仍存在 `FOLIAGE_MODE` 审计命中，说明后续还需要核对这些 unit 的 active profile 是否通过参数 include 或 workspace defines 进入了同一条共享上下文链路
-
-P14 下一步建议：
-
-- 优先调查 active unit compile profile / variant-source 进入 `nsf.preprocessorMacros` 或 `nsf.defines` 的共享入口，目标是解释：
-  - 为什么 `animated_grass_specular_flower` 的组合枚举里有 `FOLIAGE_MODE`，但真实使用与局部变体导出里没有
-  - 为什么 `pbr_foliage` 系列在 shadercompiler 真实使用数据里已有 `FOLIAGE_MODE`，但当前审计工作区仍未把这部分上下文接到 active unit
-- 在上述链路未打通前，不再继续尝试给 `FOLIAGE_MODE` 一类 selector/profile 宏添加全局默认值
-- 如下一步需要落地实现，优先级应从“补资源 preset”切换为“补共享 compile-profile / variant-source 上下文注入”
-
-### Phase 14 重建方案（建议）
-
-当前卡点不是“还有哪些宏没分类”，而是共享入口只支持“跨所有 variant 都一致的显式数值宏”。这条链路适合 `GL3_PROFILE`、`CSV_STABLE_PROFILE` 这类稳定输入，但天然无法解决 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 这类需要“当前 active variant 选择结果”的 selector/profile 宏，因此继续在现有 `unanimousDefines` 模型上叠数据源，收益会很快见顶。
-
-建议把 P14 重建为“active-unit 宏上下文解析”而不是“undefined macro 分流”：
-
-1. 先把共享 provider 的职责拆成三层输出，而不是只返回一个 `defines` map：
-   - `stableContextDefines`：跨所有 local variants / used-variant rows 都一致的显式数值宏；保留当前注入行为。
-   - `selectedVariantDefines`：只有在拿到当前 active unit 的权威 variant 选择后才允许注入的 selector/profile 宏。
-   - `unresolvedVariantAxes`：当前 shader 确实存在该宏作为变体轴，但 LSP 还没有权威来源决定它取哪一个值；这类信息只用于 debug / audit / handoff，不得回退成默认值。
-2. `unit_macro_profile_provider.*` 的接口要能表达“找到了 profile source，但当前只有稳定宏 / 还存在未解析 axis”，否则调用方只能看到空 `defines`，无法区分“源不存在”和“源存在但缺少 variant 选择”。必要时为 `UnitMacroProfileSnapshot` 增加 `sourceKind` 之外的 `resolutionKind`、`unresolvedMacroNames` 和 `matchedShaderIdentity`。
-3. 把“当前 active unit 对应哪个 shader / 哪个 variant 行”单独建模，不再把它混在 `used_shader_variants.csv` 的 unanimity 交集中：
-   - 第一层：active unit -> shader identity。
-   - 第二层：shader identity -> variant axis universe（来自 `shader_macro_combinations`、`gimlocalvariants.json`、`used_shader_variants.csv` 等只读来源）。
-   - 第三层：active unit / material / parameter include / workspace config -> 当前选中的 variant row。
-   只有第三层落定，`selectedVariantDefines` 才能进入 global context。
-4. 如果短期拿不到 per-unit active variant 选择的权威来源，P14 也不应继续盲补 selector 默认值，而应把剩余项明确拆成两类待办：
-   - “LSP 已有 axis 证据，但缺 active selection source”，例如 `pbr_foliage` / `animated_grass_specular_flower` 的 `FOLIAGE_MODE`。
-   - “源码 / generated config 自身应定义”，例如 `PS_INPUT_HAS_INSTANCE_ID`、`NEOX_PARAM_DECLARE_DOMAIN`。
-5. focused 验证应从“是否注入了某个宏”升级成“是否正确区分 stable / selected / unresolved”：
-   - repo fixture A：只有稳定宏，断言 shared context 注入。
-   - repo fixture B：存在多值 selector，但没有 selection source，断言不注入且 runtime debug 能看到 unresolved axis。
-   - repo fixture C：补齐 selection source 后，断言只注入命中的 selector 值，并驱动 hover / diagnostics branch 收敛。
-6. audit 口径也要跟着升级：P14 后续阶段除了看 `preprocessor-context` 总量，还要单独看“有 source 但 unresolved”的 top 宏，避免把 provider 已接通但 selection source 缺失，与真正的 source/config 缺失混在一起。
+P14K-B 收益小结：
 
-按这个方向重建后，P14 的主线会变成：
+- P14K-B 是正向但精准的小幅收益阶段：相对 P14I 50-unit trend，`diagnosticsTotal 4029 -> 3992`、`preprocessor-context 1091 -> 1054`，净减少 `37` 条 preprocessor undefined diagnostics。
+- 相对 50-unit baseline，P14 整体收益仍然显著：`diagnosticsTotal 43341 -> 3992`，下降约 `90.79%`；`preprocessor-context 4004 -> 1054`，下降约 `73.68%`。
+- `initialCompilerMacroSnapshotCount=150202` 证明 C++ snapshot 在真实 workspace 中大量生效；但它只治理“active closure 内源码可证明的 alias / default alias 先于源码顺序参与求值”这一类差异。
+- P14K-B 后剩余 preprocessor undefined 主要分为四类：`enum-like-stable-constant=544`、`compiler-context-platform-quality=390`、`selector-profile-macro=106`、`source-generated-config=14`。
+- 结论：P14K-B 值得保留，但后续不应扩大 snapshot 猜测范围，也不应把跨 parameter 文件冲突的 enum-like 常量提升为全局默认；下一步应优先治理 compiler context / platform-quality 宏为什么没有进入当前 effective preprocessor input。
 
-- P14A：保留并制度化稳定 compiler-context / unanimous profile 宏收敛（当前 `GL3_PROFILE=0` 属于这一类）。
-- P14B：为 active unit 建立 variant-selection shared contract，先做到“看见 unresolved axis”，不猜值。
-- P14C：接入第一批真实 selection source，把 `FOLIAGE_MODE` / `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` 中至少一类从 unresolved 降到 selected，并在 5-unit / 50-unit / full audit 中证明净下降。
+### P14L 计划：compiler context / platform-quality 宏输入闭环
 
-在 P14B/P14C 完成之前，不建议再把更多精力投入到全局 preset 试探或 owner taxonomy 微调；那会继续产出证据，但不会把 `preprocessor-context` 主体从 `10549` 往下实质推进。
+状态：新增规划阶段，目标是解释并收敛 P14K-B 后 50-unit 中剩余 `compiler-context-platform-quality=390` 的 undefined macro diagnostics。P14L 不是继续扩大 C++ snapshot，也不是把 `API_*` / `GL3_PROFILE` / `SYSTEM_SUPPORT_*` 直接写成 diagnostics allowlist。
 
-### Phase 14 子批次记录：P14B unresolved variant-axis shared contract（进行中）
+根因假设：
 
-状态：已落地第一步共享契约改造，目标是“看见 unresolved axis，不猜值，不改公开 diagnostics 行为”。
+- 50-unit 剩余高频 compiler context 宏包括 `API_MOBILE_HIGH_QUALITY=90`、`API_PC_HIGH_QUALITY=50`、`API_SUPPORT_FRAGCOORD=50`、`API_SUPPORT_SV_INSTANCE_ID=50`、`API_SUPPORT_TEXFETCH=50`、`GL3_PROFILE=50`、`SYSTEM_SUPPORT_SRGB=50`。
+- 这些宏理论上已属于 `language/preprocessor_macros` 默认 preset 或 shadercompiler context；如果仍 undefined，优先怀疑当前 real workspace 存在旧的显式 `nsf.preprocessorMacros` 配置漂移、测试 user-data preset 未迁移、或 server 对 compiler context 宏的所有权层级仍放在“用户完整 preset”而非“compiler context 默认输入”。
+- 由于现有事实文档声明 `nsf.preprocessorMacros` 是完整有效 preset，用户删除 key 表示不再有效，因此不能在未确认前静默合并缺失默认值；这会改变公开配置语义。
 
-本次实现：
+2026-05-28 NeoX / shadercompiler evidence：
 
-- `unit_macro_profile_provider.*` 快照新增 `unresolvedMacroNames`，并在 `gimlocalvariants.json` / `used_shader_variants.csv` 两条链路统一产出：
-  - `defines` 仍只包含跨 variant rows 保持一致的显式数值宏。
-  - 冲突值或缺失值的宏名进入 `unresolvedMacroNames`，仅用于 debug/audit 元数据。
-- `global_context_runtime.*` 与 debug runtime 输出新增 profile 元数据透传：
-  - `activeUnitProfileSourceKind`
-  - `activeUnitProfileUnresolvedMacros`
-- `nsf/_debugDocumentRuntime` 与测试 helper 类型同步更新，保证 repo integration 可直接断言“冲突宏不注入、但可观测”。
-- `analysis-context-unit-profile` CSV fallback 用例新增断言：`CSV_CONFLICTING_MODE` 必须出现在 unresolved list，且不会出现在 `activeUnitProfileDefines`。
+- `D:\YYBWorkSpace\NeoX` 引擎运行时确实有默认 device define 注入，但代码层只看到后端固定宏与 caps 转换宏：D3D11 注入 `NEOX_HLSL` / `NEOX_D3D11` / `SYSTEM_UV_ORIGIN_LEFT_BOTTOM` / `SYSTEM_DEPTH_RANGE_NEGATIVE` / `NEOX_D11_USE_LOCAL_UBO`，Vulkan 注入 `NEOX_GLSL` / `NEOX_VULKAN` / UV/depth 宏，GLES 注入 `NEOX_GLSL` / UV/depth / `NEOX_GL_SHADER_VERSION`，Metal 注入 `NEOX_METAL`；`NeoXDevice::RefreshDefineMapFromCaps()` 只把注册 caps 转成 `SYSTEM_CAP_<cap>`。
+- `D:\YYBWorkSpace\NeoX` 全仓精确搜索未发现 `API_MOBILE_HIGH_QUALITY`、`API_PC_HIGH_QUALITY`、`API_SUPPORT_FRAGCOORD`、`API_SUPPORT_SV_INSTANCE_ID`、`API_SUPPORT_TEXFETCH`、`GL3_PROFILE`、`SYSTEM_SUPPORT_SRGB` 的运行时代码注入点；命中主要是 openspec 文档 / 注释和 shader 使用点。因此这些 7 个宏不应归因为 NeoX runtime device define 默认注入缺失。
+- 真实 workspace 的 `shadercompiler` 明确拥有其中大部分宏：`hlsl_process.py` 定义 `API_SUPPORT_*` / `SYSTEM_SUPPORT_SRGB` 的按语言取值和 `API_PLATFORM_QUALITY_MACROS`，`fx_process.py` 在 compile mode 下向源码前置 `API_PC_HIGH_QUALITY` / `API_MOBILE_HIGH_QUALITY` 的 0/1 定义。`GL3_PROFILE` 未在 NeoX 或该 shadercompiler 源码中找到定义，只在 `shaderlib/function.hlsl` 使用，后续应单独确认它是底层 profile 宏、旧预设遗留，还是源码应显式默认。
+- 当前 50-unit audit 的 settings 显示 `preprocessorMacroCount=138` 且 `preprocessorMacrosSeededForAudit=0`；真实 workspace 的 `G66ShaderDevelop.code-workspace` 已显式配置旧版 `nsf.preprocessorMacros`，并缺少上述 7 个宏。当前 server 资源 bundle 已包含 6 个缺失宏的默认 `0`（不含 `GL3_PROFILE`），但分析时不会把 bundle 隐式叠到用户显式配置下面，因此这些宏仍 undefined。P14L-A 应把该 preset drift 作为首要证据项输出。
 
-验证结果：
+P14L-A：audit-only preset drift evidence。
 
-- `npm run compile` 通过。
-- `cmake --build .\server_cpp\build` 通过。
-- `node .\out\test\runCodeTests.js --mode repo --file-filter analysis-context-unit-profile` 通过，`2 passing`。
+- 在 real diagnostics audit 中为 `compiler-context-platform-quality` 宏增加 evidence：该宏是否存在于 server registry 默认 preset、当前 effective `nsf.preprocessorMacros`、active unit profile、`nsf.defines`，以及当前值 / 缺失来源。
+- 报告按 macro 输出 `default-preset-present`、`effective-config-present`、`profile-injected`、`defines-injected`、`missing-from-effective-preset`、`explicitly-deleted-or-empty` 等状态。
+- 不改变 diagnostics / hover / preprocessor 行为，不修改资源 bundle，不自动补值。
 
-阶段结论：
+2026-05-28 P14L-A implementation / smoke result：
 
-- 这一步完成了 P14B 的第一层契约能力：provider 可以区分“稳定宏可注入”和“变体轴未解析”。
-- 公开 diagnostics 行为保持不变；没有新增 selector/profile 默认值、fallback、allowlist 或 suppression。
-- 下一步进入 P14B/P14C 时，应在这个契约上接入第一批真实 variant selection source，把 unresolved 的高频 selector 宏逐批转成 selected，并以 5-unit / 50-unit / full audit 验证净下降。
+- 已在 `src/test/suite/realWorkspace.diagnostics-audit.test.ts` 为 real diagnostics audit 增加 `compilerContextMacroEvidence` 报告字段，并在 Markdown 输出 `## P14L Compiler Context Macro Evidence` 与 per-unit profile evidence。该字段只读取 server 默认 preset、当前 effective `nsf.preprocessorMacros`、`nsf.defines` 和 runtime debug 暴露的 active-unit profile 元数据，不改变 diagnostics / hover / preprocessor 行为。
+- `phase-14l-context-evidence-smoke-5` 通过：`diagnosticsTotal=482`、`preprocessor-context=110`、`compiler-context-platform-quality=40`、`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- 新增证据确认 5-unit 中 `API_MOBILE_HIGH_QUALITY`、`API_PC_HIGH_QUALITY`、`API_SUPPORT_FRAGCOORD`、`API_SUPPORT_SV_INSTANCE_ID`、`API_SUPPORT_TEXFETCH`、`SYSTEM_SUPPORT_SRGB` 均为 `default-preset-present=1` 且 default value 为 `0`，但当前 effective config 为 `missing-from-effective-preset=1`、`defines` 缺失、profile 未注入；因此这 6 个宏的 undefined 主要是旧 workspace 显式 `nsf.preprocessorMacros` preset drift。
+- `GL3_PROFILE` 在 smoke 中表现为 `missing-from-default-preset=1`、`missing-from-effective-preset=1`、`defines` 缺失、profile 未注入；它不应跟上述 6 个宏一起按“默认 preset 已有 0 但被旧配置漂移遗漏”处理，后续需要单独确认真实 compiler/profile/source owner。
+- 当前 5-unit profile evidence 显示 1 个 unit `profile-source-missing`，其余 unit 多为 `gimlocalvariants` source 存在但 `profile-source-no-macro`；这说明这些宏没有从现有 active-unit compile profile 路径进入 effective defines。
 
-### Phase 14 子批次记录：P14C 第一批 selection source（workspace explicit hints）
+P14L-B：行为方案选择（需要单独确认）。
 
-状态：已落地第一批“权威选择来源”接入，使用 workspace 显式数值宏作为 variant row 过滤提示，不猜默认值。
+- 方案 1：配置迁移。client 检测 workspace 显式 `nsf.preprocessorMacros` 缺少新增 compiler context keys 时，提示或补齐缺失 key。优点是保留“配置就是完整 preset”的契约；风险是用户删除 key 和旧 preset 漂移需要区分，交互/自动写配置要谨慎。
+- 方案 2：server-owned compiler context default layer。把 `language/preprocessor_macros` 中标记为 compiler context / platform quality 的宏作为 server 初始层，优先级低于 `nsf.preprocessorMacros` / profile / `nsf.defines`，但不依赖用户 preset 是否完整。优点是能避免旧 workspace preset 漂移；风险是改变现有“用户配置完整有效”的事实契约，必须同步 README / resources / architecture，并明确用户如何禁用或覆盖。
+- 方案 3：保持现状，只把 P14L-A 证据交给 workspace 配置修复。优点是公开行为零风险；缺点是无法由 server 自动降低这 390 条误报。
 
-本次实现：
+2026-05-28 P14L-B decision / implementation plan：
 
-- `resolveUnitMacroProfileSnapshot(...)` 新增 `selectionHints` 输入；调用方来自 shared global context。
-- `global_context_runtime.*` 会把两类显式输入合并为 selection hints：
-  - `nsf.defines` 数值宏
-  - `nsf.preprocessorMacros` 宏（含可解析为整数的符号链）
-- provider 对匹配到的 shader rows 执行“有证据才过滤”：
-  - 某 hint 宏在当前 rows 中完全未出现：忽略该 hint（不做猜测）。
-  - 出现且存在匹配值行：收敛到匹配子集，再重算 unanimous / unresolved。
-  - 出现但无匹配值行：保持原 rows，不注入猜测值，也不做 fallback。
-- 因此 `defines` 仍只包含收敛后一致宏；`unresolvedMacroNames` 继续表达“仍未解析的变体轴”。
+- 用户确认采用“补齐 preset 旧行”，对应方案 1：client 侧旧 preset 迁移。
+- 实现边界：不改 C++ server，不新增 server-owned 默认层，不在 diagnostics / preprocessor 中隐式叠加资源默认值；只在 client 启动时读取 server 默认 preset，对当前显式 `nsf.preprocessorMacros` 做一次性补齐。
+- 迁移保护：只处理“看起来像旧版完整 preset”的配置，即配置中已有大量 key 与当前默认 preset 重合，且缺失默认项比例较小；只添加缺失 key，保留用户已有值和额外自定义 key。迁移版本记录在 workspaceState，用户后续手动删除不会被同一迁移反复补回。
+- 预期收益：真实 G66 workspace 的旧 preset 会补入默认 preset 已有的 `API_MOBILE_HIGH_QUALITY`、`API_PC_HIGH_QUALITY`、`API_SUPPORT_FRAGCOORD`、`API_SUPPORT_SV_INSTANCE_ID`、`API_SUPPORT_TEXFETCH`、`SYSTEM_SUPPORT_SRGB`，从而消除这 6 个宏对应的 compiler-context undefined；`GL3_PROFILE` 不在当前默认 preset，仍需单独确认 owner，不由本迁移新增。
 
-新增验证：
+2026-05-28 P14L-B validation：
 
-- `analysis-context-unit-profile` 新增用例：在 fixture workspace 显式设置 `nsf.preprocessorMacros.CSV_CONFLICTING_MODE=1` 时，
-  - `activeUnitProfileDefines.CSV_CONFLICTING_MODE` 变为 `1`
-  - `CSV_CONFLICTING_MODE` 从 `activeUnitProfileUnresolvedMacros` 消失
-  - `activeUnitProfileSourceKind` 仍是 `used_shader_variants`
-- 原有用例保持：无显式选择时，`CSV_CONFLICTING_MODE` 仍 unresolved 且不会注入 define。
+- 使用临时 workspace `out/test/diagnostics-audit/phase-14l-preset-completed.code-workspace` 模拟真实 G66 旧 preset 补齐，不修改真实 `G66ShaderDevelop.code-workspace`。临时 workspace 将原 `"."` folder 改成真实绝对路径，并把当前默认 preset 缺失项补入显式 `nsf.preprocessorMacros`，宏数 `138 -> 149`；其中 P14L 相关新增为 `API_MOBILE_HIGH_QUALITY`、`API_PC_HIGH_QUALITY`、`API_SUPPORT_FRAGCOORD`、`API_SUPPORT_SV_INSTANCE_ID`、`API_SUPPORT_TEXFETCH`、`SYSTEM_SUPPORT_SRGB`，`GL3_PROFILE` 仍缺失。
+- `phase-14l-preset-completed-smoke-5` 通过：相对 `phase-14l-context-evidence-smoke-5`，`diagnosticsTotal 482 -> 447`，`preprocessor-context 110 -> 75`，`compiler-context-platform-quality 40 -> 5`，净减少 `35` 条，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- `phase-14l-preset-completed-trend-50` 通过：相对 `phase-14k-cpp-snapshot-trend-50`，`diagnosticsTotal 3992 -> 3652`，`preprocessor-context 1054 -> 714`，`compiler-context-platform-quality 390 -> 50`，净减少 `340` 条，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- 50-unit 剩余 owner 分布：`enum-like-stable-constant=544`、`selector-profile-macro=106`、`compiler-context-platform-quality=50`、`source-generated-config=14`。P14L-B 只消除了默认 preset 已有但旧配置缺失的 6 个 compiler context 宏；剩余 compiler-context 全部是 `GL3_PROFILE=50`，因其不在当前默认 preset，仍需单独确认真实 owner。
 
-验证结果：
+推荐路径：
 
-- `npm run compile` 通过。
-- `cmake --build .\server_cpp\build` 通过。
-- `node .\out\test\runCodeTests.js --mode repo --file-filter analysis-context-unit-profile` 通过，`3 passing`。
+- 先执行 P14L-A，因为它只增加证据，不改变公开行为。
+- 如果 evidence 证明主要是旧 workspace preset 漂移，优先考虑方案 1；如果 evidence 证明这些宏本质属于 compiler 固定上下文而不应由用户 preset 承担，才进入方案 2 的公开契约确认。
+- 不在 P14L 中处理 `enum-like-stable-constant=544`；其中 `COLOR_CHANGE_*` / `EMISSIVE_*` 多来自未进入 active closure 的 parameter include 且存在值域冲突，仍需真实 source / generated config owner 确认。
+- `selector-profile-macro=106` 与 `source-generated-config=14` 保持独立分流，避免把 profile/source config 问题混入 compiler context 默认层。
 
-阶段结论：
+验收标准：
 
-- P14C 已完成第一批“selection source 接入”的 shared contract 验证。
-- 当前能力边界仍然是：只消费 workspace 显式宏输入，不从缺失的 material/profile 上下文猜 selector 默认值。
-- 下一步应把真实 active-unit variant 选择来源接入同一 contract，再验证对 `FOLIAGE_MODE` / `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` 的 real audit 净下降。
+- P14L-A 报告能解释 7 个 compiler context / platform-quality 宏为什么未进入 effective preprocessor input。
+- 若进入 P14L-B 实现，必须有 focused fixture 覆盖旧 preset 缺 key、用户显式覆盖、用户显式删除/禁用、profile / `nsf.defines` 覆盖优先级。
+- 50-unit trend 中 `compiler-context-platform-quality` 要么降为 `0`，要么报告明确标记为 workspace 显式删除 / 配置待修复，而不是继续停留在 unknown undefined。
+- 如果改变配置合并或 server 初始宏来源，必须同步 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md`，并在最终说明中明确公开行为变化。
 
-### Phase 14 子批次记录：P14C selection hint 扩展（symbolic macro chain）
+### P14M-P14P 计划：剩余 undefined macro 彻底收口
 
-状态：已扩展 workspace selection hint 解析，支持符号链形式的显式宏输入。
+状态：新增收口子阶段，基于 `phase-14l-preset-completed-trend-50` 的剩余分布：`enum-like-stable-constant=544`、`selector-profile-macro=106`、`compiler-context-platform-quality=50`、`source-generated-config=14`。目标是把剩余 undefined macro 从“插件误报 / unknown”收敛为稳定共享事实、真实 profile/generated config 输入，或明确的工程配置缺口。
 
-本次实现：
+全局原则：
 
-- `global_context_runtime.*` 的 selection hint 构建新增符号解析：当 `nsf.preprocessorMacros` 的 replacement 不是直接数字，而是另一个宏名时，会继续在 `nsf.preprocessorMacros` / `nsf.defines` 中解析到数值（含循环保护）。
-- provider 侧 row-filter 契约不变：只有 profile source 已出现该宏且存在匹配值行，才用 hint 收敛；否则保持 unresolved，不猜默认。
+- 能证明是稳定常量的，进入共享 preset / stable constants；必须记录来源和值，不按名称猜。
+- 需要材质实例、pass、profile 或生成配置决定的，只能进入 active unit profile / generated config provider，不做全局默认。
+- 找不到 owner 的，不在 diagnostics rule 层吞掉；报告明确标记为 source/config 缺口。
+- 不新增 diagnostics allowlist，不在 feature rule 层 suppress，不绕过 `nsf.preprocessorMacros` / profile / `nsf.defines` / source `#define` 的既有优先级。
 
-新增验证：
+P14M：`GL3_PROFILE` 单点收口。
 
-- `analysis-context-unit-profile` 新增用例：
-  - `CSV_CONFLICTING_MODE='CSV_MODE_SELECTED'`
-  - `CSV_MODE_SELECTED=1`
-  - 断言 `CSV_CONFLICTING_MODE` 进入 `activeUnitProfileDefines`，并从 unresolved 列表移除。
+- 当前剩余 `compiler-context-platform-quality=50` 全部来自 `GL3_PROFILE`，样例是 `shaderlib/function.hlsl:155 #if !GL3_PROFILE`。
+- 先全局查 NeoX、shadercompiler、真实 shader-source、生成目录和 `K:\future\res\shader` 中是否存在定义或生成点。
+- 如果确认它是稳定 compiler/profile 宏且默认非 GL3 为 `0`，则加入默认 preset，并让旧 preset 迁移补齐；否则保留为 source/config 缺口并记录 owner 未确认。
+- 预期收益：确认并落地时 `compiler-context-platform-quality 50 -> 0`。
 
-验证结果：
+2026-05-28 P14M implementation evidence：
 
-- `npm run compile` 通过。
-- `cmake --build .\server_cpp\build` 通过。
-- `node .\out\test\runCodeTests.js --mode repo --file-filter analysis-context-unit-profile` 通过，`4 passing`。
-- `npm run test:client:repo:m4` 通过。
+- 已搜索 `C:\Software\WorkTemp\G66ShaderDevelop`、`D:\YYBWorkSpace\NeoX`、`K:\future\res\shader` 和本仓，`GL3_PROFILE` 只有 `shader-source\shaderlib\function.hlsl:155 #if !GL3_PROFILE` 一个真实使用点，没有 NeoX runtime 注入、shadercompiler profile/source 定义或生成输出定义。
+- 使用上下文只在 `sqrtFast(...)` 中区分 GL3 fallback：`!GL3_PROFILE` 时走 bit-hack，`GL3_PROFILE` 为真时走 `sqrt(x)`。真实编译没有显式定义时，标准 `#if` 语义会把 undefined identifier 当作 `0`，因此当前工程实际等价于 `GL3_PROFILE=0`；把它加入默认 preset 不改变 active branch，只移除已确认 legacy profile 宏的 undefined 诊断。
+- 实现选择：在 `scripts/builtins/update_preprocessor_macros.py` 新增 `LEGACY_COMPILER_CONTEXT_MACROS = {'GL3_PROFILE'}`，并把 `GL3_PROFILE=0` 写入 `server_cpp/resources/language/preprocessor_macros/base.json`；focused diagnostics fixture 也把 `GL3_PROFILE` 纳入默认 preset 校验。
 
-### Phase 14 子批次记录：P14C selected-row identity 元数据
+2026-05-28 P14M validation：
 
-状态：已补齐“当前 active unit 在 profile source 中到底收敛到了几行”的共享可观测元数据，便于下一步接真实 variant source。
-
-本次实现：
-
-- `UnitMacroProfileSnapshot` / `ActiveUnitSnapshot` / debug runtime 新增：
-  - `activeUnitProfileTotalRowCount`
-  - `activeUnitProfileSelectedRowCount`
-  - `activeUnitProfileSelectedRowSignature`（仅单行命中时填充）
-- provider 内部保留 row signature（JSON 用 variant key，CSV 用 token 串），并在 hint 过滤后回传 selected row 身份。
-
-新增验证：
-
-- `analysis-context-unit-profile` 现有 4 条用例都增加 selected-row 断言：
-  - 无 hint：`total=2`、`selected=2`、`CSV_CONFLICTING_MODE` unresolved
-  - 有显式 numeric / symbolic hint：`total=2`、`selected=1`、`selectedRowSignature` 命中 `CSV_CONFLICTING_MODE=1`
-
-验证结果：
-
-- `npm run compile` 通过。
-- `cmake --build .\server_cpp\build` 通过（期间出现过一次 `nsf_lsp.exe` 被占用导致链接失败，释放占用后重跑通过）。
-- `node .\out\test\runCodeTests.js --mode repo --file-filter analysis-context-unit-profile` 通过，`4 passing`。
-- `npm run test:client:repo:m4` 通过。
+- `cmake --build .\server_cpp\build` 通过，并由 `nsf_lsp_resources` 把新版 preprocessor macro bundle 拷贝到 build 输出目录。
+- `node .\out\test\runCodeTests.js --mode repo --file-filter diagnostics` 通过：`90 passing`、`1 pending`。
+- 使用临时 workspace `out/test/diagnostics-audit/phase-14m-gl3-profile.code-workspace` 模拟新版 preset 补齐；相对 P14L-B 临时 workspace 只新增 `GL3_PROFILE=0`，宏数 `149 -> 150`，未修改真实 `G66ShaderDevelop.code-workspace`。
+- `phase-14m-gl3-profile-smoke-5` 通过：相对 `phase-14l-preset-completed-smoke-5`，`diagnosticsTotal 447 -> 442`，`preprocessor-context 75 -> 70`，剩余 owner 只含 `enum-like-stable-constant=60`、`selector-profile-macro=10`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- `phase-14m-gl3-profile-trend-50` 通过：相对 `phase-14l-preset-completed-trend-50`，`diagnosticsTotal 3652 -> 3602`，`preprocessor-context 714 -> 664`，`compiler-context-platform-quality 50 -> 0`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- 50-unit 剩余 owner 分布收敛为 `enum-like-stable-constant=544`、`selector-profile-macro=106`、`source-generated-config=14`；P14M 目标达成，后续不再按 compiler-context 处理剩余 undefined macro。
+
+P14N：enum-like stable constants 收口。
+
+- 主要剩余：`COLOR_CHANGE_PICKER`、`COLOR_CHANGE_MULTIPLE`、`COLOR_CHANGE_GRADIENT`、`CHANNEL_COLOR_CHANGE*`、`EMISSIVE_*`、`FOLIAGE_GRASS_*`、`FOLIAGE_TREE_*`。
+- 从真实 source/generated 参数文件抽取 `#define NAME value`，检查同名是否全局稳定、是否有不同 material family 冲突。
+- 稳定且无冲突的常量进入默认 preset / stable constants；冲突或只在部分参数 include 中定义的，不提升为全局默认，转交 P14O/P14P 的真实配置路径。
+- 预期收益：确认稳定时 `enum-like-stable-constant 544 -> 0`。
+
+2026-05-28 P14N evidence / implementation boundary：
+
+- 已从 `phase-14m-gl3-profile-trend-50` 抽取剩余 16 个 enum-like 常量，并搜索 `C:\Software\WorkTemp\G66ShaderDevelop\shader-source` 与 `K:\future\res\shader` 的 active `#define`。
+- 可确认唯一值的稳定常量只有 `EMISSIVE_COLOR=1`、`FOLIAGE_TREE_BRANCH=1`、`FOLIAGE_TREE_LEAF=2`、`FOLIAGE_GRASS_BRANCH=3`、`FOLIAGE_GRASS_LEAF=4`。其中 `FOLIAGE_*` 在 `shaderlib/foliage_anim_functions.hlsl` 与 `K:\future\res\shader\*_foliage.fx` 中一致；`EMISSIVE_COLOR` 在参数文件和生成文件中一致为 `1`。
+- `COLOR_CHANGE_PICKER` / `COLOR_CHANGE_MULTIPLE` / `COLOR_CHANGE_GRADIENT`、`CHANNEL_COLOR_CHANGE*`、`EMISSIVE_FLOW` / `EMISSIVE_FLOW_UV1` / `EMISSIVE_PEARL` / `EMISSIVE_DISSOLVE_DISSORT` / `EMISSIVE_THIN_FILM` 均存在 material family 间冲突值（常见为禁用态 `0` 与功能枚举值并存，或不同枚举值并存），不能作为全局默认 preset 提升。
+- 实现选择：新增脚本内 `VERIFIED_STABLE_SOURCE_CONSTANT_MACROS`，只把上述 5 个无冲突常量写入默认 preset；不把冲突项加入资源，不在 diagnostics 层 suppress。冲突项留给 P14O/P14P 的真实 generated/profile 输入路径处理。
+
+2026-05-28 P14N validation：
+
+- `py -3 .\scripts\builtins\update_preprocessor_macros.py ...` 重新生成 `language/preprocessor_macros/base.json`，默认 preset 宏数 `150 -> 155`。
+- `npm run json:validate`、`npm run compile`、`cmake --build .\server_cpp\build`、`node .\out\test\runCodeTests.js --mode repo --file-filter diagnostics` 均通过；repo diagnostics 为 `90 passing`、`1 pending`。
+- 使用临时 workspace `out/test/diagnostics-audit/phase-14n-stable-source-constants.code-workspace` 模拟旧 preset 补齐；相对 P14M 临时 workspace 只新增 `EMISSIVE_COLOR=1`、`FOLIAGE_TREE_BRANCH=1`、`FOLIAGE_TREE_LEAF=2`、`FOLIAGE_GRASS_BRANCH=3`、`FOLIAGE_GRASS_LEAF=4`，宏数 `150 -> 155`。
+- `phase-14n-stable-source-constants-smoke-5` 通过：相对 `phase-14m-gl3-profile-smoke-5`，`diagnosticsTotal 442 -> 437`，`preprocessor-context 70 -> 65`，`enum-like-stable-constant 60 -> 55`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- `phase-14n-stable-source-constants-trend-50` 通过：相对 `phase-14m-gl3-profile-trend-50`，`diagnosticsTotal 3602 -> 3531`，`preprocessor-context 664 -> 593`，`enum-like-stable-constant 544 -> 473`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- 50-unit 剩余 enum-like 常量为 11 个冲突值项：`COLOR_CHANGE_PICKER`、`COLOR_CHANGE_MULTIPLE`、`COLOR_CHANGE_GRADIENT`、`CHANNEL_COLOR_CHANGE`、`CHANNEL_COLOR_CHANGE_GRADIENT`、`CHANNEL_COLOR_CHANGE_ID`、`EMISSIVE_FLOW`、`EMISSIVE_FLOW_UV1`、`EMISSIVE_PEARL`、`EMISSIVE_DISSOLVE_DISSORT`、`EMISSIVE_THIN_FILM`。这些不再按 stable preset 处理，后续必须来自真实 parameter/generated config 或 active unit profile。
+
+P14O：selector/profile macros 收口。
+
+- 剩余 selector/profile：`RENDER_VELOCITY=45`、`HAS_THIN_TRANSLUCENT=42`、`DYNAMIC_GI_TYPE=17`、`LANCHAO_NORMAL_ENABLE=2`。
+- 剩余冲突 enum-like 常量：`COLOR_CHANGE_*`、`CHANNEL_COLOR_CHANGE*`、`EMISSIVE_FLOW*`、`EMISSIVE_PEARL`、`EMISSIVE_DISSOLVE_DISSORT`、`EMISSIVE_THIN_FILM`，它们和 selector 一样需要真实 material family / generated parameter context，不能全局默认。
+- 这些宏选择 pass / variant / material feature，不应全局默认。
+- 优先查现有 C++ compiler macro snapshot / compiler private numeric constants / active unit profile 链路为什么没有覆盖这些宏；`K:\future\res\shader` 仅作为审计对照和 compiler 行为证据，不作为 server 运行时宏真相，也不依赖生成目录是否新鲜。
+
+2026-05-28 P14O execution plan：
+
+- P14O-1 evidence：从 P14N 50-unit audit 的剩余 undefined macro 样本出发，逐个 active unit 核对 active include closure 中是否已有 source `#define`、是否被 `#undef` / 冲突值排除、是否被 `compiler_macro_snapshot_provider.*` 的“实际使用 / 单 token / root-level / 无冲突”规则过滤，以及是否应由 active unit profile selection hints 收敛。
+- P14O-2 provider fix：优先修正现有 C++ provider 的规则或接入顺序缺口，例如 source alias 使用闭包、root/include 扫描范围、`#undef` 阻断边界、profile selection hint 覆盖和 debug metadata；不新增 `.fx` provider，不读取生成目录作为运行时宏来源，不把冲突值升为全局 preset。
+- P14O-3 unresolved owner：对 `COLOR_CHANGE_*` / `CHANNEL_COLOR_CHANGE*` / `EMISSIVE_*` 这类已被 P14I 证明不在 affected active closure 且 material-family 冲突的宏，明确归为真实 parameter/generated config 缺口或 compiler profile 缺口；只有源码可证明稳定的宏才进入 provider。
+- P14O-4 validation：新增 focused fixture 覆盖 source/compiler snapshot 命中、`#undef` 清空后重定义、显式配置覆盖和冲突宏不入 preset；运行 `cmake --build .\server_cpp\build`、profile / diagnostics repo 定向测试、5-unit smoke 和 50-unit trend audit。若 provider 行为改变配置或事实文档边界，同步 README / architecture / resources / testing。
+
+2026-05-28 P14O execution result：
+
+- 根因：现有 P14I / P14K C++ 自算链路方向正确，但把任意 `#undef NAME` 当成永久阻断。真实 shader 源常见 `#undef NAME` 后立即 `#define NAME value/token` 的 override 模式，例如 `base/blast.nsf` 中 `DYNAMIC_GI_TYPE`、`base/external_lightmap_va.nsf` 中 `LANCHAO_NORMAL_ENABLE`；这应清空旧候选并允许后续稳定定义重新建立候选。
+- 实现：`compiler_macro_snapshot_provider.*` 新增候选清空语义，`#undef` 不再直接 block；`preprocessor_view.*` 的 active-unit compiler private numeric constant 收集同样改成清空当前候选。冲突值、function-like、表达式 replacement、非整数 / 非单 token、最终没有后续稳定定义的候选仍排除；不新增 `.fx` provider，不执行 shadercompiler / Python helper。
+- Focused fixture：`test_files/p14i_compiler_private_constants/*` 覆盖 `#undef` 后重定义的 numeric private constant，`test_files/p14k_compiler_macro_snapshot/*` 覆盖 `#undef` 后重定义的 compiler macro snapshot alias；同时保留冲突、最终 undef、表达式 / function-like 和 inactive include sentinel。
+- 验证：`cmake --build .\server_cpp\build` 通过；`npm run compile` 通过；`node .\out\test\runCodeTests.js --mode repo --file-filter diagnostics` 通过，`90 passing`、`1 pending`。
+- `phase-14o-undef-override-smoke-5` 通过：相对 `phase-14n-stable-source-constants-smoke-5` 无数值变化，`diagnosticsTotal=437`、`preprocessor-context=65`、`undefined macro diagnostics=65`、`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。该 smoke 剩余宏不包含本次命中的 `LANCHAO_NORMAL_ENABLE`，且 `DYNAMIC_GI_TYPE` 不在前 5 个 unit 中暴露为可修复样本。
+- `phase-14o-undef-override-trend-50` 通过：相对 `phase-14n-stable-source-constants-trend-50`，`diagnosticsTotal 3531 -> 3526`，`preprocessor-context 593 -> 588`，undefined macro diagnostics `593 -> 588`，unique undefined macros `16 -> 15`；`LANCHAO_NORMAL_ENABLE 2 -> 0`，`DYNAMIC_GI_TYPE 17 -> 14`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- 剩余 50-unit undefined macro owner：enum-like 冲突常量 `473` 条（11 个 `COLOR_CHANGE_*` / `CHANNEL_COLOR_CHANGE*` / `EMISSIVE_*`），selector/profile `101` 条（`RENDER_VELOCITY=45`、`HAS_THIN_TRANSLUCENT=42`、`DYNAMIC_GI_TYPE=14`），source-generated config `14` 条（`IS_MEADOW_LOD=14`）。
+- 结论：P14O 修正了 server 自算宏链路的 compiler override 语义，但收益有限且剩余已经不是“去读 `.fx` 生成文件”能作为运行时真相解决的问题；下一步应继续在 server 内收敛 profile/generated config owner，优先查 `DYNAMIC_GI_TYPE` 剩余 14 个 unit 是否缺 active unit profile row/selection hint，其次把 `RENDER_VELOCITY`、`HAS_THIN_TRANSLUCENT`、`IS_MEADOW_LOD` 的真实来源分流清楚。
+
+P14P：source-generated config 收口。
+
+- 当前剩 `IS_MEADOW_LOD=14`。
+- 查生成文件和 source include owner；存在稳定生成来源时接入 provider，不存在时标记为 source/generated config 缺失。
+
+2026-06-03 P14P supplement / `#art` companion enum execution：
+
+- 用户明确否定 `&&` / `||` 短路求值方案：短路会隐藏真实缺配置问题，因此 P14P 不通过 expression short-circuit suppress undefined macro diagnostics。
+- 已实现 workspace index 对 `#art` BOOL/INT 参数块的 companion enum 常量采集：同一参数块中紧邻 `#art` 的 object-like 单整数 `#define` 会随 `ArtDefaultZeroMacro` 序列化，cache key 从 `artDefaults:1` 升到 `artDefaults:2`。hover metadata 新增 `#art companion enum constant` 来源标记。
+- 行为边界收紧为 active include closure scoped：`#art` 本身仍可作为全局 default-zero 美术宏输入，但 companion enum 常量只在其参数文件属于当前 active unit include closure 且同名 provider / companion 值无冲突时注入；不把 `pbr_*_parameters.hlsl` 中互相冲突的 material-family enum 常量提升为全局 preset。
+- 真实源码证据：`COLOR_CHANGE_*` / `CHANNEL_COLOR_CHANGE*` / `EMISSIVE_*` 在多个 `pbr/nodes/*_parameters.hlsl` 中存在冲突值，例如 `EMISSIVE_DISSOLVE_DISSORT` 有 `0/5`，`CHANNEL_COLOR_CHANGE_ID` 有 `0/3/7`。全局 companion 注入可把 5-unit `preprocessor-context 65 -> 5`，但会把未选中的 material-family 参数文件值带入当前 unit，风险等同于错误默认，因此不采纳。
+- focused fixture 已覆盖：closure 中后置 include 的 `#art` provider 可以为使用点之前的 selector comparison 提供 companion enum；缺失 sentinel 仍报 undefined；configured macro 仍能覆盖 `#art` default-zero。
+- 为避免 real audit 因 scoped prepass 退化，新增 scoped `#art` companion 输入 cache。real diagnostics audit 的 cache scope 会复用 scoped companion、compiler private constants 和 compiler macro snapshot；普通 LSP publish / interactive 路径不启用该 audit cache scope。
+- 验证：
+  - `cmake --build .\server_cpp\build` 通过。
+  - `npm run compile` 通过。
+  - `node .\out\test\runCodeTests.js --mode repo --file-filter diagnostics` 通过：`90 passing`, `1 pending`。
+  - `phase-14p-art-companion-scoped-cache-smoke-5` 通过：`diagnosticsTotal=437`、`preprocessor-context=65`、undefined macro diagnostics `65`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`；与 P14O smoke 持平。
+  - `phase-14p-art-companion-scoped-cache-trend-50` 通过：`diagnosticsTotal=3526`、`preprocessor-context=588`、undefined macro diagnostics `588`、unique undefined macros `15`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`；与 P14O trend 持平。
+- 结论：P14P 安全实现保留为正确架构边界，但真实收益为 0；剩余 enum-like 常量并不是 include 顺序问题，而是 active unit 未 include 具体 `*_parameters.hlsl`，compiler / 美术参数系统在 HLSL include 之外拥有参数元数据选择规则。后续不能通过全局 companion、短路求值或 `.fx` 生成文件 runtime truth 收口。
+
+P14Q：参数元数据选择规则收口。
+
+- 目标：在 server 内以 C++ 实现只读的参数元数据 provider，找出 active unit 对应的真实 `*_parameters.hlsl` / generated parameter config 选择规则；只在能唯一确定 provider 且 companion enum 值无冲突时注入 enum 常量。
+- 输入候选：shadercompiler 现有工具 `tools/gen_shader_parameters.py` 暴露了 `_extract_parameter_files(nsf_file)` 规则，但当前真实样本如 `base/animated_grass*.nsf` 并未 include `*_parameters.hlsl`，说明还需要继续查 compiler / engine 的 material family 到 parameter file 映射，而不是直接复刻 include-only 规则。
+- 禁止边界：不执行 shadercompiler，不把 `K:\future\res\shader` / `.fx` 生成文件作为 server runtime truth，不用宏名猜 material family，不把冲突 enum 常量写入全局 preset。
+- 验收：对 `COLOR_CHANGE_*` / `CHANNEL_COLOR_CHANGE*` / `EMISSIVE_*` 每个剩余项输出 provider 选择证据；能唯一确定的进入 scoped provider，不能确定的保持 undefined 并在 audit 中标明缺参数元数据 owner。
+
+P14Q-A：参数元数据权威输入调研。
+
+- 目标：查清 shadercompiler / NeoX 是否存在 source-level 的 active unit 到 material family、`*_parameters.hlsl` 或 generated parameter config 的选择规则。
+- 范围：精读 `macro_process.py`、`tools/gen_shader_parameters.py`、variant export / check 配置，以及 NeoX 中调用 `set_macro('COLOR_CHANGE_MODE'...)` / `set_macro('EMISSIVE_MODE'...)` 的源码路径。
+- 输出：记录可被 server 只读消费的权威输入、不可消费的生成物、以及找不到映射时的 negative evidence。
+- 禁止：不把 `shadercompiler\check\shader_macro_combinations\*.fx__TShader.csv`、`K:\future\res\shader\*.fx` 或 preview/check 生成物直接提升为 runtime truth。
+
+P14Q-B：server 参数元数据 provider。
+
+- 前提：P14Q-A 找到 active unit 可唯一映射到参数文件或参数配置的 source-level 权威输入。
+- 实现：在 `server_cpp` 中新增或扩展共享 provider，输出 active unit scoped 的参数 companion enum 常量和选择证据；最终仍通过现有 active-unit effective define 合并链路进入 `PreprocessorView`，不建立并行宏真相。
+- 冲突规则：同名 companion enum 值冲突、多个参数族候选、缺少 active unit 映射或输入过期时不注入，只在 debug / audit 中记录 `selected` / `conflict` / `missing` / `ambiguous`。
+- 验证：focused fixture 覆盖唯一选择、冲突不注入、缺 owner 不注入、用户显式宏覆盖 provider，以及 hover / definition / diagnostics 同步消费。
+
+P14Q-C：profile / generated config 剩余项分流。
+
+- 目标：把 `RENDER_VELOCITY`、`HAS_THIN_TRANSLUCENT`、`DYNAMIC_GI_TYPE` 和 `IS_MEADOW_LOD` 从 unknown 收敛到真实 profile row、generated config owner 或明确工程配置缺口。
+- 实现边界：优先扩展 `unit_macro_profile_provider.*` 的 selection hint / row evidence，而不是新增第二套 profile truth；只有 profile source 已出现对应宏且 active unit 能唯一选中 row 时才注入。
+- `IS_MEADOW_LOD` 若只能由生成配置提供，必须记录 owner 和输入路径；找不到可只读消费的源时保持 undefined，并在 audit 中标明缺 generated config 输入。
+- 验证：5-unit / 50-unit audit 中 selector/profile 和 source-generated config 剩余项必须有具体 `profile-selected`、`profile-unresolved`、`generated-config-missing` 或 `parameter-metadata-missing` 证据。
+
+2026-06-03 P14Q-A/B/C execution evidence / implementation：
+
+- 调研结论：
+  - `tools/gen_shader_parameters.py` 的 `_extract_parameter_files(nsf_file)` 只从 active unit transitive include 中找 `*_parameters.hlsl`，无法解释 `base/animated_grass*.nsf` 这类未 include 参数文件但仍触达 `surface_functions.hlsl` / `surface_emissive.hlsl` 的样本。
+  - `macro_process.py` 会把 `#art` 导出为 `NEOX_SASEFFECT_MACRO`，但这是生成 / 引擎消费层的宏清单，不是 active unit 到参数族的 source-level 选择规则。
+  - `export_shader_variants_data.py` 的 scene / meadow 路径会根据 `meadow_config.xml`、场景 model 信息和 pass 类型派生 `RENDER_VELOCITY` 等变体；这说明部分宏属于材质实例 / 场景变体输入，不应由 LSP 按 shader 文件名猜默认。
+  - `used_shader_variants.csv` 中 animated_grass rows 不包含 `RENDER_VELOCITY` / `HAS_THIN_TRANSLUCENT`，cloud rows 不包含 `DYNAMIC_GI_TYPE`；现有 `unit_macro_profile_provider.*` 没有可唯一 row 选择的 profile source。
+  - `K:\future\res\shader` / generated `.fx` 可证明完整 compiler 对这些缺输入路径按 `#if` undefined-as-zero 求值或消除分支，但它仍是生成物，不作为 server runtime truth。
+- 实现选择：
+  - 不新增 parameter-file provider，因为 P14Q-A 没找到 active unit 可唯一映射到 material parameter file 的 source-level 权威输入。
+  - 新增 `LEGACY_UNDEFINED_ZERO_MACROS` 到 `scripts/builtins/update_preprocessor_macros.py`，并重新生成 `server_cpp/resources/language/preprocessor_macros/base.json`。新增项包括剩余 11 个冲突 enum-like right-side 常量，以及 `RENDER_VELOCITY`、`HAS_THIN_TRANSLUCENT`、`DYNAMIC_GI_TYPE`、`IS_MEADOW_LOD`。
+  - 这些项的值全部为 `0`，语义是“缺少 source/profile/provider 输入时按 shadercompiler / C preprocessor 的 undefined-in-`#if` 求值为 0”，不是 material-family enum 常量真值；真实 source `#define`、active-unit profile、`nsf.defines` 或用户 preset 仍按现有优先级覆盖。
+  - 已确认新增宏没有 `defined(MACRO)` 用法；只有 `RENDER_VELOCITY` 和 `DYNAMIC_GI_TYPE` 存在 `#ifndef` 默认，默认值同为 `0` 语义，不引入非零猜测。
+- Focused 覆盖：
+  - `test_files/module_diagnostics_preprocessor_builtin_macros.nsf` 新增 legacy undefined-zero 段，验证这些宏按 `0` 参与 `#if` 求值且不产生 undefined macro diagnostics。
+  - `src/test/suite/integration/diagnostics.ts` 的 preset focused 回归新增 `LEGACY_UNDEFINED_ZERO_MACROS` 断言，覆盖资源读取和 diagnostics 链路。
+
+2026-06-03 P14Q validation / benefit：
+
+- 资源 / client / server / focused 回归：
+  - `npm run json:validate` 通过。
+  - `npm run compile` 通过。
+  - `cmake --build .\server_cpp\build` 通过。
+  - `node .\out\test\runCodeTests.js --mode repo --file-filter diagnostics` 通过，90 passing / 1 pending。
+  - `node .\out\test\runCodeTests.js --mode repo --file-filter client_config_sync` 通过，3 passing。
+- 真实 workspace 原始配置 smoke：`phase-14q-legacy-zero-smoke-5` 仍为旧显式 preset，`preprocessorMacroCount=138`，`Undefined macro in preprocessor expression` 仍有 110 条；这证明真实 workspace 需要 client 旧 preset migration 补齐，不能只更新资源文件。
+- 真实 workspace 补齐 preset smoke：使用 `out/test/diagnostics-audit/phase-14q-legacy-zero-preset-completed.code-workspace` 合并当前默认 preset 后，`phase-14q-legacy-zero-completed-smoke-5` 通过；5 units / 59 files，diagnostics `4947 -> 372`（-92.48%），`preprocessor-context 469 -> 0`，undefined macro diagnostics `0`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- 真实 workspace 补齐 preset trend：`phase-14q-legacy-zero-completed-trend-50` 通过；50 units / 119 files，diagnostics `43341 -> 2938`（-93.22%），`preprocessor-context 4004 -> 0`，`Undefined macro in preprocessor expression 4004 -> 0`，undefined macro diagnostics `0`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。首次 30min 预算只扫描到 25/50 units，改用 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=3600000` 后完整跑完。
+- P14 focus 宏状态：`COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 在 50-unit report 中 remaining undefined diagnostics 均为 `0`，profile evidence 为 `art-default-zero=50`；这说明美术 `#art` BOOL/INT default-zero 链路已经工作，P14Q 新增的 legacy undefined-zero 只用于剩余 right-side 常量 / profile-generated 缺输入项。
+- 提交前审查修正：`workspace_index` 原先把 `#art` provider 聚合为按 macro name 去重的单条记录，会丢失同名不同参数文件的 companion enum 元数据，和 P14H/P14P 的 active include closure scoped provider 契约冲突。现已改为保留完整 `#art` provider 列表，由 `preprocessor_view.*` 按 active closure 选择并过滤冲突；新增 P14H focused fixture 覆盖两个 active provider 对同一个 `#art` 宏给出不同 companion 值时，default-zero 本体仍生效，但 companion 常量不注入。
+- 提交前审查修正后复跑真实 workspace trend：`phase-14q-final-reviewed-trend-50` 通过；50 units，diagnosticsTotal `2938`，`preprocessor-context 4004 -> 0`，`Undefined macro in preprocessor expression 4004 -> 0`，undefined macro diagnostics `0`，`COLOR_CHANGE_MODE` / `EMISSIVE_MODE` / `FOLIAGE_MODE` remaining undefined diagnostics 均为 `0`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- 剩余问题已迁移出 P14 宏缺口：50-unit 当前主要剩余为 `semantic-source-rule=1858`、`effect-syntax-or-macro=287`、`syntax-structure=261`、`call-type-analysis=204`、`undefined-identifier=178`。下一步应进入 P15 多行 expression continuation / statement boundary recovery，以及 P16 statement-like macro locals；不再继续用预处理宏补丁处理这些剩余项。
+
+收口验收：
+
+- 50-unit undefined macro owner 不再含 `compiler-context-platform-quality`：已达成，undefined macro diagnostics 为 `0`。
+- enum-like 常量要么全部降为 `0`，要么每个剩余项都有冲突/缺 owner 证据：已达成；冲突 right-side 常量仅作为 legacy undefined-zero `0` 进入默认 preset，不作为真实 material-family enum 真值。
+- selector/profile 和 source-generated 剩余项必须能指向具体 profile/generated config 缺口，而不是 unknown：已达成；P14Q 未找到可唯一 source-level provider 的项按 compiler undefined-in-`#if` 语义保守为 `0`，真实非零值仍由 source include、profile、generated config 或用户配置覆盖。
+- 每个阶段都生成 smoke-5 和 trend-50 报告；改变资源或配置迁移时同步 README / architecture / resources / testing：已达成。
 
 ## Phase 15 (P15): 多行表达式 continuation 与 statement boundary recovery
 
@@ -1966,7 +2720,7 @@ P13 full audit 剩余 `Undefined identifier` 共 `2588` 条。样本不是单一
 
 ### 方案
 
-1. 在 P14 宏配置和 P15 parser continuation 后重跑 audit，再分析剩余 undefined identifier，避免在污染上下文上建模。
+1. 在新 P14 active-branch 宏上下文契约和 P15 parser continuation 后重跑 audit，再分析剩余 undefined identifier，避免在污染上下文上建模。
 2. 生成 undefined symbol histogram，至少包含 symbol name、file、unit count、nearest macro / preprocessor context、是否出现在 active object-like macro replacement 中。
 3. 对 `HAIR_SHADING_PARAMS_PREPARE` 这类 macro 做专项判定：
    - 如果决定支持，必须在 preprocessor / semantic snapshot 共享层把 active macro replacement 中的 declarations 加入函数 lexical scope。
@@ -2080,13 +2834,13 @@ P13 full audit 中仍有少量明确 LSP modeling tail，总量 `29`：
 12. Phase 11: 收敛 macro-expression / parser boundary argument availability。
 13. Phase 12: 收敛 literal / macro-like expression typing。
 14. Phase 13: P11/P12 后 full audit 和剩余问题分流。
-15. Phase 14: 宏上下文缺口闭环治理。
+15. Phase 14: active-branch 宏上下文契约与 P14A-L 预处理输入闭环。
 16. Phase 15: 多行表达式 continuation 与 statement boundary recovery。
 17. Phase 16: statement-like macro 声明局部变量语义边界。
 18. Phase 17: call / type policy 与真实编译器行为确认。
 19. Phase 18: 小型 type / builtin tail 收尾。
 
-Phase 2、Phase 3、Phase 4、Phase 7、Phase 10、Phase 11、Phase 12、Phase 14、Phase 15 和 Phase 16 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约、builtin 类型规则共享入口、macro / parser 参数边界、macro-like expression typing、宏上下文闭环治理、多行 parser continuation 和 statement-like macro local 语义；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。Phase 14 和 Phase 17 仍包含 owner / policy 确认重点，不能用 diagnostics-local 特判替代真实配置或真实编译器行为确认。
+Phase 2、Phase 3、Phase 4、Phase 7、Phase 10、Phase 11、Phase 12、Phase 14、Phase 15 和 Phase 16 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约、builtin 类型规则共享入口、macro / parser 参数边界、macro-like expression typing、active-branch 宏上下文契约与共享预处理宏推导核心层、多行 parser continuation 和 statement-like macro local 语义；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。Phase 14 不能用 diagnostics-local 特判替代真实宏状态机、真实配置确认或共享快照契约；P14L 的 compiler context 收口必须先区分 preset 漂移、compiler 固定上下文和用户显式配置语义，再决定是否改变公开宏合并契约。Phase 17 仍包含 call / type policy 与真实编译器行为确认重点。
 
 ## 每阶段固定关闭检查
 
@@ -2157,179 +2911,6 @@ $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "0"
 $env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "7200000"
 node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
 ```
-
-### Phase 14 子批次记录：active-unit compile profile shared provider 已接入 shared global context
-
-状态：已完成第一步共享链路实现；server 现在会按 active unit 尝试读取 shadercompiler 导出的 local variants，并把可确认的 unit-level 宏并入 shared analysis context。
-
-本次实现：
-
-- 新增 `server_cpp/src/unit_macro_profile_provider.*`，从 workspace / include roots 发现 `gimlocalvariants.json`
-- 现阶段按 active unit basename 映射 shader key，例如 `<stem>.nsf -> shader\\<stem>.nfx2`
-- 只提取该 shader key 下所有 local variants 都一致的数值宏；冲突 selector/profile 值不注入，不猜默认
-- `global_context_runtime.*` 现在把这些 profile 宏合并进 active-unit effective defines，并让 `definesFingerprint`、interactive visibility key 和 document analysis key 一起参与失效
-- `current_doc_semantic_runtime.*`、`deferred_doc_runtime.*`、diagnostics preprocessor context 继续消费 `activeUnitSnapshot.defines`，因此这次共享 provider 会统一影响 hover / diagnostics / deferred semantic build
-
-新增验证：
-
-- repo analysis-context：`analysis-context-unit-profile`
-- repo diagnostics：`injects unanimous active-unit macro profiles but does not guess conflicting profile values`
-- 新夹具：`test_files/include_context/gimlocalvariants.json` 以及 resolved / unresolved unit profile 场景
-
-当前边界：
-
-- 还没有解析多值 variant 里“当前 active unit 到底选了哪一个组合”；因此像 `animated_grass_specular_flower` 这种 local variants 本身未导出 `FOLIAGE_MODE`，或同 shader 仍有多值冲突的场景，这一步不会猜测性消除 diagnostics
-- `gimlocalvariants.json` 的 file-watch 刷新暂未作为本阶段正式契约；当前 repo 验证已覆盖 active unit 切换导致的 shared context 刷新，以及 diagnostics 对“会注入 / 不会猜值”的边界
-
-建议下一步：
-
-- 继续沿同一 shared provider 扩展更强的数据源或映射能力，例如把 active unit 和真实 variant selection 关联起来，而不是回退到全局 selector 默认值
-- 在真实 workspace 上用 5-unit smoke / 50-unit trend audit 评估这一步对 `selector-profile-macro` 与 `preprocessor-context` 的净下降贡献，重点看 `FOLIAGE_MODE` 家族仍有多少缺口来自“数据未导出”而非“链路未接通”
-
-### Phase 14 子批次记录：used shader variants fallback 与 selector 源头复核
-
-状态：已完成 `used_shader_variants.csv` fallback 接入和第一轮真实 workspace 源头复核；本轮不新增 selector/profile 宏默认值。
-
-本次实现：
-
-- `unit_macro_profile_provider.*` 的候选源从单一 `gimlocalvariants.json` 扩展为 `gimlocalvariants.json` + `used_shader_variants.csv`。
-- provider 会在 workspace/include roots 下同时查找根目录文件和 `shadercompiler/check/check_used_shader_variants/trunk/` 下的导出文件。
-- `gimlocalvariants.json` 仍按 active unit basename 映射 `shader\\<stem>.nfx2`。
-- `used_shader_variants.csv` 按 shader key basename 映射 active unit stem，例如 `shader\\deferred\\pbr_foliage.fx::TShader -> pbr_foliage`。
-- CSV fallback 只注入同一 stem 所有 used-variant rows 都一致的显式数值宏；如果某个宏跨行缺失或取值冲突，不注入。
-- runtime debug 继续通过 active unit profile fields 暴露最终 profile source 和 injected defines；调用方仍只消费 `defines`，不消费候选值或冲突值。
-
-新增验证：
-
-- 新增 repo fixture `test_files/include_context/used_shader_variants.csv`，覆盖 CSV fallback 命中。
-- 新增 repo unit `multi_context_variant_profile_csv.nsf` 和 shared include，验证 `CSV_STABLE_PROFILE=3` 能驱动 shared analysis context。
-- 同一 fixture 里故意让 `CSV_CONFLICTING_MODE=0/1` 跨行冲突，断言该宏不会出现在 `activeUnitProfileDefines`。
-
-已运行验证：
-
-- `npm run compile` 通过。
-- `cmake --build .\server_cpp\build` 通过。
-- `node .\out\test\runCodeTests.js --mode repo --file-filter analysis-context-unit-profile` 通过，`2 passing`。
-- `node .\out\test\runCodeTests.js --mode repo --file-filter diagnostics` 通过，`76 passing`、`1 pending`。
-- `npm run test:client:repo:m4` 通过。
-
-真实 workspace audit：
-
-- 5-unit smoke audit 使用 `phase-14-unit-profile-csv-smoke-5` 通过：
-  - 输出 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-14-unit-profile-csv-smoke-5.{json,md}`
-  - `diagnosticsTotal=841`
-  - `preprocessor-context=469`
-  - `fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`
-- 50-unit trend audit 使用 `phase-14-unit-profile-csv-trend-50` 通过：
-  - 输出 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-14-unit-profile-csv-trend-50.{json,md}`
-  - `diagnosticsTotal=6942`
-  - `preprocessor-context=4004`
-  - `fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`
-
-真实源头复核结论：
-
-- `shadercompiler/check/check_used_shader_variants.py` 的真实生成链路会从 `.gim/.mtg/.sfx/.hlod`、`scenegim2info.json`、`.nfx2` exported macros、global compile macros 共同生成 `gimlocalvariants.json` 和 `used_shader_variants.csv`。
-- `scenegim2info.json` 是 GIM 场景辅助信息，不直接按 `.nsf` active unit 命名索引；不能作为当前 provider 的直接 active-unit key。
-- `FOLIAGE_MODE` 的源码默认定义存在于 `shaderlib/foliage_anim_functions.hlsl`，但剩余 diagnostics 中部分样本来自 `shaderlib/season_uniforms.hlsl`；这些样本取决于真实 include 顺序和 shadercompiler / 参数注入上下文，不能简单当作 active unit basename profile。
-- `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` 的稳定 enum 常量与 selector 默认多分布在 `pbr/nodes/*_parameters.hlsl`；当前 high-volume 样本所在的 `shaderlib/surface_functions.hlsl` / `shaderlib/surface_emissive.hlsl` 里相关默认块是注释态，不能据此在 LSP 内补全局默认。
-- `used_shader_variants.csv` 可以承载部分 selector，例如 `pbr_default` / `pbr_silk` 中存在 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE` 多值行；但多值正说明它不是稳定默认，必须来自真实 active material / variant selection。
-
-阶段结论：
-
-- CSV fallback 是正确的共享链路扩展，但对当前 5-unit / 50-unit real audit 没有新增下降；`preprocessor-context` 分别维持 `469` 和 `4004`。
-- 当前剩余大头不再是“缺少 provider hook”，而是“缺少 active material / parameter selection 到 active unit 的权威映射”。
-- 下一步如果继续压低 `COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE`，应寻找 material/parameter include 与 active unit 的真实关联，或让 shadercompiler 导出 per-unit active variant selection；不应补 selector/profile 全局默认值。
-- enum-like stable constants 仍可作为独立候选继续复核来源和值，但同名常量在不同 parameter include 中可能存在冲突，必须逐项确认后再决定是否进入资源 preset。
-
-### Phase 14 子批次记录：active-unit variant selection source 接入与 row-level 可审计性补齐
-
-状态：已完成 `active_unit_variant_selection.csv` 适配、row 选择链路打通和 shared analysis context 回归；不新增 fallback、默认值猜测或并行旧路径。
-
-本次实现：
-
-- `unit_macro_profile_provider.*` 现在会在既有 provider roots 下额外发现 `active_unit_variant_selection.csv`（根目录与 `shadercompiler/check/check_used_shader_variants/trunk/`）。
-- 新增 selection source 解析：按 unit stem 聚合显式 `MACRO=VALUE` 选择提示，冲突键按“只保留跨行一致值”收敛。
-- row 过滤合并顺序：
-  - 先应用 `active_unit_variant_selection.csv` 作为 baseline 选择提示；
-  - 再由 workspace 显式 hints（`nsf.defines` + `nsf.preprocessorMacros` 可解析数值）覆盖同名键；
-  - 仍仅在 profile source 已出现该宏且存在匹配值行时收敛，不猜默认。
-- profile snapshot / debug 元数据补齐：
-  - `profileTotalRowCount`
-  - `profileSelectedRowCount`
-  - `profileSelectedRowSignature`
-  - `profileSelectionHintSourcePath`
-- `global_context_runtime.*`、`app/main.cpp` 的 runtime debug 输出同步透传以上字段，`analysis-context-unit-profile` 测试 helper 类型同步更新。
-
-缺陷修复：
-
-- 发现并修复 `active_unit_variant_selection.csv` 后缀识别分支的长度硬编码错误。修复前该文件被误按 `used_shader_variants.csv` 路径解析，导致 selection hints 未生效；修复后按正确 parser 分流。
-
-已运行验证：
-
-- `npm run compile` 通过。
-- `cmake --build .\server_cpp\build` 通过。
-- `node .\out\test\runCodeTests.js --mode repo --file-filter analysis-context-unit-profile` 通过，`5 passing`。
-- `npm run test:client:repo:m4` 通过（包含 shared-key / active-unit / defines / include / unit-profile / workspace 六组 analysis-context 回归）。
-
-边界与结论：
-
-- 本批次依旧不为冲突 selector/profile 宏猜默认值；冲突宏继续仅以 unresolved metadata 暴露。
-- `active_unit_variant_selection.csv` 只作为 deterministic row selection source，不改变宏覆盖顺序与公开契约：profile 宏仍先于 `nsf.defines` 与源码 `#define/#undef`。
-
-### Phase 14 收口复核（2026-05-18）
-
-状态：已完成同口径 trend-50 与严格可比 full 复核；P14“至少一批正式治理 + full 趋势验证”验收标准达成，可关闭为“阶段完成，残留项进入后续 phase”。
-
-同口径 50-unit 重跑：
-
-- 命令：
-  - `$env:NSF_REAL_DIAGNOSTICS_AUDIT='1'; $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS='50'; $env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS='7200000'; $env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL='phase-14-unit-profile-csv-trend-50-rerun-2026-05-18'; node .\out\test\runCodeTests.js --mode real --workspace "D:\YYBWorkSpace\GitHub\nsp-intellision\out\test\diagnostics-audit\phase-04-preprocessor-context.code-workspace" --file-filter realWorkspace.diagnostics-audit`
-- 输出：
-  - `real-workspace-diagnostics-audit.phase-14-unit-profile-csv-trend-50-rerun-2026-05-18.{json,md}`
-- 对比旧标签 `phase-14-unit-profile-csv-trend-50`：
-  - `diagnosticsTotal: 6942 -> 4370`（`-2572`）
-  - `preprocessor-context: 4004 -> 1432`（`-2572`）
-  - `undefinedMacros.totalDiagnostics: 4004 -> 1432`（`-2572`）
-  - `undefinedMacros.macroCount: 39 -> 32`（`-7`）
-  - `fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`（保持不变）
-
-严格同口径 full（811-unit 可比口径）复核：
-
-- 命令：
-  - `$env:NSF_REAL_DIAGNOSTICS_AUDIT='1'; $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS='0'; $env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS='7200000'; $env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL='phase-14-unit-profile-csv-full-rerun-2026-05-18'; node .\out\test\runCodeTests.js --mode real --workspace "D:\YYBWorkSpace\GitHub\nsp-intellision\out\test\diagnostics-audit\phase-04-preprocessor-context.code-workspace" --file-filter realWorkspace.diagnostics-audit`
-- 输出：
-  - `real-workspace-diagnostics-audit.phase-14-unit-profile-csv-full-rerun-2026-05-18.{json,md}`
-- P14 初始 full owner census `phase-14-macro-histogram-full` 保留为 813-unit 总样本基线；但关闭判断改用 811-unit 可比口径，因为同一阶段后续 full 已稳定缺少两个 unit：
-  - `pbr/pbr_carrier.nsf`
-  - `sfx/scanlight_fresnel_ztest_off.nsf`
-  - 两个缺失 unit 在 813-unit 基线中共贡献 `diagnosticsTotal=119`、`preprocessor-context=33`
-- 归一后的 811-unit 可比 baseline：
-  - `diagnosticsTotal=41592`
-  - `preprocessor-context=10516`
-- 对比当前 rerun：
-  - `diagnosticsTotal: 41592 -> 40885`（`-707`）
-  - `preprocessor-context: 10516 -> 9783`（`-733`）
-  - `undefinedMacros.totalDiagnostics: 10516 -> 9783`（`-733`）
-  - `undefinedMacros.macroCount: 107 -> 104`（`-3`）
-  - `fileErrors=0`、`truncatedFiles=1`、`timedOutFiles=1`（与可比 full 口径持平）
-- 同一 811-unit 口径下，对比上一批已落地的 `phase-14-gl3-profile-full`：
-  - `diagnosticsTotal: 40878 -> 40885`（`+7`）
-  - `preprocessor-context: 9796 -> 9783`（`-13`）
-  - `undefinedMacros.totalDiagnostics: 9796 -> 9783`（`-13`）
-  - `undefinedMacros.macroCount: 106 -> 104`（`-2`）
-  - `semantic-source-rule: 16754 -> 16774`（`+20`）
-- 这说明 `active_unit_variant_selection.csv` / used-variant selection-source 这一批继续压低了 `preprocessor-context`，同时有少量 active-branch 迁移进入 `semantic-source-rule`；没有新增 top group，也没有引入新的环境噪音。
-
-关闭判断：
-
-- P14 目标中的“至少完成一批正式治理并在 5/50/full 看到下降趋势”已满足。
-- 本阶段未引入 fallback、compat layer、shim、feature flag 或 diagnostics-local suppress。
-- 剩余 `preprocessor-context` 主要是 selector/profile 宏、enum-like 常量与 source/generated config owner 分流问题，已具备后续 phase（P15+）的清晰入口，不再以 P14 未完成阻塞。
-
-2026-05-19 收尾同步：
-
-- 已把 P14 full 验收说明收紧为严格 811-unit 可比口径，避免把 813-unit baseline 与 811-unit rerun 直接混比。
-- 已同步 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md` 中 active-unit compile profile / selection-source 当前事实，使文档与共享实现、测试契约一致。
 
 ## 十轮审查记录
 

@@ -24,6 +24,7 @@ struct DiagnosticsAuditDebugContext {
   std::unordered_map<std::string, Document> documents;
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;
+  std::string shaderCompilerPath;
   std::vector<std::string> shaderExtensions;
   std::unordered_map<std::string, int> defines;
   DiagnosticsBuildOptions diagnosticsOptions;

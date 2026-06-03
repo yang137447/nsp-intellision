@@ -1,0 +1,12 @@
+#include "module_hover_preprocessor_p14f_include_defs.hlsl"
+
+#if P14F_INCLUDED_MISSING == 1
+#endif
+
+float4 P14FIncludeMacroState(float4 value) : SV_Target0
+{
+    float sourceMode = P14F_INCLUDED_MODE;
+    float defaultMode = P14F_INCLUDED_DEFAULT;
+    float missingMode = P14F_INCLUDED_MISSING;
+    return value + sourceMode + defaultMode + missingMode;
+}

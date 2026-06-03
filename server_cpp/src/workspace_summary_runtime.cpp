@@ -109,6 +109,11 @@ void workspaceSummaryRuntimeCollectIncludeClosureForUnit(
   workspaceIndexCollectIncludeClosureForUnit(unitPathOrUri, outPaths, limit);
 }
 
+void workspaceSummaryRuntimeCollectArtDefaultZeroMacros(
+    std::vector<ArtDefaultZeroMacro> &outMacros, size_t limit) {
+  workspaceIndexCollectArtDefaultZeroMacros(outMacros, limit);
+}
+
 uint64_t workspaceSummaryRuntimeGetVersion() {
   return gWorkspaceSummaryRuntimeVersion.load(std::memory_order_relaxed);
 }

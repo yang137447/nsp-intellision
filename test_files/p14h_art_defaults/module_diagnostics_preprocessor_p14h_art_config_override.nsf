@@ -1,0 +1,15 @@
+#if P14H_ART_CONFIG_MODE
+#define P14H_CONFIG_MODE_BRANCH 1
+#else
+#define P14H_CONFIG_MODE_BRANCH 0
+#endif
+
+float4 P14HArtConfigOverrideEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14H_CONFIG_MODE_BRANCH
+    float3 p14h_config_mode_mismatch = float2(1.0, 2.0);
+    return float4(p14h_config_mode_mismatch, 1.0);
+#else
+    return float4(uv, 0.0, 1.0);
+#endif
+}

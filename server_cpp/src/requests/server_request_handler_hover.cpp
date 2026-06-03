@@ -4,6 +4,7 @@
 #include "call_query.hpp"
 #include "callsite_parser.hpp"
 #include "declaration_query.hpp"
+#include "diagnostics_preprocessor.hpp"
 #include "expanded_source.hpp"
 #include "hlsl_ast.hpp"
 #include "hlsl_builtin_docs.hpp"
@@ -205,6 +206,77 @@ static bool writeMacroHoverResponse(
       shown++;
     }
     macroInput.appendEllipsisAfterList = macroDefs->size() > shown;
+  }
+
+  Json hover = makeObject();
+  const auto markdownRenderStartedAt = std::chrono::steady_clock::now();
+  hover.o["contents"] = makeMarkup(renderHoverMacroMarkdown(macroInput));
+  recordHoverMarkdownRender(
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - markdownRenderStartedAt)
+          .count());
+  writeResponse(id, hover);
+  return true;
+}
+
+static bool writeActivePreprocessorMacroHoverResponse(
+    const Json &id, const std::string &currentUri, const std::string &word,
+    const ActivePreprocessorMacroResolution &resolution,
+    ServerRequestContext &ctx) {
+  HoverMacroMarkdownInput macroInput;
+  bool builtFromSourceDefinition = false;
+  if (!resolution.location.uri.empty() && !resolution.fromSynthesizedZero) {
+    std::string defText;
+    if (ctx.readDocumentText(resolution.location.uri, defText)) {
+      builtFromSourceDefinition = buildMacroHoverInputFromDocumentText(
+          currentUri, resolution.location.uri, defText, resolution.location.line,
+          word, macroInput);
+    }
+  }
+  if (!builtFromSourceDefinition) {
+    macroInput.code = "#define " + word;
+    if (!resolution.replacement.empty()) {
+      macroInput.code += " ";
+      macroInput.code += resolution.replacement;
+    } else if (resolution.hasIntegerValue) {
+      macroInput.code += " ";
+      macroInput.code += std::to_string(resolution.integerValue);
+    }
+    macroInput.kindLabel =
+        resolution.functionLike ? "(Function-like macro)" : "(Macro)";
+    if (!resolution.location.uri.empty()) {
+      macroInput.definedAt = formatFileLineDisplay(
+          resolution.location.uri, resolution.location.line, currentUri);
+    }
+  }
+
+  if (resolution.hasIntegerValue) {
+    macroInput.notes.push_back("Active value: `" +
+                               std::to_string(resolution.integerValue) + "`");
+  } else if (!resolution.replacement.empty()) {
+    macroInput.notes.push_back("Active replacement: `" +
+                               resolution.replacement + "`");
+  }
+  if (resolution.fromSynthesizedZero) {
+    macroInput.notes.push_back(
+        "Source: synthesized zero from first undefined numeric macro use.");
+  } else if (resolution.fromArtDefaultZero) {
+    macroInput.notes.push_back("Source: #art BOOL/INT default zero.");
+  } else if (resolution.fromArtCompanionConstant) {
+    macroInput.notes.push_back("Source: #art companion enum constant.");
+  } else if (resolution.fromCompilerPrivateConstant) {
+    macroInput.notes.push_back(
+        "Source: active unit compiler private numeric constant.");
+  } else if (resolution.fromCompilerMacroSnapshot) {
+    macroInput.notes.push_back(
+        "Source: active unit compiler macro snapshot.");
+  } else if (resolution.fromInitialState) {
+    macroInput.notes.push_back(
+        "Source: configured preprocessor macro or active unit profile input.");
+  } else if (resolution.fromIfndefDefault) {
+    macroInput.notes.push_back("Source: active #ifndef default define.");
+  } else {
+    macroInput.notes.push_back("Source: active unit preprocessor state.");
   }
 
   Json hover = makeObject();
@@ -672,6 +744,122 @@ bool collectIncludeContextDefinitionLocations(
   for (const auto &group : summary.definitionGroups)
     outLocations.push_back(group.location);
   return outLocations.size() > 1;
+}
+
+bool resolveActivePreprocessorMacroAtLine(
+    const std::string &uri, const std::string &text, int line,
+    const std::string &word, ServerRequestContext &ctx,
+    ActivePreprocessorMacroResolution &out) {
+  out = ActivePreprocessorMacroResolution{};
+  if (word.empty() || line < 0)
+    return false;
+
+  DiagnosticsBuildOptions options;
+  const std::string activeUnitPath = getActiveUnitPath();
+  if (!activeUnitPath.empty()) {
+    options.activeUnitUri = pathToUri(activeUnitPath);
+    if (!options.activeUnitUri.empty()) {
+      if (const Document *activeDoc = ctx.findDocument(options.activeUnitUri)) {
+        options.activeUnitText = activeDoc->text;
+      } else {
+        ctx.readDocumentText(options.activeUnitUri, options.activeUnitText);
+      }
+    }
+  }
+
+  const DiagnosticsPreprocessorBuildResult context =
+      buildDiagnosticsPreprocessorContext(
+          uri, text, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, options);
+  const int queryLine = line + 1;
+  PreprocessorMacroReplacement replacement;
+  if (!lookupActivePreprocessorMacroReplacement(context.view, queryLine, word,
+                                                replacement)) {
+    return false;
+  }
+
+  out.found = true;
+  out.functionLike = replacement.functionLike;
+  out.replacement = replacement.replacement;
+  int integerValue = 0;
+  if (evaluateActivePreprocessorMacroInteger(context.view, queryLine, word,
+                                             integerValue)) {
+    out.hasIntegerValue = true;
+    out.integerValue = integerValue;
+  }
+
+  const PreprocessorMacroEvent *latestEvent = nullptr;
+  for (const auto &event : context.view.macroEvents) {
+    if (event.line >= queryLine || event.name != word)
+      continue;
+    latestEvent = &event;
+  }
+  if (!latestEvent) {
+    out.fromInitialState = replacement.sourceUri.empty();
+    out.fromSynthesizedZero = replacement.sourceSynthesizedZero;
+    out.fromIfndefDefault = replacement.sourceIfndefDefault;
+    out.fromArtDefaultZero = replacement.sourceArtDefaultZero;
+    out.fromArtCompanionConstant = replacement.sourceArtCompanionConstant;
+    out.fromCompilerPrivateConstant =
+        replacement.sourceCompilerPrivateConstant;
+    out.fromCompilerMacroSnapshot = replacement.sourceCompilerMacroSnapshot;
+    if (!replacement.sourceUri.empty()) {
+      out.location.uri = replacement.sourceUri;
+      out.location.line = replacement.sourceLine;
+      out.location.start = replacement.sourceStart;
+      out.location.end =
+          replacement.sourceEnd > replacement.sourceStart
+              ? replacement.sourceEnd
+              : static_cast<int>(word.size());
+    }
+    return true;
+  }
+
+  out.fromSynthesizedZero =
+      latestEvent->synthesizedZero ||
+      latestEvent->replacement.sourceSynthesizedZero;
+  out.fromIfndefDefault =
+      latestEvent->ifndefDefault || latestEvent->replacement.sourceIfndefDefault;
+  out.fromArtDefaultZero =
+      latestEvent->artDefaultZero ||
+      latestEvent->replacement.sourceArtDefaultZero;
+  out.fromArtCompanionConstant =
+      latestEvent->replacement.sourceArtCompanionConstant;
+  out.fromCompilerPrivateConstant =
+      latestEvent->compilerPrivateConstant ||
+      latestEvent->replacement.sourceCompilerPrivateConstant;
+  out.fromCompilerMacroSnapshot =
+      latestEvent->compilerMacroSnapshot ||
+      latestEvent->replacement.sourceCompilerMacroSnapshot;
+  out.location.uri = latestEvent->sourceUri.empty() ? uri : latestEvent->sourceUri;
+  out.location.line =
+      latestEvent->sourceLine >= 0 ? latestEvent->sourceLine : latestEvent->line;
+  out.location.start = latestEvent->sourceStart;
+  out.location.end =
+      latestEvent->sourceEnd > latestEvent->sourceStart
+          ? latestEvent->sourceEnd
+          : static_cast<int>(word.size());
+  std::string sourceText;
+  const bool sourceIsCurrent = sameDocumentIdentity(out.location.uri, uri);
+  if (sourceIsCurrent) {
+    sourceText = text;
+  } else {
+    ctx.readDocumentText(out.location.uri, sourceText);
+  }
+  const std::string eventLineText = getLineAt(sourceText, out.location.line);
+  ParsedMacroDefinitionInfo macroInfo;
+  if (extractMacroDefinitionInLineShared(eventLineText, macroInfo) &&
+      macroInfo.name == word) {
+    out.location.start = static_cast<int>(macroInfo.nameStart);
+    out.location.end = static_cast<int>(macroInfo.nameEnd);
+  } else {
+    const size_t pos = eventLineText.find(word);
+    if (pos != std::string::npos) {
+      out.location.start = static_cast<int>(pos);
+      out.location.end = static_cast<int>(pos + word.size());
+    }
+  }
+  return true;
 }
 
 static void appendIncludeContextDefinitionListItems(
@@ -1453,6 +1641,13 @@ bool request_hover_handlers::handleHoverRequest(
   if (extractMacroDefinitionInLineShared(lineText, currentLineMacro) &&
       currentLineMacro.name == word &&
       writeMacroHoverResponse(id, uri, uri, line, word, ctx)) {
+    return true;
+  }
+  ActivePreprocessorMacroResolution activeMacro;
+  if (resolveActivePreprocessorMacroAtLine(uri, doc->text, line, word, ctx,
+                                           activeMacro) &&
+      writeActivePreprocessorMacroHoverResponse(id, uri, word, activeMacro,
+                                                ctx)) {
     return true;
   }
 

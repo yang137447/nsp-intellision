@@ -429,6 +429,165 @@ export function registerInteractiveRuntimeCoreTests(): void {
 		assert.ok(!functionLikeUsageText.includes('(HLSL function)'), functionLikeUsageText);
 	});
 
+	it('uses the shared P14E preprocessor state for macro hover and definition', async () => {
+		const configuration = vscode.workspace.getConfiguration('nsf');
+		const previousMacros = configuration.inspect<Record<string, string | number | boolean>>('preprocessorMacros')
+			?.workspaceValue;
+		try {
+			await configuration.update(
+				'preprocessorMacros',
+				{
+					P14E_CONFIGURED_MODE: '4'
+				},
+				vscode.ConfigurationTarget.Workspace
+			);
+			await waitForClientReady('client ready after P14E configured macro update');
+			const document = await openFixture('module_hover_preprocessor_p14e_shared_state.nsf');
+
+			const sourcePosition = positionOf(document, 'P14E_SOURCE_MODE', 2, 2);
+			const sourceHovers = await waitForHoverText(
+				document,
+				sourcePosition,
+				(text) => text.includes('Active value: `2`') && text.includes('active unit preprocessor state'),
+				'P14E source macro hover'
+			);
+			const sourceHoverText = hoverToText(sourceHovers);
+			assert.ok(sourceHoverText.includes('#define P14E_SOURCE_MODE 2'), sourceHoverText);
+
+			const sourceDefinitions = await waitFor(
+				() =>
+					vscode.commands.executeCommand<ProviderLocation[]>(
+						'vscode.executeDefinitionProvider',
+						document.uri,
+						sourcePosition
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'P14E source macro definition'
+			);
+			assert.strictEqual(toFsPath(sourceDefinitions[0]), document.uri.fsPath);
+			assert.strictEqual(toRange(sourceDefinitions[0]).start.line, 0);
+
+			const defaultHovers = await waitForHoverText(
+				document,
+				positionOf(document, 'P14E_DEFAULT_MODE', 3, 2),
+				(text) => text.includes('Active value: `3`') && text.includes('#ifndef default define'),
+				'P14E ifndef default macro hover'
+			);
+			assert.ok(hoverToText(defaultHovers).includes('#define P14E_DEFAULT_MODE 3'));
+
+			const missingPosition = positionOf(document, 'P14E_MISSING_MODE', 2, 2);
+			const missingHovers = await waitForHoverText(
+				document,
+				missingPosition,
+				(text) => text.includes('Active value: `0`') && text.includes('synthesized zero'),
+				'P14E synthesized macro hover'
+			);
+			assert.ok(hoverToText(missingHovers).includes('#define P14E_MISSING_MODE 0'));
+			const missingDefinitions = await waitFor(
+				() =>
+					vscode.commands.executeCommand<ProviderLocation[]>(
+						'vscode.executeDefinitionProvider',
+						document.uri,
+						missingPosition
+					),
+				(value) => Array.isArray(value) && value.length > 0,
+				'P14E synthesized macro definition'
+			);
+			assert.strictEqual(toFsPath(missingDefinitions[0]), document.uri.fsPath);
+			assert.strictEqual(toRange(missingDefinitions[0]).start.line, 6);
+
+			const configuredPosition = positionOf(document, 'P14E_CONFIGURED_MODE', 1, 2);
+			const configuredHovers = await waitForHoverText(
+				document,
+				configuredPosition,
+				(text) => text.includes('Active value: `4`') && text.includes('configured preprocessor macro'),
+				'P14E configured macro hover'
+			);
+			assert.ok(hoverToText(configuredHovers).includes('#define P14E_CONFIGURED_MODE 4'));
+			const configuredDefinitions = await vscode.commands.executeCommand<ProviderLocation[]>(
+				'vscode.executeDefinitionProvider',
+				document.uri,
+				configuredPosition
+			);
+			assert.ok(!configuredDefinitions || configuredDefinitions.length === 0);
+		} finally {
+			await configuration.update('preprocessorMacros', previousMacros, vscode.ConfigurationTarget.Workspace);
+			await waitForClientReady('client ready after P14E configured macro restore');
+			await openFixture('module_suite.nsf');
+		}
+	});
+
+	it('resolves P14F include macro hover and definition to the real source location', async () => {
+		const document = await openFixture('module_hover_preprocessor_p14f_include_root.nsf');
+		const defsPath = path.join(getWorkspaceRoot(), 'test_files', 'module_hover_preprocessor_p14f_include_defs.hlsl');
+
+		const includedPosition = positionOf(document, 'P14F_INCLUDED_MODE', 1, 2);
+		const includedHovers = await waitForHoverText(
+			document,
+			includedPosition,
+			(text) => text.includes('Active value: `6`') && text.includes('active unit preprocessor state'),
+			'P14F included macro hover'
+		);
+		const includedHoverText = hoverToText(includedHovers);
+		assert.ok(includedHoverText.includes('#define P14F_INCLUDED_MODE 6'), includedHoverText);
+
+		const includedDefinitions = await waitFor(
+			() =>
+				vscode.commands.executeCommand<ProviderLocation[]>(
+					'vscode.executeDefinitionProvider',
+					document.uri,
+					includedPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'P14F included macro definition'
+		);
+		assert.strictEqual(toFsPath(includedDefinitions[0]), defsPath);
+		assert.strictEqual(toRange(includedDefinitions[0]).start.line, 0);
+
+		const defaultPosition = positionOf(document, 'P14F_INCLUDED_DEFAULT', 1, 2);
+		const defaultHovers = await waitForHoverText(
+			document,
+			defaultPosition,
+			(text) => text.includes('Active value: `7`') && text.includes('#ifndef default define'),
+			'P14F included #ifndef default macro hover'
+		);
+		const defaultHoverText = hoverToText(defaultHovers);
+		assert.ok(defaultHoverText.includes('#define P14F_INCLUDED_DEFAULT 7'), defaultHoverText);
+		const defaultDefinitions = await waitFor(
+			() =>
+				vscode.commands.executeCommand<ProviderLocation[]>(
+					'vscode.executeDefinitionProvider',
+					document.uri,
+					defaultPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'P14F included #ifndef default macro definition'
+		);
+		assert.strictEqual(toFsPath(defaultDefinitions[0]), defsPath);
+		assert.strictEqual(toRange(defaultDefinitions[0]).start.line, 2);
+
+		const missingPosition = positionOf(document, 'P14F_INCLUDED_MISSING', 2, 2);
+		const missingHovers = await waitForHoverText(
+			document,
+			missingPosition,
+			(text) => text.includes('Active value: `0`') && text.includes('synthesized zero'),
+			'P14F root synthesized macro hover'
+		);
+		assert.ok(hoverToText(missingHovers).includes('#define P14F_INCLUDED_MISSING 0'));
+		const missingDefinitions = await waitFor(
+			() =>
+				vscode.commands.executeCommand<ProviderLocation[]>(
+					'vscode.executeDefinitionProvider',
+					document.uri,
+					missingPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'P14F root synthesized macro definition'
+		);
+		assert.strictEqual(toFsPath(missingDefinitions[0]), document.uri.fsPath);
+		assert.strictEqual(toRange(missingDefinitions[0]).start.line, 2);
+	});
+
 	it('drops last-good interactive context when the active unit changes', async () => {
 		try {
 			await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files', 'include_context')], async () => {

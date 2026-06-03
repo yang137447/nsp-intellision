@@ -9,6 +9,7 @@
 
 void applySettingsFromJson(
     const Json &settings, std::vector<std::string> &includePaths,
+    std::string &shaderCompilerPath,
     std::vector<std::string> &shaderExtensions,
     std::unordered_map<std::string, int> &preprocessorDefines,
     ConfiguredPreprocessorMacros &preprocessorMacros,

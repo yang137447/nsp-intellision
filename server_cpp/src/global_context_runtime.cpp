@@ -20,11 +20,13 @@ struct RuntimeContextFingerprints {
   std::string workspaceFoldersFingerprint;
   std::string definesFingerprint;
   std::string includePathsFingerprint;
+  std::string shaderCompilerPathFingerprint;
   std::string shaderExtensionsFingerprint;
 };
 
 struct RuntimeDefineContext {
   UnitMacroProfileSnapshot profileSnapshot;
+  std::vector<ArtDefaultZeroMacro> artDefaultZeroMacros;
   std::unordered_map<std::string, int> effectiveDefines;
 };
 
@@ -111,6 +113,8 @@ buildRuntimeContextFingerprints(const GlobalContextRuntimeOptions &options,
       getConfiguredPreprocessorMacrosFingerprint();
   fingerprints.includePathsFingerprint =
       fingerprintStringList(options.includePaths);
+  fingerprints.shaderCompilerPathFingerprint =
+      fingerprintStringList({options.shaderCompilerPath});
   fingerprints.shaderExtensionsFingerprint =
       fingerprintStringList(options.shaderExtensions);
   return fingerprints;
@@ -210,10 +214,13 @@ std::unordered_map<std::string, int> buildUnitProfileSelectionHints(
 RuntimeDefineContext buildRuntimeDefineContext(
     const GlobalContextRuntimeOptions &options, const std::string &activeUnitPath) {
   RuntimeDefineContext context;
+  workspaceSummaryRuntimeCollectArtDefaultZeroMacros(
+      context.artDefaultZeroMacros, 4096);
   const std::unordered_map<std::string, int> selectionHints =
       buildUnitProfileSelectionHints(options);
   resolveUnitMacroProfileSnapshot(activeUnitPath, options.workspaceFolders,
-                                  options.includePaths, selectionHints,
+                                  options.includePaths,
+                                  options.shaderCompilerPath, selectionHints,
                                   context.profileSnapshot);
   context.effectiveDefines = context.profileSnapshot.defines;
   for (const auto &entry : options.defines)
@@ -233,6 +240,7 @@ bool buildActiveUnitPreprocessorView(
   includeContext.workspaceFolders = options.workspaceFolders;
   includeContext.includePaths = options.includePaths;
   includeContext.shaderExtensions = options.shaderExtensions;
+  includeContext.artDefaultZeroMacros = defineContext.artDefaultZeroMacros;
   includeContext.loadText = [](const std::string &uri,
                                std::string &textOut) -> bool {
     const std::string path = uriToPath(uri);
@@ -314,6 +322,7 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
   snapshot.documentEpoch = options.activeUnitDocumentEpoch;
   snapshot.workspaceFolders = options.workspaceFolders;
   snapshot.includePaths = options.includePaths;
+  snapshot.shaderCompilerPath = options.shaderCompilerPath;
   snapshot.shaderExtensions = options.shaderExtensions;
   snapshot.profileDefines = defineContext.profileSnapshot.defines;
   snapshot.profileShaderKey = defineContext.profileSnapshot.shaderKey;
@@ -329,12 +338,15 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
       defineContext.profileSnapshot.profileSelectionHintSourcePath;
   snapshot.profileUnresolvedMacroNames =
       defineContext.profileSnapshot.unresolvedMacroNames;
+  snapshot.artDefaultZeroMacros = defineContext.artDefaultZeroMacros;
   snapshot.defines = defineContext.effectiveDefines;
   snapshot.workspaceFoldersFingerprint =
       contextFingerprints.workspaceFoldersFingerprint;
   snapshot.definesFingerprint = contextFingerprints.definesFingerprint;
   snapshot.includePathsFingerprint =
       contextFingerprints.includePathsFingerprint;
+  snapshot.shaderCompilerPathFingerprint =
+      contextFingerprints.shaderCompilerPathFingerprint;
   snapshot.shaderExtensionsFingerprint =
       contextFingerprints.shaderExtensionsFingerprint;
   snapshot.workspaceSummaryVersion = options.workspaceSummaryVersion;
@@ -397,6 +409,8 @@ bool shouldReuseExistingGlobalContextSnapshot(
           contextFingerprints.definesFingerprint &&
       existing.activeUnitSnapshot.includePathsFingerprint ==
           contextFingerprints.includePathsFingerprint &&
+      existing.activeUnitSnapshot.shaderCompilerPathFingerprint ==
+          contextFingerprints.shaderCompilerPathFingerprint &&
       existing.activeUnitSnapshot.shaderExtensionsFingerprint ==
           contextFingerprints.shaderExtensionsFingerprint;
   if (!sameStableContext)
@@ -462,6 +476,8 @@ bool hasSameLogicalGlobalContext(const GlobalContextSnapshot &lhs,
              rhs.activeUnitSnapshot.definesFingerprint &&
          lhs.activeUnitSnapshot.includePathsFingerprint ==
              rhs.activeUnitSnapshot.includePathsFingerprint &&
+         lhs.activeUnitSnapshot.shaderCompilerPathFingerprint ==
+             rhs.activeUnitSnapshot.shaderCompilerPathFingerprint &&
          lhs.activeUnitSnapshot.shaderExtensionsFingerprint ==
              rhs.activeUnitSnapshot.shaderExtensionsFingerprint &&
          lhs.activeUnitSnapshot.workspaceSummaryVersion ==

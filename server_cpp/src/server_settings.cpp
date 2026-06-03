@@ -42,6 +42,7 @@ static void applyConfiguredPreprocessorMacroEntries(
 
 void applySettingsFromJson(
     const Json &settings, std::vector<std::string> &includePaths,
+    std::string &shaderCompilerPath,
     std::vector<std::string> &shaderExtensions,
     std::unordered_map<std::string, int> &preprocessorDefines,
     ConfiguredPreprocessorMacros &preprocessorMacros,
@@ -75,6 +76,10 @@ void applySettingsFromJson(
     for (const auto &item : incPaths->a) {
       includePaths.push_back(getStringValue(item));
     }
+  }
+  const Json *compilerPath = getObjectValue(*target, "shaderCompilerPath");
+  if (compilerPath && compilerPath->type == Json::Type::String) {
+    shaderCompilerPath = getStringValue(*compilerPath);
   }
   const Json *extensions = getObjectValue(*target, "shaderFileExtensions");
   if (extensions && extensions->type == Json::Type::Array) {

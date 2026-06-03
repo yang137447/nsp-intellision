@@ -250,7 +250,7 @@ std::string computeIndexKey(const std::vector<std::string> &folders,
   key.append("models:");
   key.append(modelsHash);
   key.push_back(';');
-  key.append("includeParser:6;");
+  key.append("includeParser:7;artDefaults:2;");
   return key;
 }
 
@@ -293,6 +293,7 @@ bool parseFileToMeta(const fs::path &path,
   meta.mtime = mtime;
   meta.size = size;
   extractDefinitions(uri, text, meta.defs);
+  extractArtDefaultZeroMacros(uri, text, meta.artDefaultZeroMacros);
   extractStructMembers(uri, text, workspaceFolders, includePaths, extensions,
                        meta.structs);
   {

@@ -58,6 +58,18 @@
       "replacement": "0"
     },
     {
+      "name": "CHANNEL_COLOR_CHANGE",
+      "replacement": "0"
+    },
+    {
+      "name": "CHANNEL_COLOR_CHANGE_GRADIENT",
+      "replacement": "0"
+    },
+    {
+      "name": "CHANNEL_COLOR_CHANGE_ID",
+      "replacement": "0"
+    },
+    {
       "name": "CLUSTERED_LIGHT",
       "replacement": "1"
     },
@@ -72,6 +84,18 @@
     {
       "name": "CLUSTERED_SH",
       "replacement": "2"
+    },
+    {
+      "name": "COLOR_CHANGE_GRADIENT",
+      "replacement": "0"
+    },
+    {
+      "name": "COLOR_CHANGE_MULTIPLE",
+      "replacement": "0"
+    },
+    {
+      "name": "COLOR_CHANGE_PICKER",
+      "replacement": "0"
     },
     {
       "name": "DECAL_MAPPING_CUBE",
@@ -94,7 +118,35 @@
       "replacement": "0"
     },
     {
+      "name": "DYNAMIC_GI_TYPE",
+      "replacement": "0"
+    },
+    {
       "name": "DYNAMIC_SH_BUFFER_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "EMISSIVE_COLOR",
+      "replacement": "1"
+    },
+    {
+      "name": "EMISSIVE_DISSOLVE_DISSORT",
+      "replacement": "0"
+    },
+    {
+      "name": "EMISSIVE_FLOW",
+      "replacement": "0"
+    },
+    {
+      "name": "EMISSIVE_FLOW_UV1",
+      "replacement": "0"
+    },
+    {
+      "name": "EMISSIVE_PEARL",
+      "replacement": "0"
+    },
+    {
+      "name": "EMISSIVE_THIN_FILM",
       "replacement": "0"
     },
     {
@@ -118,6 +170,22 @@
       "replacement": "(ENV_MAP_ENABLE&&QUALITY_SUPPORT_HIGH)"
     },
     {
+      "name": "FOLIAGE_GRASS_BRANCH",
+      "replacement": "3"
+    },
+    {
+      "name": "FOLIAGE_GRASS_LEAF",
+      "replacement": "4"
+    },
+    {
+      "name": "FOLIAGE_TREE_BRANCH",
+      "replacement": "1"
+    },
+    {
+      "name": "FOLIAGE_TREE_LEAF",
+      "replacement": "2"
+    },
+    {
       "name": "FORCE_USE_DYNAMIC_SH_TEXTURE",
       "replacement": "0"
     },
@@ -130,11 +198,19 @@
       "replacement": "0"
     },
     {
+      "name": "GL3_PROFILE",
+      "replacement": "0"
+    },
+    {
       "name": "GLES_USE_UBO",
       "replacement": "0"
     },
     {
       "name": "GPU_SKIN_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "HAS_THIN_TRANSLUCENT",
       "replacement": "0"
     },
     {
@@ -160,6 +236,10 @@
     {
       "name": "INSTANCING_ENABLE",
       "replacement": "(INSTANCE_TYPE!=INSTANCE_TYPE_NONE)"
+    },
+    {
+      "name": "IS_MEADOW_LOD",
+      "replacement": "0"
     },
     {
       "name": "LIGHT_ATTR_ITEM_NUM",
@@ -447,6 +527,10 @@
     },
     {
       "name": "RENDER_2020_ENABLE",
+      "replacement": "0"
+    },
+    {
+      "name": "RENDER_VELOCITY",
       "replacement": "0"
     },
     {

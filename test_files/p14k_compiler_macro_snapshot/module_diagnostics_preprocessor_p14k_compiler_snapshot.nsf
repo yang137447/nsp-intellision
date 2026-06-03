@@ -1,0 +1,39 @@
+#if P14K_PUBLIC_MODE == P14K_MODE_TWO
+#define P14K_BRANCH_VALUE 1
+#else
+#define P14K_BRANCH_VALUE P14K_MISSING_BRANCH
+#endif
+
+#if P14K_OVERRIDE_MODE == P14K_MODE_TWO
+#define P14K_OVERRIDE_BRANCH_VALUE 1
+#else
+#define P14K_OVERRIDE_BRANCH_VALUE P14K_MISSING_OVERRIDE_BRANCH
+#endif
+
+float4 P14KCompilerMacroSnapshot(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14K_BRANCH_VALUE
+    float2 primary = uv;
+#else
+    float2 shouldStayInactive = float4(uv, 0.0, 1.0);
+    float2 primary = shouldStayInactive;
+#endif
+
+#if P14K_OVERRIDE_BRANCH_VALUE
+    float2 overrideValue = uv;
+#else
+    float2 overrideShouldStayInactive = float4(uv, 0.0, 1.0);
+    float2 overrideValue = overrideShouldStayInactive;
+#endif
+
+    return float4(primary + overrideValue, 0.0, 1.0);
+}
+
+#ifndef P14K_PUBLIC_MODE
+#define P14K_PUBLIC_MODE P14K_MODE_TWO
+#endif
+
+#undef P14K_OVERRIDE_MODE
+#define P14K_OVERRIDE_MODE P14K_MODE_TWO
+
+#define P14K_MODE_TWO 2

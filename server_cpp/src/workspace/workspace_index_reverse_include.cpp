@@ -36,6 +36,7 @@ void rebuildGlobals(IndexStore &store) {
   store.bestStructDefByName.clear();
   store.bestTypeBySymbol.clear();
   store.structMemberType.clear();
+  store.artDefaultZeroMacros.clear();
 
   const std::string unitPathRaw = getActiveUnitPath();
   const std::string unitPath = normalizePathForCompare(unitPathRaw);
@@ -105,6 +106,10 @@ void rebuildGlobals(IndexStore &store) {
         if (!m.name.empty() && !m.type.empty())
           memberMap.emplace(m.name, m.type);
       }
+    }
+    for (const auto &macro : meta.artDefaultZeroMacros) {
+      if (!macro.name.empty())
+        store.artDefaultZeroMacros.push_back(macro);
     }
   }
 }

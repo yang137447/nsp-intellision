@@ -94,8 +94,8 @@ int main(int argc, char **argv) {
   auto applySettings = [&](const Json &settings) {
     std::lock_guard<std::mutex> lock(coreMutex);
     applySettingsFromJson(
-        settings, core.includePaths, core.shaderExtensions, preprocessorDefines,
-        preprocessorMacros,
+        settings, core.includePaths, core.shaderCompilerPath,
+        core.shaderExtensions, preprocessorDefines, preprocessorMacros,
         core.inlayHintsEnabled, core.inlayHintsParameterNamesEnabled,
         core.semanticTokensEnabled, core.diagnosticsExpensiveRulesEnabled,
         core.diagnosticsTimeBudgetMs, core.diagnosticsMaxItems,
@@ -125,6 +125,7 @@ int main(int argc, char **argv) {
     std::lock_guard<std::mutex> lock(coreMutex);
     options.globalContextOptions.workspaceFolders = core.workspaceFolders;
     options.globalContextOptions.includePaths = core.includePaths;
+    options.globalContextOptions.shaderCompilerPath = core.shaderCompilerPath;
     options.globalContextOptions.shaderExtensions = core.shaderExtensions;
     options.globalContextOptions.defines = preprocessorDefines;
     options.globalContextOptions.workspaceSummaryVersion =
@@ -163,6 +164,7 @@ int main(int argc, char **argv) {
     context.documents = core.documents;
     context.workspaceFolders = core.workspaceFolders;
     context.includePaths = core.includePaths;
+    context.shaderCompilerPath = core.shaderCompilerPath;
     context.shaderExtensions = core.shaderExtensions;
     context.defines = preprocessorDefines;
     context.semanticLegend = core.semanticLegend;
@@ -1880,6 +1882,7 @@ int main(int argc, char **argv) {
         std::vector<Document> documentSnapshot;
         std::vector<std::string> workspaceFoldersSnapshot;
         std::vector<std::string> includePathsSnapshot;
+        std::string shaderCompilerPathSnapshot;
         bool unitMacroProfileChanged = false;
         auto normalize = [](const std::string &value) -> std::string {
           std::string out;
@@ -1952,12 +1955,14 @@ int main(int argc, char **argv) {
           std::lock_guard<std::mutex> lock(coreMutex);
           workspaceFoldersSnapshot = core.workspaceFolders;
           includePathsSnapshot = core.includePaths;
+          shaderCompilerPathSnapshot = core.shaderCompilerPath;
           for (const auto &entry : core.documents)
             documentSnapshot.push_back(entry.second);
         }
         for (const auto &uri : changedUris) {
           if (unitMacroProfileProviderOwnsPath(uri, workspaceFoldersSnapshot,
-                                               includePathsSnapshot)) {
+                                               includePathsSnapshot,
+                                               shaderCompilerPathSnapshot)) {
             unitMacroProfileChanged = true;
             break;
           }
@@ -2068,6 +2073,7 @@ int main(int argc, char **argv) {
         auditContext.documents = core.documents;
         auditContext.workspaceFolders = core.workspaceFolders;
         auditContext.includePaths = core.includePaths;
+        auditContext.shaderCompilerPath = core.shaderCompilerPath;
         auditContext.shaderExtensions = core.shaderExtensions;
         auditContext.defines = preprocessorDefines;
         auditContext.diagnosticsOptions.enableExpensiveRules =
@@ -2218,6 +2224,25 @@ int main(int argc, char **argv) {
           unresolvedProfileMacros.a.push_back(makeString(macro));
         item.o["activeUnitProfileUnresolvedMacros"] =
             std::move(unresolvedProfileMacros);
+        Json artDefaultDefines = makeObject();
+        Json artDefaultMacros = makeArray();
+        for (const auto &macro : globalActive.artDefaultZeroMacros) {
+          if (macro.name.empty())
+            continue;
+          artDefaultDefines.o[macro.name] = makeNumber(0);
+          Json macroItem = makeObject();
+          macroItem.o["name"] = makeString(macro.name);
+          macroItem.o["artType"] = makeString(macro.artType);
+          macroItem.o["uri"] = makeString(macro.uri);
+          macroItem.o["line"] = makeNumber(static_cast<double>(macro.line));
+          macroItem.o["start"] = makeNumber(static_cast<double>(macro.start));
+          macroItem.o["end"] = makeNumber(static_cast<double>(macro.end));
+          artDefaultMacros.a.push_back(std::move(macroItem));
+        }
+        item.o["activeUnitArtDefaultZeroDefines"] =
+            std::move(artDefaultDefines);
+        item.o["activeUnitArtDefaultZeroMacros"] =
+            std::move(artDefaultMacros);
         item.o["interactiveVisibilityFingerprint"] =
             makeString(globalVisibility.fullFingerprint);
         item.o["globalContextSnapshotId"] =

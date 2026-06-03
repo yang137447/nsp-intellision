@@ -1,0 +1,52 @@
+#define P14D_VALUE 3
+#define P14D_EQ(x, y) ((x) == (y))
+#define P14D_NESTED(x) P14D_EQ((x), P14D_VALUE)
+#define P14D_CAT(a, b) a##b
+#define P14D_PICK(name) P14D_CAT(P14D_CAT_VALUE_, name)
+#define P14D_CAT_VALUE_MODE 7
+#define P14D_ANY(...) (__VA_ARGS__)
+#define P14D_STRINGIZE(x) #x
+#define P14D_RECURSE(x) P14D_RECURSE(x)
+
+#if P14D_EQ(P14D_VALUE, 3)
+#define P14D_FIXED_OK 1
+#else
+#define P14D_FIXED_OK 0
+#endif
+
+#if P14D_NESTED(3)
+#define P14D_NESTED_OK 1
+#else
+#define P14D_NESTED_OK 0
+#endif
+
+#if P14D_PICK(MODE) == 7
+#define P14D_PASTE_OK 1
+#else
+#define P14D_PASTE_OK 0
+#endif
+
+#if P14D_ANY(P14D_FIXED_OK && P14D_NESTED_OK && P14D_PASTE_OK)
+#define P14D_VARIADIC_OK 1
+#else
+#define P14D_VARIADIC_OK 0
+#endif
+
+#if P14D_EQ(P14D_MISSING_ARG, P14D_MISSING_BOUND)
+#endif
+
+#if P14D_STRINGIZE(P14D_STRING_VALUE)
+#endif
+
+#if P14D_RECURSE(1)
+#endif
+
+float4 P14DFunctionMacroEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14D_VARIADIC_OK
+    return float4(uv, 0.0, 1.0);
+#else
+    float2 bad = float4(uv, 0.0, 1.0);
+    return float4(bad, 0.0, 1.0);
+#endif
+}

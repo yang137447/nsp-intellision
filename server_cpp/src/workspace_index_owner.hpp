@@ -76,6 +76,9 @@ public:
                                     std::vector<std::string> &outPaths,
                                     size_t limit) const;
 
+  void collectArtDefaultZeroMacros(std::vector<ArtDefaultZeroMacro> &outMacros,
+                                   size_t limit) const;
+
   void shutdown();
 
 private:

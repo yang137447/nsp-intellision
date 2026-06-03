@@ -26,6 +26,9 @@ struct DeferredDocBuildContext {
   std::unordered_map<std::string, Document> documents;
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;
+  // Optional read-only shadercompiler profile source root captured with the
+  // background job's analysis context.
+  std::string shaderCompilerPath;
   std::vector<std::string> shaderExtensions;
   std::unordered_map<std::string, int> defines;
   SemanticTokenLegend semanticLegend;

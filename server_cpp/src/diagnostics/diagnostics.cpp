@@ -101,6 +101,7 @@ buildDiagnosticsWithOptions(const std::string &uri, const std::string &text,
       uri, text, workspaceFolders, includePaths, shaderExtensions, defines,
       options);
   const auto &preprocessorView = preprocessorContext.view;
+  result.macroHealth = preprocessorView.macroHealth;
   if (!result.truncated) {
     collectPreprocessorDiagnostics(text, result.diagnostics);
     if (result.diagnostics.a.size() >= maxDiagnostics) {

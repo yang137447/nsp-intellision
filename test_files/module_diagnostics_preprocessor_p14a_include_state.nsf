@@ -1,0 +1,18 @@
+#include "module_diagnostics_preprocessor_p14a_include_state_defs.hlsl"
+
+float4 P14AIncludeStateEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14A_INCLUDE_DEFAULT
+    float4 defaultBranch = float4(uv, 0.0, 1.0);
+#else
+    float2 defaultBranch = float4(uv, 0.0, 1.0);
+#endif
+
+#if P14A_INCLUDE_OVERRIDE == 2
+    float4 overrideBranch = float4(uv, 0.0, 1.0);
+#else
+    float2 overrideBranch = float4(uv, 0.0, 1.0);
+#endif
+
+    return defaultBranch + overrideBranch;
+}

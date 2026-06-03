@@ -74,6 +74,7 @@ void addUniquePath(std::vector<std::string> &paths, const std::string &path) {
 
 void collectProviderRoots(const std::vector<std::string> &workspaceFolders,
                           const std::vector<std::string> &includePaths,
+                          const std::string &shaderCompilerPath,
                           std::vector<std::string> &rootsOut) {
   rootsOut.clear();
   for (const auto &folder : workspaceFolders)
@@ -84,19 +85,34 @@ void collectProviderRoots(const std::vector<std::string> &workspaceFolders,
     if (!parent.empty())
       addUniquePath(rootsOut, parent.string());
   }
+  if (!shaderCompilerPath.empty()) {
+    addUniquePath(rootsOut, shaderCompilerPath);
+    const fs::path compilerPath(shaderCompilerPath);
+    const fs::path parent = compilerPath.parent_path();
+    if (!parent.empty())
+      addUniquePath(rootsOut, parent.string());
+  }
 }
 
 void collectCandidateProviderPaths(
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
+    const std::string &shaderCompilerPath,
     std::vector<std::string> &pathsOut) {
   pathsOut.clear();
   std::vector<std::string> roots;
-  collectProviderRoots(workspaceFolders, includePaths, roots);
+  collectProviderRoots(workspaceFolders, includePaths, shaderCompilerPath,
+                       roots);
   static const std::vector<fs::path> kRelativeCandidates = {
       fs::path("gimlocalvariants.json"),
       fs::path("used_shader_variants.csv"),
       fs::path("active_unit_variant_selection.csv"),
+      fs::path("check") / "check_used_shader_variants" / "trunk" /
+          "gimlocalvariants.json",
+      fs::path("check") / "check_used_shader_variants" / "trunk" /
+          "used_shader_variants.csv",
+      fs::path("check") / "check_used_shader_variants" / "trunk" /
+          "active_unit_variant_selection.csv",
       fs::path("shadercompiler") / "check" / "check_used_shader_variants" /
           "trunk" / "gimlocalvariants.json",
       fs::path("shadercompiler") / "check" / "check_used_shader_variants" /
@@ -542,6 +558,7 @@ bool resolveUnitMacroProfileSnapshot(
     const std::string &activeUnitPath,
     const std::vector<std::string> &workspaceFolders,
     const std::vector<std::string> &includePaths,
+    const std::string &shaderCompilerPath,
     const std::unordered_map<std::string, int> &selectionHints,
     UnitMacroProfileSnapshot &snapshotOut) {
   snapshotOut = UnitMacroProfileSnapshot{};
@@ -551,7 +568,8 @@ bool resolveUnitMacroProfileSnapshot(
   const std::string activeUnitStem = fs::path(activeUnitPath).stem().string();
 
   std::vector<std::string> candidatePaths;
-  collectCandidateProviderPaths(workspaceFolders, includePaths, candidatePaths);
+  collectCandidateProviderPaths(workspaceFolders, includePaths,
+                                shaderCompilerPath, candidatePaths);
 
   std::unordered_map<std::string, int> mergedSelectionHints = selectionHints;
   for (const auto &candidate : candidatePaths) {
@@ -610,7 +628,8 @@ bool resolveUnitMacroProfileSnapshot(
 bool unitMacroProfileProviderOwnsPath(
     const std::string &pathOrUri,
     const std::vector<std::string> &workspaceFolders,
-    const std::vector<std::string> &includePaths) {
+    const std::vector<std::string> &includePaths,
+    const std::string &shaderCompilerPath) {
   std::string path = uriToPath(pathOrUri);
   if (path.empty())
     path = pathOrUri;
@@ -619,7 +638,8 @@ bool unitMacroProfileProviderOwnsPath(
 
   const std::string normalized = normalizePathForCompareCopy(path);
   std::vector<std::string> candidatePaths;
-  collectCandidateProviderPaths(workspaceFolders, includePaths, candidatePaths);
+  collectCandidateProviderPaths(workspaceFolders, includePaths,
+                                shaderCompilerPath, candidatePaths);
   for (const auto &candidate : candidatePaths) {
     if (normalizePathForCompareCopy(candidate) == normalized)
       return true;

@@ -17,6 +17,55 @@ from pathlib import Path
 from typing import Dict, Iterable, MutableMapping, Optional, Set, Tuple
 
 
+LEGACY_COMPILER_CONTEXT_MACROS = {
+    # G66 shaderlib/function.hlsl uses this only as `#if !GL3_PROFILE`.
+    # The real shadercompiler/NeoX sources do not define it, so the compile
+    # behavior follows standard preprocessor semantics: undefined in #if is 0.
+    "GL3_PROFILE",
+}
+
+LEGACY_UNDEFINED_ZERO_MACROS = OrderedDict(
+    [
+        # These macros are intentionally not material-family constants here.
+        # They model shadercompiler/preprocessor behavior for legacy shader
+        # source that uses the name in #if before any source/profile/provider
+        # definition exists: undefined identifiers in #if evaluate to 0. A real
+        # source #define, active-unit profile row, nsf.defines, or user preset
+        # value still overrides this lowest-priority preset input.
+        ("COLOR_CHANGE_PICKER", "0"),
+        ("COLOR_CHANGE_MULTIPLE", "0"),
+        ("COLOR_CHANGE_GRADIENT", "0"),
+        ("CHANNEL_COLOR_CHANGE", "0"),
+        ("CHANNEL_COLOR_CHANGE_GRADIENT", "0"),
+        ("CHANNEL_COLOR_CHANGE_ID", "0"),
+        ("EMISSIVE_FLOW", "0"),
+        ("EMISSIVE_FLOW_UV1", "0"),
+        ("EMISSIVE_PEARL", "0"),
+        ("EMISSIVE_DISSOLVE_DISSORT", "0"),
+        ("EMISSIVE_THIN_FILM", "0"),
+        ("RENDER_VELOCITY", "0"),
+        ("HAS_THIN_TRANSLUCENT", "0"),
+        ("DYNAMIC_GI_TYPE", "0"),
+        ("IS_MEADOW_LOD", "0"),
+    ]
+)
+
+VERIFIED_STABLE_SOURCE_CONSTANT_MACROS = OrderedDict(
+    [
+        # G66 shader-source parameter files and generated shader outputs agree
+        # on EMISSIVE_COLOR=1. Other EMISSIVE_* values are family-specific and
+        # intentionally stay out of the global preset.
+        ("EMISSIVE_COLOR", "1"),
+        # shaderlib/foliage_anim_functions.hlsl and generated foliage shaders
+        # agree on these foliage enum constants.
+        ("FOLIAGE_TREE_BRANCH", "1"),
+        ("FOLIAGE_TREE_LEAF", "2"),
+        ("FOLIAGE_GRASS_BRANCH", "3"),
+        ("FOLIAGE_GRASS_LEAF", "4"),
+    ]
+)
+
+
 def find_balanced_object(text: str, start: int) -> str:
     expr_start = text.index("{", start)
     depth = 0
@@ -159,6 +208,12 @@ def build_preset(
         context_text = compiler_context.read_text(encoding="utf-8")
         for name in sorted(parse_compiler_context_macros(context_text)):
             preset.setdefault(name, "0")
+    for name in sorted(LEGACY_COMPILER_CONTEXT_MACROS):
+        preset.setdefault(name, "0")
+    for name, value in LEGACY_UNDEFINED_ZERO_MACROS.items():
+        preset.setdefault(name, value)
+    for name, value in VERIFIED_STABLE_SOURCE_CONSTANT_MACROS.items():
+        preset.setdefault(name, value)
 
     return OrderedDict(sorted(preset.items()))
 

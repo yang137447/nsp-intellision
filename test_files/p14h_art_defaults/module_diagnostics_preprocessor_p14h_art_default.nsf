@@ -1,0 +1,65 @@
+#if P14H_ART_DEFAULT_MODE
+#define P14H_DEFAULT_MODE_BRANCH 1
+#else
+#define P14H_DEFAULT_MODE_BRANCH 0
+#endif
+
+#if P14H_ART_DEFAULT_INT
+#define P14H_DEFAULT_INT_BRANCH 1
+#else
+#define P14H_DEFAULT_INT_BRANCH 0
+#endif
+
+#if P14H_ART_DEFAULT_MODE == P14H_ART_MODE_PICKER
+#define P14H_COMPANION_ENUM_BRANCH 1
+#else
+#define P14H_COMPANION_ENUM_BRANCH 0
+#endif
+
+#if P14H_ART_MISSING_ENUM
+#define P14H_MISSING_ENUM_BRANCH 1
+#else
+#define P14H_MISSING_ENUM_BRANCH 0
+#endif
+
+#if P14H_ART_CONFLICT_MODE == P14H_ART_CONFLICT_PICKER
+#define P14H_CONFLICT_COMPANION_BRANCH 1
+#else
+#define P14H_CONFLICT_COMPANION_BRANCH 0
+#endif
+
+#define P14H_ART_SOURCE_MODE 1
+#if P14H_ART_SOURCE_MODE
+#define P14H_SOURCE_MODE_BRANCH 1
+#else
+#define P14H_SOURCE_MODE_BRANCH 0
+#endif
+
+#if P14H_ART_FLOAT_VALUE
+#define P14H_FLOAT_ART_BRANCH 1
+#else
+#define P14H_FLOAT_ART_BRANCH 0
+#endif
+
+#if P14H_COMMENTED_ART
+#define P14H_COMMENTED_ART_BRANCH 1
+#else
+#define P14H_COMMENTED_ART_BRANCH 0
+#endif
+
+#include "art_defaults_provider.hlsl"
+#include "art_conflict_provider_a.hlsl"
+#include "art_conflict_provider_b.hlsl"
+
+float4 P14HArtDefaultEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14H_DEFAULT_MODE_BRANCH || P14H_DEFAULT_INT_BRANCH || P14H_COMPANION_ENUM_BRANCH || P14H_MISSING_ENUM_BRANCH || P14H_CONFLICT_COMPANION_BRANCH || P14H_FLOAT_ART_BRANCH || P14H_COMMENTED_ART_BRANCH
+    float3 p14h_default_should_stay_inactive = float2(1.0, 2.0);
+    return float4(p14h_default_should_stay_inactive, 1.0);
+#elif P14H_SOURCE_MODE_BRANCH
+    float3 p14h_source_mode_mismatch = float2(1.0, 2.0);
+    return float4(p14h_source_mode_mismatch, 1.0);
+#else
+    return float4(uv, 0.0, 1.0);
+#endif
+}

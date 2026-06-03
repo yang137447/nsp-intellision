@@ -7,10 +7,29 @@ type RuntimeDebugResponse = {
 	documents?: Array<{
 		uri?: string;
 		exists?: boolean;
+		activeUnitPath?: string;
+		activeUnitProfileDefines?: Record<string, number>;
+		activeUnitProfileShaderKey?: string;
+		activeUnitProfileSourcePath?: string;
+		activeUnitProfileSourceKind?: string;
+		activeUnitProfileTotalRowCount?: number;
+		activeUnitProfileSelectedRowCount?: number;
+		activeUnitProfileSelectedRowSignature?: string;
+		activeUnitProfileSelectionHintSourcePath?: string;
+		activeUnitProfileUnresolvedMacros?: string[];
+		activeUnitArtDefaultZeroDefines?: Record<string, number>;
+		activeUnitArtDefaultZeroMacros?: Array<{
+			name?: string;
+			artType?: string;
+			uri?: string;
+			line?: number;
+		}>;
 		deferredHasFullDiagnostics?: boolean;
 		lastDiagnosticsPublishLayer?: string;
 	}>;
 };
+
+type RuntimeDebugDocument = NonNullable<RuntimeDebugResponse['documents']>[number];
 
 type PreprocessorMacroPresetResponse = {
 	entries?: Array<{
@@ -84,6 +103,77 @@ type UndefinedMacroHistogram = {
 	entries: UndefinedMacroHistogramEntry[];
 };
 
+type P14FocusMacroSummaryEntry = UndefinedMacroOwnerHint & {
+	macro: string;
+	diagnostics: number;
+	affectedUnitCount: number;
+	affectedFileCount: number;
+	samples: AuditDiagnostic[];
+	profileStatusSummary: Record<string, number>;
+	profileEvidence: P14FocusProfileEvidenceEntry[];
+};
+
+type P14FocusProfileEvidenceEntry = {
+	macro: string;
+	unit: string;
+	unitRelativePath: string;
+	status: string;
+	injectedValue?: number;
+	activeUnitPath?: string;
+	profileShaderKey?: string;
+	profileSourcePath?: string;
+	profileSourceKind?: string;
+	profileTotalRowCount?: number;
+	profileSelectedRowCount?: number;
+	profileSelectedRowSignature?: string;
+	profileSelectionHintSourcePath?: string;
+	artDefaultZero?: boolean;
+	artDefaultSourcePath?: string;
+	artDefaultSourceLine?: number;
+	artDefaultType?: string;
+	unresolvedMacros: string[];
+};
+
+type P14CompilerContextProfileEvidenceEntry = {
+	macro: string;
+	unit: string;
+	unitRelativePath: string;
+	status: string;
+	injectedValue?: number;
+	activeUnitPath?: string;
+	profileShaderKey?: string;
+	profileSourcePath?: string;
+	profileSourceKind?: string;
+	profileTotalRowCount?: number;
+	profileSelectedRowCount?: number;
+	profileSelectedRowSignature?: string;
+	profileSelectionHintSourcePath?: string;
+	unresolvedMacros: string[];
+};
+
+type P14CompilerContextMacroEvidenceEntry = UndefinedMacroOwnerHint & {
+	macro: string;
+	diagnostics: number;
+	affectedUnitCount: number;
+	affectedFileCount: number;
+	samples: AuditDiagnostic[];
+	defaultPresetPresent: boolean;
+	defaultPresetValue?: string;
+	effectiveConfigPresent: boolean;
+	effectiveConfigValue?: string;
+	effectiveConfigEmpty: boolean;
+	definesPresent: boolean;
+	definesValue?: number;
+	statusSummary: Record<string, number>;
+	profileStatusSummary: Record<string, number>;
+	profileEvidence: P14CompilerContextProfileEvidenceEntry[];
+};
+
+type MacroEvidenceMapEntry = {
+	name: string;
+	value: string;
+};
+
 type UnitClosureResponse = {
 	unitUri?: string;
 	unitPath?: string;
@@ -106,6 +196,7 @@ type DebugBuildDiagnosticsResponse = {
 	timedOut?: boolean;
 	indeterminateTotal?: number;
 	prerequisiteSkips?: DiagnosticsPrerequisiteSkips;
+	macroHealth?: MacroHealthMetrics;
 	elapsedMs?: number;
 	diagnostics?: unknown[];
 };
@@ -119,6 +210,25 @@ type DiagnosticsPrerequisiteSkips = {
 	semantic_snapshot_unavailable?: number;
 	local_scope_unreliable?: number;
 	expression_type_unavailable?: number;
+};
+
+type MacroHealthMetrics = {
+	initialConfiguredMacroCount?: number;
+	initialArtDefaultZeroMacroCount?: number;
+	initialCompilerPrivateConstantCount?: number;
+	initialCompilerMacroSnapshotCount?: number;
+	initialNumericDefineCount?: number;
+	initialMacroCount?: number;
+	sourceDefineEvents?: number;
+	ifndefDefaultDefineEvents?: number;
+	sourceUndefEvents?: number;
+	synthesizedZeroEvents?: number;
+	conditionDiagnosticCount?: number;
+	undefinedMacroDiagnosticCount?: number;
+	expansionWarningDiagnosticCount?: number;
+	inactiveBranchDiagnosticCount?: number;
+	branchMergeCount?: number;
+	activeIncludeCount?: number;
 };
 
 type UnitSummary = {
@@ -149,6 +259,7 @@ type UnitFileStat = {
 	indeterminateTotal: number;
 	prerequisiteSkippedTotal: number;
 	prerequisiteSkips: DiagnosticsPrerequisiteSkips;
+	macroHealth: MacroHealthMetrics;
 	elapsedMs: number;
 };
 
@@ -190,6 +301,16 @@ const REPORT_DIR = path.resolve(__dirname, '..', '..', '..', 'out', 'test', 'dia
 const DEFAULT_BASELINE_REPORT = 'real-workspace-diagnostics-audit.baseline-2026-05-16.json';
 const DEFAULT_SMOKE_BASELINE_REPORT = 'real-workspace-diagnostics-audit.phase-00-baseline-smoke-5.json';
 const DEFAULT_TREND_BASELINE_REPORT = 'real-workspace-diagnostics-audit.phase-00-baseline-trend-50.json';
+const P14_FOCUS_MACROS = ['COLOR_CHANGE_MODE', 'EMISSIVE_MODE', 'FOLIAGE_MODE'];
+const P14L_COMPILER_CONTEXT_MACROS = [
+	'API_MOBILE_HIGH_QUALITY',
+	'API_PC_HIGH_QUALITY',
+	'API_SUPPORT_FRAGCOORD',
+	'API_SUPPORT_SV_INSTANCE_ID',
+	'API_SUPPORT_TEXFETCH',
+	'GL3_PROFILE',
+	'SYSTEM_SUPPORT_SRGB'
+];
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -250,6 +371,53 @@ function aggregatePrerequisiteSkips(fileStats: UnitFileStat[]): DiagnosticsPrere
 			(sum, item) => sum + prerequisiteSkipNumber(item.prerequisiteSkips, key),
 			0
 		);
+	}
+	return out;
+}
+
+function macroHealthNumber(value: MacroHealthMetrics | undefined, key: keyof MacroHealthMetrics): number {
+	return Math.max(0, Math.trunc(numericValue(value?.[key])));
+}
+
+function aggregateMacroHealth(fileStats: UnitFileStat[]): Required<MacroHealthMetrics> {
+	const keys: Array<keyof MacroHealthMetrics> = [
+		'initialConfiguredMacroCount',
+		'initialArtDefaultZeroMacroCount',
+		'initialCompilerPrivateConstantCount',
+		'initialCompilerMacroSnapshotCount',
+		'initialNumericDefineCount',
+		'initialMacroCount',
+		'sourceDefineEvents',
+		'ifndefDefaultDefineEvents',
+		'sourceUndefEvents',
+		'synthesizedZeroEvents',
+		'conditionDiagnosticCount',
+		'undefinedMacroDiagnosticCount',
+		'expansionWarningDiagnosticCount',
+		'inactiveBranchDiagnosticCount',
+		'branchMergeCount',
+		'activeIncludeCount'
+	];
+	const out: Required<MacroHealthMetrics> = {
+		initialConfiguredMacroCount: 0,
+		initialArtDefaultZeroMacroCount: 0,
+		initialCompilerPrivateConstantCount: 0,
+		initialCompilerMacroSnapshotCount: 0,
+		initialNumericDefineCount: 0,
+		initialMacroCount: 0,
+		sourceDefineEvents: 0,
+		ifndefDefaultDefineEvents: 0,
+		sourceUndefEvents: 0,
+		synthesizedZeroEvents: 0,
+		conditionDiagnosticCount: 0,
+		undefinedMacroDiagnosticCount: 0,
+		expansionWarningDiagnosticCount: 0,
+		inactiveBranchDiagnosticCount: 0,
+		branchMergeCount: 0,
+		activeIncludeCount: 0
+	};
+	for (const key of keys) {
+		out[key] = fileStats.reduce((sum, item) => sum + macroHealthNumber(item.macroHealth, key), 0);
 	}
 	return out;
 }
@@ -646,6 +814,209 @@ function normalizedPathKey(value: string): string {
 	return path.resolve(value).replace(/\\/g, '/').toLowerCase();
 }
 
+function profileNumber(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : undefined;
+}
+
+function profileString(value: unknown): string | undefined {
+	return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function profileStringArray(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+async function collectP14FocusProfileEvidenceForUnit(
+	unit: vscode.Uri,
+	unitRelativePath: string
+): Promise<P14FocusProfileEvidenceEntry[]> {
+	const debugDocument = await findP14FocusRuntimeDebugDocument(unit);
+	return buildP14FocusProfileEvidenceForRuntimeDebug(unit, unitRelativePath, debugDocument);
+}
+
+function buildP14FocusProfileEvidenceForRuntimeDebug(
+	unit: vscode.Uri,
+	unitRelativePath: string,
+	debugDocument: RuntimeDebugDocument | undefined
+): P14FocusProfileEvidenceEntry[] {
+	const unitKey = normalizedPathKey(unit.fsPath);
+	const activeUnitPath = profileString(debugDocument?.activeUnitPath);
+	const activeUnitMatches =
+		Boolean(activeUnitPath) && normalizedPathKey(activeUnitPath ?? '') === unitKey;
+	const defines = debugDocument?.activeUnitProfileDefines ?? {};
+	const artDefines = debugDocument?.activeUnitArtDefaultZeroDefines ?? {};
+	const artMacros = Array.isArray(debugDocument?.activeUnitArtDefaultZeroMacros)
+		? debugDocument.activeUnitArtDefaultZeroMacros
+		: [];
+	const unresolvedMacros = profileStringArray(debugDocument?.activeUnitProfileUnresolvedMacros);
+	const unresolvedUpper = new Set(unresolvedMacros.map((item) => item.toUpperCase()));
+	const sourcePath = profileString(debugDocument?.activeUnitProfileSourcePath);
+	const totalRows = profileNumber(debugDocument?.activeUnitProfileTotalRowCount);
+	const selectedRows = profileNumber(debugDocument?.activeUnitProfileSelectedRowCount);
+
+	return P14_FOCUS_MACROS.map((macro) => {
+		const injectedValue = defines[macro];
+		const artDefaultValue = artDefines[macro];
+		const artEntry = artMacros.find((entry) => typeof entry?.name === 'string' && entry.name.toUpperCase() === macro);
+		const artSourceUri = profileString(artEntry?.uri);
+		let artSourcePath: string | undefined;
+		if (artSourceUri) {
+			try {
+				artSourcePath = vscode.Uri.parse(artSourceUri).fsPath;
+			} catch {
+				artSourcePath = artSourceUri;
+			}
+		}
+		let status = 'runtime-debug-missing';
+		if (debugDocument?.exists) {
+			if (!activeUnitMatches) {
+				status = 'active-unit-mismatch';
+			} else if (typeof injectedValue === 'number') {
+				status = 'profile-injected';
+			} else if (typeof artDefaultValue === 'number') {
+				status = 'art-default-zero';
+			} else if (unresolvedUpper.has(macro)) {
+				status = 'profile-unresolved';
+			} else if (!sourcePath) {
+				status = 'profile-source-missing';
+			} else if ((totalRows ?? 0) <= 0) {
+				status = 'profile-source-empty';
+			} else if ((selectedRows ?? 0) <= 0) {
+				status = 'profile-no-selected-row';
+			} else {
+				status = 'profile-source-no-macro';
+			}
+		}
+		return {
+			macro,
+			unit: unit.fsPath,
+			unitRelativePath,
+			status,
+			injectedValue: typeof injectedValue === 'number' ? injectedValue : undefined,
+			activeUnitPath,
+			profileShaderKey: profileString(debugDocument?.activeUnitProfileShaderKey),
+			profileSourcePath: sourcePath,
+			profileSourceKind: profileString(debugDocument?.activeUnitProfileSourceKind),
+			profileTotalRowCount: totalRows,
+			profileSelectedRowCount: selectedRows,
+			profileSelectedRowSignature: profileString(debugDocument?.activeUnitProfileSelectedRowSignature),
+			profileSelectionHintSourcePath: profileString(debugDocument?.activeUnitProfileSelectionHintSourcePath),
+			artDefaultZero: typeof artDefaultValue === 'number',
+			artDefaultSourcePath: artSourcePath,
+			artDefaultSourceLine: profileNumber(artEntry?.line) !== undefined ? profileNumber(artEntry?.line)! + 1 : undefined,
+			artDefaultType: profileString(artEntry?.artType),
+			unresolvedMacros
+		};
+	});
+}
+
+function buildP14CompilerContextProfileEvidenceForRuntimeDebug(
+	unit: vscode.Uri,
+	unitRelativePath: string,
+	debugDocument: RuntimeDebugDocument | undefined
+): P14CompilerContextProfileEvidenceEntry[] {
+	const unitKey = normalizedPathKey(unit.fsPath);
+	const activeUnitPath = profileString(debugDocument?.activeUnitPath);
+	const activeUnitMatches =
+		Boolean(activeUnitPath) && normalizedPathKey(activeUnitPath ?? '') === unitKey;
+	const defines = debugDocument?.activeUnitProfileDefines ?? {};
+	const unresolvedMacros = profileStringArray(debugDocument?.activeUnitProfileUnresolvedMacros);
+	const unresolvedUpper = new Set(unresolvedMacros.map((item) => item.toUpperCase()));
+	const sourcePath = profileString(debugDocument?.activeUnitProfileSourcePath);
+	const totalRows = profileNumber(debugDocument?.activeUnitProfileTotalRowCount);
+	const selectedRows = profileNumber(debugDocument?.activeUnitProfileSelectedRowCount);
+
+	return P14L_COMPILER_CONTEXT_MACROS.map((macro) => {
+		const injectedValue = defines[macro];
+		let status = 'runtime-debug-missing';
+		if (debugDocument?.exists) {
+			if (!activeUnitMatches) {
+				status = 'active-unit-mismatch';
+			} else if (typeof injectedValue === 'number') {
+				status = 'profile-injected';
+			} else if (unresolvedUpper.has(macro)) {
+				status = 'profile-unresolved';
+			} else if (!sourcePath) {
+				status = 'profile-source-missing';
+			} else if ((totalRows ?? 0) <= 0) {
+				status = 'profile-source-empty';
+			} else if ((selectedRows ?? 0) <= 0) {
+				status = 'profile-no-selected-row';
+			} else {
+				status = 'profile-source-no-macro';
+			}
+		}
+		return {
+			macro,
+			unit: unit.fsPath,
+			unitRelativePath,
+			status,
+			injectedValue: typeof injectedValue === 'number' ? injectedValue : undefined,
+			activeUnitPath,
+			profileShaderKey: profileString(debugDocument?.activeUnitProfileShaderKey),
+			profileSourcePath: sourcePath,
+			profileSourceKind: profileString(debugDocument?.activeUnitProfileSourceKind),
+			profileTotalRowCount: totalRows,
+			profileSelectedRowCount: selectedRows,
+			profileSelectedRowSignature: profileString(debugDocument?.activeUnitProfileSelectedRowSignature),
+			profileSelectionHintSourcePath: profileString(debugDocument?.activeUnitProfileSelectionHintSourcePath),
+			unresolvedMacros
+		};
+	});
+}
+
+async function readRuntimeDebugDocuments(uris?: string[]): Promise<RuntimeDebugDocument[]> {
+	try {
+		const response = await vscode.commands.executeCommand<RuntimeDebugResponse>(
+			'nsf._getDocumentRuntimeDebug',
+			uris ? { uris } : undefined
+		);
+		return response?.documents ?? [];
+	} catch {
+		return [];
+	}
+}
+
+function findRuntimeDebugDocumentForActiveUnit(
+	documents: RuntimeDebugDocument[],
+	unit: vscode.Uri
+): RuntimeDebugDocument | undefined {
+	const unitKey = normalizedPathKey(unit.fsPath);
+	return documents.find((entry) => {
+		const activeUnitPath = profileString(entry?.activeUnitPath);
+		return Boolean(entry?.exists) && Boolean(activeUnitPath) && normalizedPathKey(activeUnitPath ?? '') === unitKey;
+	});
+}
+
+async function findP14FocusRuntimeDebugDocument(unit: vscode.Uri): Promise<RuntimeDebugDocument | undefined> {
+	let fallback: RuntimeDebugDocument | undefined;
+	try {
+		await vscode.workspace.openTextDocument(unit);
+	} catch {
+		// The audit will report runtime-debug-missing below; file load failures are handled by diagnostics scan.
+	}
+
+	for (let attempt = 0; attempt < 6; attempt++) {
+		const targeted = await readRuntimeDebugDocuments([unit.toString()]);
+		const targetedEntry = targeted[0];
+		fallback = targetedEntry ?? fallback;
+		const targetedMatch = findRuntimeDebugDocumentForActiveUnit(targeted, unit);
+		if (targetedMatch) {
+			return targetedMatch;
+		}
+
+		const allDocuments = await readRuntimeDebugDocuments();
+		const allMatch = findRuntimeDebugDocumentForActiveUnit(allDocuments, unit);
+		if (allMatch) {
+			return allMatch;
+		}
+		fallback = allDocuments.find((entry) => Boolean(entry?.exists)) ?? fallback;
+		await delay(50);
+	}
+
+	return fallback;
+}
+
 async function findShaderFiles(
 	extensions: string[],
 	maxFiles: number,
@@ -756,6 +1127,83 @@ function normalizePreprocessorMacroPreset(
 		macros[name] = replacement;
 	}
 	return macros;
+}
+
+function settingReplacementToString(value: unknown): string | undefined {
+	if (typeof value === 'string') {
+		return value;
+	}
+	if (typeof value === 'number') {
+		return Number.isFinite(value) ? String(value) : undefined;
+	}
+	if (typeof value === 'boolean') {
+		return value ? '1' : '0';
+	}
+	return undefined;
+}
+
+function buildMacroEvidenceMap(root: Record<string, unknown> | undefined): Map<string, MacroEvidenceMapEntry> {
+	const map = new Map<string, MacroEvidenceMapEntry>();
+	if (!root || typeof root !== 'object' || Array.isArray(root)) {
+		return map;
+	}
+	for (const [rawName, rawValue] of Object.entries(root)) {
+		const name = rawName.trim();
+		const value = settingReplacementToString(rawValue);
+		if (name.length === 0 || value === undefined) {
+			continue;
+		}
+		map.set(name.toUpperCase(), { name, value });
+	}
+	return map;
+}
+
+async function readServerPreprocessorMacroPresetMap(): Promise<Map<string, MacroEvidenceMapEntry>> {
+	const response = await vscode.commands.executeCommand<PreprocessorMacroPresetResponse>(
+		'nsf._sendServerRequest',
+		{ method: 'nsf/getPreprocessorMacroPreset', params: {} }
+	);
+	return buildMacroEvidenceMap(normalizePreprocessorMacroPreset(response ?? {}));
+}
+
+function readEffectivePreprocessorMacroSettings(): Record<string, unknown> {
+	const inspected = vscode.workspace.getConfiguration('nsf').inspect<Record<string, unknown>>('preprocessorMacros');
+	const value =
+		inspected?.workspaceFolderValue ??
+		inspected?.workspaceValue ??
+		inspected?.globalValue ??
+		{};
+	return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function readEffectivePreprocessorMacroSettingsMap(): Map<string, MacroEvidenceMapEntry> {
+	return buildMacroEvidenceMap(readEffectivePreprocessorMacroSettings());
+}
+
+function readConfiguredDefinesMap(): Map<string, { name: string; value: number }> {
+	const map = new Map<string, { name: string; value: number }>();
+	const defines = vscode.workspace.getConfiguration('nsf').get<string[]>('defines', []);
+	for (const raw of defines) {
+		if (typeof raw !== 'string') {
+			continue;
+		}
+		let value = raw;
+		if (value.startsWith('-D')) {
+			value = value.slice(2);
+		}
+		const eq = value.indexOf('=');
+		const name = eq === -1 ? value : value.slice(0, eq);
+		const rhs = eq === -1 ? '1' : value.slice(eq + 1);
+		if (name.length === 0) {
+			continue;
+		}
+		const parsed = Number.parseInt(rhs, 10);
+		map.set(name.toUpperCase(), {
+			name,
+			value: Number.isFinite(parsed) ? parsed : 1
+		});
+	}
+	return map;
 }
 
 async function seedAuditPreprocessorMacrosIfMissing(): Promise<number> {
@@ -1156,6 +1604,154 @@ function buildUndefinedMacroHistogram(diagnostics: AuditDiagnostic[]): Undefined
 	};
 }
 
+function buildP14FocusProfileStatusSummary(
+	evidence: P14FocusProfileEvidenceEntry[]
+): Record<string, number> {
+	const summary: Record<string, number> = {};
+	for (const entry of evidence) {
+		increment(summary, entry.status || 'unknown');
+	}
+	return summary;
+}
+
+function buildP14FocusMacroSummary(
+	undefinedMacros: UndefinedMacroHistogram,
+	profileEvidence: P14FocusProfileEvidenceEntry[]
+): P14FocusMacroSummaryEntry[] {
+	const undefinedByMacro = new Map(
+		undefinedMacros.entries.map((entry) => [entry.macro.toUpperCase(), entry])
+	);
+	const profileByMacro = new Map<string, P14FocusProfileEvidenceEntry[]>();
+	for (const entry of profileEvidence) {
+		const key = entry.macro.toUpperCase();
+		const items = profileByMacro.get(key) ?? [];
+		items.push(entry);
+		profileByMacro.set(key, items);
+	}
+	return P14_FOCUS_MACROS.map((macro) => {
+		const entry = undefinedByMacro.get(macro);
+		const macroEvidence = (profileByMacro.get(macro) ?? [])
+			.slice()
+			.sort(
+				(lhs, rhs) =>
+					lhs.status.localeCompare(rhs.status) ||
+					lhs.unitRelativePath.localeCompare(rhs.unitRelativePath)
+			);
+		const ownerHint = entry ?? classifyUndefinedMacroOwner(macro);
+		return {
+			macro: entry?.macro ?? macro,
+			diagnostics: entry?.count ?? 0,
+			affectedUnitCount: entry?.affectedUnitCount ?? 0,
+			affectedFileCount: entry?.affectedFileCount ?? 0,
+			samples: entry?.samples ?? [],
+			owner: ownerHint.owner,
+			sourceBoundary: ownerHint.sourceBoundary,
+			defaultValue: ownerHint.defaultValue,
+			risk: ownerHint.risk,
+			reason: ownerHint.reason,
+			profileStatusSummary: buildP14FocusProfileStatusSummary(macroEvidence),
+			profileEvidence: macroEvidence
+		};
+	}).sort((lhs, rhs) => lhs.macro.localeCompare(rhs.macro));
+}
+
+function buildP14CompilerContextProfileStatusSummary(
+	evidence: P14CompilerContextProfileEvidenceEntry[]
+): Record<string, number> {
+	const summary: Record<string, number> = {};
+	for (const entry of evidence) {
+		increment(summary, entry.status || 'unknown');
+	}
+	return summary;
+}
+
+function buildP14CompilerContextStatusSummary(
+	defaultPreset: MacroEvidenceMapEntry | undefined,
+	effectiveConfig: MacroEvidenceMapEntry | undefined,
+	defines: { name: string; value: number } | undefined
+): Record<string, number> {
+	const summary: Record<string, number> = {};
+	if (defaultPreset) {
+		increment(summary, 'default-preset-present');
+	} else {
+		increment(summary, 'missing-from-default-preset');
+	}
+	if (effectiveConfig) {
+		if (effectiveConfig.value.trim().length === 0) {
+			increment(summary, 'effective-config-empty');
+		} else {
+			increment(summary, 'effective-config-present');
+		}
+	} else {
+		increment(summary, 'missing-from-effective-preset');
+		if (defaultPreset) {
+			increment(summary, 'preset-drift-candidate');
+		}
+	}
+	if (defines) {
+		increment(summary, 'defines-injected');
+	} else {
+		increment(summary, 'missing-from-defines');
+	}
+	return summary;
+}
+
+function buildP14CompilerContextMacroEvidence(
+	undefinedMacros: UndefinedMacroHistogram,
+	profileEvidence: P14CompilerContextProfileEvidenceEntry[],
+	defaultPresetMap: Map<string, MacroEvidenceMapEntry>,
+	effectiveConfigMap: Map<string, MacroEvidenceMapEntry>,
+	definesMap: Map<string, { name: string; value: number }>
+): P14CompilerContextMacroEvidenceEntry[] {
+	const undefinedByMacro = new Map(
+		undefinedMacros.entries.map((entry) => [entry.macro.toUpperCase(), entry])
+	);
+	const profileByMacro = new Map<string, P14CompilerContextProfileEvidenceEntry[]>();
+	for (const entry of profileEvidence) {
+		const key = entry.macro.toUpperCase();
+		const items = profileByMacro.get(key) ?? [];
+		items.push(entry);
+		profileByMacro.set(key, items);
+	}
+	return P14L_COMPILER_CONTEXT_MACROS.map((macro) => {
+		const key = macro.toUpperCase();
+		const entry = undefinedByMacro.get(key);
+		const defaultPreset = defaultPresetMap.get(key);
+		const effectiveConfig = effectiveConfigMap.get(key);
+		const defines = definesMap.get(key);
+		const macroProfileEvidence = (profileByMacro.get(key) ?? [])
+			.slice()
+			.sort(
+				(lhs, rhs) =>
+					lhs.status.localeCompare(rhs.status) ||
+					lhs.unitRelativePath.localeCompare(rhs.unitRelativePath)
+			);
+		const ownerHint = entry ?? classifyUndefinedMacroOwner(macro);
+		return {
+			macro: entry?.macro ?? macro,
+			diagnostics: entry?.count ?? 0,
+			affectedUnitCount: entry?.affectedUnitCount ?? 0,
+			affectedFileCount: entry?.affectedFileCount ?? 0,
+			samples: entry?.samples ?? [],
+			owner: ownerHint.owner,
+			sourceBoundary: ownerHint.sourceBoundary,
+			defaultValue: ownerHint.defaultValue,
+			risk: ownerHint.risk,
+			reason: ownerHint.reason,
+			defaultPresetPresent: Boolean(defaultPreset),
+			defaultPresetValue: defaultPreset?.value,
+			effectiveConfigPresent: Boolean(effectiveConfig),
+			effectiveConfigValue: effectiveConfig?.value,
+			effectiveConfigEmpty: Boolean(effectiveConfig && effectiveConfig.value.trim().length === 0),
+			definesPresent: Boolean(defines),
+			definesValue: defines?.value,
+			statusSummary: buildP14CompilerContextStatusSummary(defaultPreset, effectiveConfig, defines),
+			profileStatusSummary: buildP14CompilerContextProfileStatusSummary(macroProfileEvidence),
+			profileEvidence: macroProfileEvidence
+		};
+	}).sort((lhs, rhs) => lhs.macro.localeCompare(rhs.macro));
+}
+
 function truncate(value: string, maxLength: number): string {
 	const compact = value.replace(/\s+/g, ' ').trim();
 	if (compact.length <= maxLength) {
@@ -1166,6 +1762,37 @@ function truncate(value: string, maxLength: number): string {
 
 function markdownCell(value: string): string {
 	return truncate(value, 140).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+function compactCountMap(map: Record<string, number>): string {
+	return Object.keys(map)
+		.sort()
+		.map((key) => `${key}=${map[key]}`)
+		.join(', ');
+}
+
+function p14UnresolvedMacroCell(entry: { macro: string; unresolvedMacros: string[] }): string {
+	if (entry.unresolvedMacros.includes(entry.macro)) {
+		return `yes (${entry.unresolvedMacros.length})`;
+	}
+	if (entry.unresolvedMacros.length > 0) {
+		return `other (${entry.unresolvedMacros.length})`;
+	}
+	return 'no';
+}
+
+function optionalNumberText(value: number | undefined): string {
+	return typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+}
+
+function presentValueCell(present: boolean, value: string | number | undefined): string {
+	if (!present) {
+		return 'missing';
+	}
+	if (value === undefined || String(value).length === 0) {
+		return 'present(empty)';
+	}
+	return `present(${value})`;
 }
 
 function increment(map: Record<string, number>, key: string): void {
@@ -1342,6 +1969,12 @@ function buildMarkdownReport(report: any): string {
 			lines.push(`- Prerequisite skip reasons: ${nonZeroReasons.join(', ')}`);
 		}
 	}
+	const macroHealth = report.summary.macroHealth as MacroHealthMetrics | undefined;
+	if (macroHealth) {
+		lines.push(`- Macro synthesized-zero events: ${numericValue(macroHealth.synthesizedZeroEvents)}`);
+		lines.push(`- Macro branch merges: ${numericValue(macroHealth.branchMergeCount)}`);
+		lines.push(`- Macro expansion warnings: ${numericValue(macroHealth.expansionWarningDiagnosticCount)}`);
+	}
 	const trend = report.trendComparison as AuditTrendComparison | undefined;
 	if (trend) {
 		lines.push('');
@@ -1426,6 +2059,128 @@ function buildMarkdownReport(report: any): string {
 				`${markdownCell(entry.defaultValue)} | ` +
 				`${markdownCell(`${entry.sourceBoundary}; ${entry.risk}`)} | ${markdownCell(sampleText)} |`
 			);
+		}
+	}
+	const compilerContextMacroEvidence =
+		report.compilerContextMacroEvidence as P14CompilerContextMacroEvidenceEntry[] | undefined;
+	if (Array.isArray(compilerContextMacroEvidence) && compilerContextMacroEvidence.length > 0) {
+		lines.push('');
+		lines.push('## P14L Compiler Context Macro Evidence');
+		lines.push('');
+		lines.push('| Macro | Remaining undefined diagnostics | Units | Files | Default preset | Effective config | Defines | Profile statuses | Status | Sample |');
+		lines.push('| --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |');
+		for (const entry of compilerContextMacroEvidence) {
+			const sample = entry.samples[0];
+			const sampleText = sample
+				? `${sample.unitRelativePath} -> ${sample.relativePath}:${sample.line}:${sample.character} ${sample.lineText}`
+				: '';
+			lines.push(
+				`| ${markdownCell(entry.macro)} | ${entry.diagnostics} | ${entry.affectedUnitCount} | ` +
+				`${entry.affectedFileCount} | ` +
+				`${markdownCell(presentValueCell(entry.defaultPresetPresent, entry.defaultPresetValue))} | ` +
+				`${markdownCell(presentValueCell(entry.effectiveConfigPresent, entry.effectiveConfigValue))} | ` +
+				`${markdownCell(presentValueCell(entry.definesPresent, entry.definesValue))} | ` +
+				`${markdownCell(compactCountMap(entry.profileStatusSummary))} | ` +
+				`${markdownCell(compactCountMap(entry.statusSummary))} | ${markdownCell(sampleText)} |`
+			);
+		}
+		const profileEvidenceRows = compilerContextMacroEvidence.flatMap((entry) => entry.profileEvidence);
+		if (profileEvidenceRows.length > 0) {
+			lines.push('');
+			lines.push('### P14L Compiler Context Profile Evidence');
+			lines.push('');
+			lines.push(`- Rows shown: ${Math.min(profileEvidenceRows.length, 200)} / ${profileEvidenceRows.length}`);
+			lines.push('');
+			lines.push('| Macro | Status | Unit | Source kind | Rows | Selected | Hint source | Unresolved | Injected value | Source path |');
+			lines.push('| --- | --- | --- | --- | ---: | ---: | --- | --- | ---: | --- |');
+			for (const evidence of profileEvidenceRows.slice(0, 200)) {
+				lines.push(
+					`| ${markdownCell(evidence.macro)} | ${markdownCell(evidence.status)} | ` +
+					`${markdownCell(evidence.unitRelativePath)} | ` +
+					`${markdownCell(evidence.profileSourceKind ?? '')} | ` +
+					`${numericValue(evidence.profileTotalRowCount)} | ` +
+					`${numericValue(evidence.profileSelectedRowCount)} | ` +
+					`${markdownCell(evidence.profileSelectionHintSourcePath ?? '')} | ` +
+					`${markdownCell(p14UnresolvedMacroCell(evidence))} | ` +
+					`${optionalNumberText(evidence.injectedValue)} | ` +
+					`${markdownCell(evidence.profileSourcePath ?? '')} |`
+				);
+			}
+		}
+	}
+	if (macroHealth) {
+		lines.push('');
+		lines.push('## Macro Health');
+		lines.push('');
+		lines.push('| Metric | Count |');
+		lines.push('| --- | ---: |');
+		const metricLabels: Array<[keyof MacroHealthMetrics, string]> = [
+			['initialConfiguredMacroCount', 'Initial configured macros'],
+			['initialArtDefaultZeroMacroCount', 'Initial #art default-zero macros'],
+			['initialCompilerPrivateConstantCount', 'Initial compiler private constants'],
+			['initialCompilerMacroSnapshotCount', 'Initial compiler macro snapshot entries'],
+			['initialNumericDefineCount', 'Initial numeric defines'],
+			['initialMacroCount', 'Initial macro state entries'],
+			['sourceDefineEvents', 'Source define events'],
+			['ifndefDefaultDefineEvents', '#ifndef default define events'],
+			['sourceUndefEvents', 'Source undef events'],
+			['synthesizedZeroEvents', 'Synthesized zero events'],
+			['conditionDiagnosticCount', 'Preprocessor condition diagnostics'],
+			['undefinedMacroDiagnosticCount', 'Undefined macro diagnostics'],
+			['expansionWarningDiagnosticCount', 'Macro expansion warnings'],
+			['inactiveBranchDiagnosticCount', 'Inactive branch diagnostics'],
+			['branchMergeCount', 'Branch merges'],
+			['activeIncludeCount', 'Active include references']
+		];
+		for (const [key, label] of metricLabels) {
+			lines.push(`| ${markdownCell(label)} | ${numericValue(macroHealth[key])} |`);
+		}
+		const focus = report.macroFocus as P14FocusMacroSummaryEntry[] | undefined;
+		if (Array.isArray(focus) && focus.length > 0) {
+			lines.push('');
+			lines.push('### P14 Focus Macros');
+			lines.push('');
+			lines.push('| Macro | Remaining undefined diagnostics | Units | Files | Owner | Profile statuses | Source boundary | Sample |');
+			lines.push('| --- | ---: | ---: | ---: | --- | --- | --- | --- |');
+			for (const entry of focus) {
+				const sample = entry.samples[0];
+				const sampleText = sample
+					? `${sample.unitRelativePath} -> ${sample.relativePath}:${sample.line}:${sample.character} ${sample.lineText}`
+					: '';
+				lines.push(
+					`| ${markdownCell(entry.macro)} | ${entry.diagnostics} | ${entry.affectedUnitCount} | ` +
+					`${entry.affectedFileCount} | ${markdownCell(entry.owner)} | ` +
+					`${markdownCell(compactCountMap(entry.profileStatusSummary))} | ` +
+					`${markdownCell(entry.sourceBoundary)} | ${markdownCell(sampleText)} |`
+				);
+			}
+			const profileEvidenceRows = focus.flatMap((entry) => entry.profileEvidence);
+			if (profileEvidenceRows.length > 0) {
+				lines.push('');
+				lines.push('### P14 Focus Profile Evidence');
+				lines.push('');
+				lines.push(`- Rows shown: ${Math.min(profileEvidenceRows.length, 150)} / ${profileEvidenceRows.length}`);
+				lines.push('');
+				lines.push('| Macro | Status | Unit | Source kind | Rows | Selected | Hint source | Unresolved | Injected value | #art default | Source path |');
+				lines.push('| --- | --- | --- | --- | ---: | ---: | --- | --- | ---: | --- | --- |');
+				for (const evidence of profileEvidenceRows.slice(0, 150)) {
+					const artDefaultText = evidence.artDefaultZero
+						? `${evidence.artDefaultType ?? ''} ${evidence.artDefaultSourcePath ?? ''}:${optionalNumberText(evidence.artDefaultSourceLine)}`
+						: '';
+					lines.push(
+						`| ${markdownCell(evidence.macro)} | ${markdownCell(evidence.status)} | ` +
+						`${markdownCell(evidence.unitRelativePath)} | ` +
+						`${markdownCell(evidence.profileSourceKind ?? '')} | ` +
+						`${numericValue(evidence.profileTotalRowCount)} | ` +
+						`${numericValue(evidence.profileSelectedRowCount)} | ` +
+						`${markdownCell(evidence.profileSelectionHintSourcePath ?? '')} | ` +
+						`${markdownCell(p14UnresolvedMacroCell(evidence))} | ` +
+						`${optionalNumberText(evidence.injectedValue)} | ` +
+						`${markdownCell(artDefaultText)} | ` +
+						`${markdownCell(evidence.profileSourcePath ?? '')} |`
+					);
+				}
+			}
 		}
 	}
 	lines.push('');
@@ -1542,10 +2297,15 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 		await waitForCommandAvailable('nsf._getInternalStatus');
 		await waitForClientReady('client ready before real workspace diagnostics audit');
 		const seededPreprocessorMacroCount = await seedAuditPreprocessorMacrosIfMissing();
+		const compilerContextDefaultPresetMap = await readServerPreprocessorMacroPresetMap();
+		const compilerContextEffectiveConfigMap = readEffectivePreprocessorMacroSettingsMap();
+		const compilerContextDefinesMap = readConfiguredDefinesMap();
 		await waitForIndexingIdle('real workspace diagnostics audit initial indexing idle');
 
 		const diagnostics: AuditDiagnostic[] = [];
 		const fileStats: UnitFileStat[] = [];
+		const p14FocusProfileEvidence: P14FocusProfileEvidenceEntry[] = [];
+		const p14CompilerContextProfileEvidence: P14CompilerContextProfileEvidenceEntry[] = [];
 		const fileErrors: Array<{ unit: string; file: string; error: string }> = [];
 		const discoveredFiles = new Set<string>();
 
@@ -1558,6 +2318,17 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 			try {
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', unit.toString());
 				await vscode.commands.executeCommand('nsf._sendServerRequest', { method: 'nsf/ping', params: {} });
+				const p14RuntimeDebugDocument = await findP14FocusRuntimeDebugDocument(unit);
+				p14FocusProfileEvidence.push(
+					...buildP14FocusProfileEvidenceForRuntimeDebug(unit, unitRelativePath, p14RuntimeDebugDocument)
+				);
+				p14CompilerContextProfileEvidence.push(
+					...buildP14CompilerContextProfileEvidenceForRuntimeDebug(
+						unit,
+						unitRelativePath,
+						p14RuntimeDebugDocument
+					)
+				);
 				const closure = await getUnitIncludeClosure(unit, closureLimit);
 				for (const fileUri of closure) {
 					discoveredFiles.add(normalizedPathKey(fileUri.fsPath));
@@ -1579,7 +2350,8 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 									activeUnitUri: unit.toString(),
 									timeBudgetMs: diagnosticTimeBudgetMs,
 									maxItems: diagnosticMaxItems,
-									expensiveRules: true
+									expensiveRules: true,
+									compilerPrivateConstantCacheScope: `real-diagnostics-audit:${unit.toString()}`
 								}
 							}
 						);
@@ -1601,6 +2373,7 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 								'total'
 							),
 							prerequisiteSkips: response?.prerequisiteSkips ?? {},
+							macroHealth: response?.macroHealth ?? {},
 							elapsedMs: Math.max(0, response?.elapsedMs ?? 0)
 						});
 						if (!response?.loaded) {
@@ -1685,6 +2458,8 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 
 		const unitsWithDiagnostics = new Set(diagnostics.map((item) => normalizedPathKey(item.unit))).size;
 		const prerequisiteSkippedByReason = aggregatePrerequisiteSkips(fileStats);
+		const macroHealth = aggregateMacroHealth(fileStats);
+		const undefinedMacros = buildUndefinedMacroHistogram(diagnostics);
 		const report = {
 			generatedAt: new Date().toISOString(),
 			runLabel: reportLabel,
@@ -1722,10 +2497,19 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 				heavyRulesSkippedFiles: fileStats.filter((item) => item.heavyRulesSkipped).length,
 				prerequisiteSkippedTotal: prerequisiteSkippedByReason.total ?? 0,
 				prerequisiteSkippedByReason,
+				macroHealth,
 				fileErrors: fileErrors.length
 			},
 			counts,
-			undefinedMacros: buildUndefinedMacroHistogram(diagnostics),
+			undefinedMacros,
+			macroFocus: buildP14FocusMacroSummary(undefinedMacros, p14FocusProfileEvidence),
+			compilerContextMacroEvidence: buildP14CompilerContextMacroEvidence(
+				undefinedMacros,
+				p14CompilerContextProfileEvidence,
+				compilerContextDefaultPresetMap,
+				compilerContextEffectiveConfigMap,
+				compilerContextDefinesMap
+			),
 			groups: groupDiagnostics(diagnostics),
 			units: buildUnitSummaries(diagnostics, fileStats),
 			fileStats,

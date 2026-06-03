@@ -578,6 +578,29 @@ void WorkspaceIndex::collectIncludeClosureForUnit(
     outPaths.resize(limit);
 }
 
+void WorkspaceIndex::collectArtDefaultZeroMacros(
+    std::vector<ArtDefaultZeroMacro> &outMacros, size_t limit) const {
+  outMacros.clear();
+  if (limit == 0)
+    return;
+
+  std::lock_guard<std::mutex> lock(mutex);
+  outMacros = store.artDefaultZeroMacros;
+  std::sort(outMacros.begin(), outMacros.end(),
+            [](const ArtDefaultZeroMacro &lhs,
+               const ArtDefaultZeroMacro &rhs) {
+              if (lhs.name != rhs.name)
+                return lhs.name < rhs.name;
+              if (lhs.uri != rhs.uri)
+                return lhs.uri < rhs.uri;
+              if (lhs.line != rhs.line)
+                return lhs.line < rhs.line;
+              return lhs.start < rhs.start;
+            });
+  if (outMacros.size() > limit)
+    outMacros.resize(limit);
+}
+
 void WorkspaceIndex::shutdown() {
   {
     std::lock_guard<std::mutex> lock(mutex);
@@ -734,6 +757,11 @@ void workspaceIndexCollectIncludeClosureForUnit(
     const std::string &unitPathOrUri, std::vector<std::string> &outPaths,
     size_t limit) {
   getIndex().collectIncludeClosureForUnit(unitPathOrUri, outPaths, limit);
+}
+
+void workspaceIndexCollectArtDefaultZeroMacros(
+    std::vector<ArtDefaultZeroMacro> &outMacros, size_t limit) {
+  getIndex().collectArtDefaultZeroMacros(outMacros, limit);
 }
 
 void workspaceIndexShutdown() { getIndex().shutdown(); }

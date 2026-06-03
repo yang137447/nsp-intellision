@@ -1,0 +1,17 @@
+#define P14E_SOURCE_MODE 2
+
+#ifndef P14E_DEFAULT_MODE
+#define P14E_DEFAULT_MODE 3
+#endif
+
+#if P14E_MISSING_MODE == 1
+#endif
+
+float4 P14EHoverMacroState(float4 value) : SV_Target0
+{
+    float sourceMode = P14E_SOURCE_MODE;
+    float defaultMode = P14E_DEFAULT_MODE;
+    float missingMode = P14E_MISSING_MODE;
+    float configuredMode = P14E_CONFIGURED_MODE;
+    return value + sourceMode + defaultMode + missingMode + configuredMode;
+}

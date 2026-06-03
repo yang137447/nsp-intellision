@@ -14,6 +14,7 @@ add_executable(nsf_lsp
   src/app/main_include_graph_cache.cpp
   src/app/main_occurrence_helpers.cpp
   src/active_unit.cpp
+  src/compiler_macro_snapshot_provider.cpp
   src/deferred_doc_runtime.cpp
   src/current_doc_semantic_runtime.cpp
   src/diagnostics_prerequisites.cpp

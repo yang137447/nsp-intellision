@@ -1,0 +1,42 @@
+float4 P14ICompilerPrivateConstants(float2 uv : TEXCOORD0) : SV_Target0
+{
+#if P14I_FORWARD_ENUM == 3
+    float2 forwardOk = uv;
+#else
+    float2 forwardBad = float4(uv, 0.0, 1.0);
+#endif
+
+#if P14I_OVERRIDE_ENUM == 5
+    float2 overrideOk = uv;
+#else
+    float2 overrideBad = float4(uv, 0.0, 1.0);
+#endif
+
+#if P14I_CONFLICT_ENUM == 2
+    float2 conflictBad = float4(uv, 0.0, 1.0);
+#endif
+
+#if P14I_UNDEF_ENUM == 1
+    float2 undefBad = float4(uv, 0.0, 1.0);
+#endif
+
+#if P14I_EXPR_ENUM == 1
+    float2 exprBad = float4(uv, 0.0, 1.0);
+#endif
+
+#if P14I_FUNCTION_ENUM == 1
+    float2 functionBad = float4(uv, 0.0, 1.0);
+#endif
+
+#if P14I_INACTIVE_ENUM == 4
+    float2 inactiveIncludeBad = float4(uv, 0.0, 1.0);
+#endif
+
+    return float4(forwardOk + overrideOk, 0.0, 1.0);
+}
+
+#if 0
+#include "p14i_inactive_defs.hlsl"
+#endif
+
+#include "p14i_private_constant_defs.hlsl"

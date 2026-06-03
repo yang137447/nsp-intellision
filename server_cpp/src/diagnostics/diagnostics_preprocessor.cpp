@@ -3,6 +3,7 @@
 #include "diagnostics_io.hpp"
 #include "preprocessor_view.hpp"
 #include "uri_utils.hpp"
+#include "workspace_summary_runtime.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -43,6 +44,10 @@ DiagnosticsPreprocessorBuildResult buildDiagnosticsPreprocessorContext(
   includeContext.workspaceFolders = workspaceFolders;
   includeContext.includePaths = includePaths;
   includeContext.shaderExtensions = shaderExtensions;
+  includeContext.compilerPrivateConstantCacheScope =
+      options.compilerPrivateConstantCacheScope;
+  workspaceSummaryRuntimeCollectArtDefaultZeroMacros(
+      includeContext.artDefaultZeroMacros, 4096);
   includeContext.loadText =
       [uri, text, activeUnitUri = options.activeUnitUri,
        activeUnitText = options.activeUnitText](
