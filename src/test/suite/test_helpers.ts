@@ -680,21 +680,28 @@ export async function waitForHoverText(
 	isReady: (text: string) => boolean,
 	label: string
 ): Promise<vscode.Hover[]> {
-	return waitFor(
-		() =>
-			vscode.commands.executeCommand<vscode.Hover[]>(
-				'vscode.executeHoverProvider',
-				document.uri,
-				position
-			),
-		(value) => {
-			if (!Array.isArray(value) || value.length === 0) {
-				return false;
-			}
-			return isReady(hoverToText(value));
-		},
-		label
-	);
+	let lastHoverText = '';
+	try {
+		return await waitFor(
+			() =>
+				vscode.commands.executeCommand<vscode.Hover[]>(
+					'vscode.executeHoverProvider',
+					document.uri,
+					position
+				),
+			(value) => {
+				if (!Array.isArray(value) || value.length === 0) {
+					lastHoverText = '<empty>';
+					return false;
+				}
+				lastHoverText = hoverToText(value);
+				return isReady(lastHoverText);
+			},
+			label
+		);
+	} catch (error) {
+		throw new Error(`${(error as Error).message}\nLast hover text:\n${lastHoverText}`);
+	}
 }
 
 export async function getInteractiveRuntimeDebug(

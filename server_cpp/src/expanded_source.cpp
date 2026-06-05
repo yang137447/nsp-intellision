@@ -1,5 +1,7 @@
 #include "expanded_source.hpp"
 
+#include "macro_statement_locals.hpp"
+
 ExpandedSource
 buildLinePreservingExpandedSource(const std::string &text,
                                   const PreprocessorView &preprocessorView) {
@@ -22,6 +24,26 @@ buildLinePreservingExpandedSource(const std::string &text,
       for (size_t i = lineStart; i < lineEnd; i++) {
         if (result.text[i] != '\r')
           result.text[i] = ' ';
+      }
+    } else {
+      const std::string lineText =
+          result.text.substr(lineStart, lineEnd - lineStart);
+      const auto macroLocals = collectStatementLikeMacroLocalDeclarations(
+          preprocessorView, lineIndex, lineText, lineStart);
+      for (const auto &macroLocal : macroLocals) {
+        ExpandedSourceMacroLocalDeclaration item;
+        item.name = macroLocal.name;
+        item.type = macroLocal.type;
+        item.macroName = macroLocal.macroName;
+        item.invocationLine = macroLocal.invocationLine;
+        item.invocationStart = macroLocal.invocationStart;
+        item.invocationEnd = macroLocal.invocationEnd;
+        item.invocationOffset = macroLocal.invocationOffset;
+        item.sourceUri = macroLocal.sourceUri;
+        item.sourceLine = macroLocal.sourceLine;
+        item.sourceStart = macroLocal.sourceStart;
+        item.sourceEnd = macroLocal.sourceEnd;
+        result.macroLocalDeclarations.push_back(std::move(item));
       }
     }
 

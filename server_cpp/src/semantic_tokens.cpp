@@ -232,6 +232,10 @@ struct SemanticTokenClassificationContext {
     for (const auto &local : function->locals) {
       if (local.name != name || local.offset > offset)
         continue;
+      if (local.scopeStartOffset > offset ||
+          (local.scopeEndOffset > 0 && offset >= local.scopeEndOffset)) {
+        continue;
+      }
       if (!best || local.depth > best->depth ||
           (local.depth == best->depth && local.offset >= best->offset)) {
         best = &local;

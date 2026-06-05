@@ -810,16 +810,34 @@ bool tryResolveDefinitionFromSnapshot(const SemanticSnapshot &snapshot,
     for (const auto &local : bestFunction->locals) {
       if (local.name != symbol || local.offset > cursorOffset)
         continue;
+      if (local.scopeStartOffset > cursorOffset ||
+          (local.scopeEndOffset > 0 && cursorOffset >= local.scopeEndOffset)) {
+        continue;
+      }
       if (!bestLocal || local.depth > bestLocal->depth ||
           (local.depth == bestLocal->depth &&
            local.offset >= bestLocal->offset)) {
         bestLocal = &local;
       }
     }
-    if (bestLocal &&
-        makeDefinitionLocationFromOffset(uri, docText, bestLocal->offset, symbol,
-                                         outLocation)) {
-      return true;
+    if (bestLocal) {
+      if (bestLocal->fromMacroStatement && !bestLocal->sourceUri.empty() &&
+          bestLocal->sourceLine >= 0) {
+        outLocation = DefinitionLocation{
+            bestLocal->sourceUri, bestLocal->sourceLine,
+            bestLocal->sourceStart, bestLocal->sourceEnd};
+        return true;
+      }
+      if (bestLocal->fromMacroStatement && bestLocal->sourceLine >= 0) {
+        outLocation = DefinitionLocation{uri, bestLocal->sourceLine,
+                                         bestLocal->sourceStart,
+                                         bestLocal->sourceEnd};
+        return true;
+      }
+      if (makeDefinitionLocationFromOffset(uri, docText, bestLocal->offset,
+                                           symbol, outLocation)) {
+        return true;
+      }
     }
 
     for (const auto &parameter : bestFunction->parameterInfos) {
@@ -937,6 +955,10 @@ bool appendCompletionItemsFromSnapshot(
     for (const auto &local : bestFunction->locals) {
       if (local.offset > cursorOffset)
         continue;
+      if (local.scopeStartOffset > cursorOffset ||
+          (local.scopeEndOffset > 0 && cursorOffset >= local.scopeEndOffset)) {
+        continue;
+      }
       auto it = bestLocals.find(local.name);
       if (it == bestLocals.end() || local.depth > it->second->depth ||
           (local.depth == it->second->depth &&

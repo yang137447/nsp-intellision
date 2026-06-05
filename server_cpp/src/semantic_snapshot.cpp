@@ -152,6 +152,7 @@ static void populateSemanticSnapshotFromAst(
 }
 
 static void populateSemanticSnapshotLocals(const std::string &text,
+                                           const ExpandedSource &expandedSource,
                                            SemanticSnapshot &snapshot) {
   const std::vector<std::string> lines = splitLinesShared(text);
   std::vector<size_t> lineStarts;
@@ -269,6 +270,44 @@ static void populateSemanticSnapshotLocals(const std::string &text,
 
     enterScope(lineStart(function.bodyStartLine));
 
+    size_t nextMacroLocalIndex = 0;
+    auto appendMacroStatementLocalsBeforeLine = [&](int line) {
+      while (nextMacroLocalIndex <
+                 expandedSource.macroLocalDeclarations.size() &&
+             expandedSource.macroLocalDeclarations[nextMacroLocalIndex]
+                     .invocationLine <= line) {
+        const auto &decl =
+            expandedSource.macroLocalDeclarations[nextMacroLocalIndex];
+        nextMacroLocalIndex++;
+        if (decl.invocationLine < function.bodyStartLine ||
+            decl.invocationLine >= function.bodyEndLine ||
+            decl.invocationLine < 0 ||
+            decl.invocationLine >= static_cast<int>(lines.size())) {
+          continue;
+        }
+        ScopeFrame *scope = currentScope();
+        if (!scope)
+          continue;
+        SemanticSnapshot::FunctionInfo::LocalInfo local;
+        local.name = decl.name;
+        local.type = decl.type;
+        local.offset = decl.invocationOffset;
+        local.line = decl.invocationLine;
+        local.character = byteOffsetInLineToUtf16(
+            lines[static_cast<size_t>(decl.invocationLine)],
+            decl.invocationStart);
+        local.depth = scope->depth;
+        local.scopeId = scope->id;
+        local.parentScopeId = scope->parentId;
+        local.fromMacroStatement = true;
+        local.sourceUri = decl.sourceUri;
+        local.sourceLine = decl.sourceLine;
+        local.sourceStart = decl.sourceStart;
+        local.sourceEnd = decl.sourceEnd;
+        function.locals.push_back(std::move(local));
+      }
+    };
+
     bool inBlockComment = false;
     for (int line = function.bodyStartLine + 1;
          line < function.bodyEndLine &&
@@ -323,6 +362,8 @@ static void populateSemanticSnapshotLocals(const std::string &text,
           function.locals.push_back(std::move(local));
         }
       }
+
+      appendMacroStatementLocalsBeforeLine(line);
 
       for (size_t i = 0; i < lineText.size(); i++) {
         const char ch = lineText[i];
@@ -420,7 +461,7 @@ static std::shared_ptr<const SemanticSnapshot> getOrBuildSemanticSnapshot(
   created.documentEpoch = epoch;
   const HlslAstDocument document = buildHlslAstDocument(expandedSource);
   populateSemanticSnapshotFromAst(document, created);
-  populateSemanticSnapshotLocals(expandedSource.text, created);
+  populateSemanticSnapshotLocals(expandedSource.text, expandedSource, created);
   semanticCacheUpsertSnapshot(key, created);
   return semanticCacheGetSnapshot(key, uri, epoch);
 }

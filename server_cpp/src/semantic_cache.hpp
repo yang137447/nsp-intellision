@@ -53,6 +53,11 @@ struct SemanticSnapshot {
       int depth = 0;
       int scopeId = 0;
       int parentScopeId = -1;
+      bool fromMacroStatement = false;
+      std::string sourceUri;
+      int sourceLine = -1;
+      int sourceStart = 0;
+      int sourceEnd = 0;
     };
 
     struct ParameterInfo {

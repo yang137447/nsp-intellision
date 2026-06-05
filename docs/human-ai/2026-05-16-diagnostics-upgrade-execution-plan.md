@@ -2776,6 +2776,59 @@ P13 full audit 剩余 `Undefined identifier` 共 `2588` 条。样本不是单一
 - 不新增 undefined identifier 局部 suppress、fallback 或 compat path。
 - 公开语义行为变化已在最终说明中明确记录，并同步相关事实文档。
 
+### Phase 16 执行记录
+
+状态：已落地 statement-like macro 声明局部变量支持。
+
+实现内容：
+
+- 新增 `macro_statement_locals.*` 共享入口，只识别 active object-like macro 独占语句行，并从 replacement 中抽取共享 declaration parser 可识别的局部变量声明；不做通用文本展开，不处理 function-like macro 参数、表达式内宏或控制流宏。
+- `expanded_source.*` 现在随 line-preserving active-only source 携带 statement-like macro local 元数据，`semantic_snapshot.*` 将这些局部变量接入函数 lexical local scope，并保留宏定义 source line 作为 definition 目标。
+- semantic diagnostics 的函数内 lexical scope stack 同步消费同一共享入口；宏局部参与 undefined identifier、expression typing 和 duplicate local 判断，真实 undefined sentinel 仍按原规则发布。
+- interactive completion / definition / semantic tokens 的 local 查询补齐 half-open lexical scope range 检查；macro local definition 会跳到宏 `#define` source location，completion 和 semantic tokens 仍消费共享 `SemanticSnapshot`。
+- `waitForHoverText(...)` 测试 helper 在失败时输出最后一次 hover 文本，便于区分 hover 无结果、文案不匹配和请求时序问题。
+- P14E / P14F 既有 `#ifndef` default macro hover 断言同步到当前 P14K 契约：root-level `#ifndef` default alias 由 active unit compiler macro snapshot 作为共享输入解释，hover active value 和 definition source location 不变。
+- 新增 focused fixture `test_files/module_diagnostics_macro_statement_locals.nsf`，覆盖 macro-declared local 可见性、active branch 不泄漏、同名局部 duplicate、块级作用域外不可见，以及真实 undefined sentinel。
+
+公开行为变化：
+
+- `HAIR_SHADING_PARAMS_PREPARE` 这类 active object-like statement macro replacement 中声明的 locals（例如 `VoL` / `SinThetaL` / `SinThetaV` / `CosHalfPhi`）现在会进入 diagnostics 和 shared semantic snapshot，不再被 undefined identifier 规则误报。
+- 这些 macro locals 可被 current-doc completion、definition 和 semantic tokens 的共享 local 查询看到；definition 指向宏定义 source line。
+- 不支持边界保持明确：非独占语句行、function-like macro、表达式宏、控制流宏和无法由共享 declaration parser 识别的 replacement 不会被展开或猜测。
+
+验证结果：
+
+- `npm run compile` 通过。
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，91 passing / 1 pending；覆盖 P16 focused diagnostics。
+- `$env:NSF_TEST_FILE_FILTER='interactive-runtime'; npm run test:client:repo` 通过，56 passing；覆盖 P16 completion / definition 共享消费，并复核 P14E / P14F macro hover。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-16-macro-statement-locals-smoke-5.{json,md}`；`diagnosticsTotal=302`、`undefined-identifier=21`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，样本中 `VoL=0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-16-macro-statement-locals-trend-50.{json,md}`；`diagnosticsTotal=2272`、`undefined-identifier=49`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`；相对 P15 后 50-unit latest `diagnosticsTotal=2401`、`undefined-identifier=178` 下降，样本中 `VoL/SinThetaL/SinThetaV/CosHalfPhi=0`。
+
+剩余分流：
+
+- `grass_max_offset` 仍表现为源码 / 配置缺失候选。
+- `bottom_layer_color`、`coverage_uv`、`blend_mask` 仍属于 `season_uniforms.hlsl` 剩余样本，未通过 P16 statement-like macro local 支持解决，应保留到后续 source / parser / type policy 分流，不做 undefined identifier suppress。
+
+后续里程碑归属确认：
+
+- P16 已清零当前 50-unit 样本中的 statement-like macro local 痛点，`VoL` / `SinThetaL` / `SinThetaV` / `CosHalfPhi` 均为 `0` 条；后续不再把这类样本作为 undefined identifier 待分流项。
+- `grass_max_offset` 进入 source / config review 清单，除非后续找到可共享的真实输入来源，否则不由 LSP 规则吞掉。
+- `bottom_layer_color`、`coverage_uv`、`blend_mask` 保留到 P17 的 source / parser / type policy owner 确认；如果确认是共享 parser/type 边界问题，再进入对应共享入口治理。
+- P18 只接收 P17 后仍明确属于小型共享 type / builtin modeling tail 的问题，不承接真实源码缺符号、真实缺分号或配置缺口。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增共享模块、focused fixture 和 P16 audit 报告；未改变运行时资源路径 / 命名规则。
+- 架构或单一事实来源是否变化：是，statement-like macro local 事实收敛到 `macro_statement_locals.*`，并由 semantic snapshot 与 diagnostics 共同消费。
+- 测试策略是否变化：新增 P16 focused diagnostics / interactive fixture；`waitForHoverText(...)` 失败输出增强。
+- 文档是否已同步：已更新 `docs/architecture.md`、`macro_statement_locals.hpp` 和本执行计划；README、AGENTS、resources、testing、client-editor-features、type-method-interface-contract、development 不需要更新。
+- 是否改变公开 diagnostics 行为：是，声明型 statement macro locals 不再误报 undefined identifier。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 P16 5-unit / 50-unit real audit 报告。
+
 ## Phase 17 (P17): call / type policy 与真实编译器行为确认
 
 ### 背景

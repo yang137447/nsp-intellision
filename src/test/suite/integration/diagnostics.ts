@@ -2114,6 +2114,54 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(!messages.includes('Undefined identifier: TRANSPARENT_STAGE.'));
 	});
 
+	it('models statement-like macro local declarations in shared lexical scope', async () => {
+		const document = await openFixture('module_diagnostics_macro_statement_locals.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Undefined identifier: p16ReallyMissing.') &&
+					messages.includes('Undefined identifier: inactiveBranchLocal.') &&
+					messages.includes('Undefined identifier: activeBranchLocal.') &&
+					messages.includes('Duplicate local declaration: macroPrepared.')
+				);
+			},
+			'statement-like macro local diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(!messages.includes('Undefined identifier: macroPrepared.'), messages);
+		assert.ok(!messages.includes('Undefined identifier: macroVec.'), messages);
+		assert.ok(
+			!hasDiagnosticOnLine(
+				diagnostics,
+				lineOf(document, 'float activeUse = activeBranchLocal;'),
+				'Undefined identifier: activeBranchLocal.'
+			),
+			messages
+		);
+		assert.ok(
+			hasDiagnosticOnLine(
+				diagnostics,
+				lineOf(document, 'float inactiveUse = inactiveBranchLocal;'),
+				'Undefined identifier: inactiveBranchLocal.'
+			),
+			messages
+		);
+		assert.ok(
+			hasDiagnosticOnLine(
+				diagnostics,
+				lineOf(document, 'return activeBranchLocal;'),
+				'Undefined identifier: activeBranchLocal.'
+			),
+			messages
+		);
+		assert.ok(messages.includes('Undefined identifier: p16ReallyMissing.'), messages);
+		assert.ok(messages.includes('Duplicate local declaration: macroPrepared.'), messages);
+	});
+
 	it('publishes diagnostics for missing semicolons', async () => {
 		const document = await openFixture('module_diagnostics_missing_semicolon.nsf');
 

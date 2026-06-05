@@ -1,0 +1,35 @@
+#define P16_PREPARE_LOCALS float macroPrepared = 1.0; float3 macroVec = float3(macroPrepared, 2.0, 3.0);
+#define P16_ACTIVE_LOCALS float activeBranchLocal = 2.0;
+#define P16_INACTIVE_LOCALS float inactiveBranchLocal = 3.0;
+
+float P16UseMacroLocals(float3 input)
+{
+    P16_PREPARE_LOCALS
+    float after = macroPrepared + macroVec.x;
+#if 1
+    P16_ACTIVE_LOCALS
+#else
+    P16_INACTIVE_LOCALS
+#endif
+    float activeUse = activeBranchLocal;
+    float inactiveUse = inactiveBranchLocal;
+    float undefinedSentinel = p16ReallyMissing;
+    return after + activeUse + inactiveUse + undefinedSentinel + input.x;
+}
+
+float P16DuplicateMacroLocal()
+{
+    float macroPrepared = 1.0;
+    P16_PREPARE_LOCALS
+    return macroPrepared;
+}
+
+float P16MacroLocalScope(bool flag)
+{
+    if (flag)
+    {
+        P16_ACTIVE_LOCALS
+        activeBranchLocal = activeBranchLocal + 1.0;
+    }
+    return activeBranchLocal;
+}

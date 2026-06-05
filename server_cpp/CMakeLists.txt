@@ -93,6 +93,7 @@ add_executable(nsf_lsp
   src/uri_utils.cpp
   src/text_utils.cpp
   src/macro_generated_functions.cpp
+  src/macro_statement_locals.cpp
   src/workspace_summary_runtime.cpp
 )
 

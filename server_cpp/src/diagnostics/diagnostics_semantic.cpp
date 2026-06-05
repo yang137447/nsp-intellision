@@ -18,6 +18,7 @@
 #include "language_registry.hpp"
 #include "lsp_helpers.hpp"
 #include "macro_generated_functions.hpp"
+#include "macro_statement_locals.hpp"
 #include "nsf_lexer.hpp"
 #include "overload_resolver.hpp"
 #include "preprocessor_view.hpp"
@@ -1317,6 +1318,26 @@ void collectReturnAndTypeDiagnostics(
 
     if (inFunction) {
       rebuildVisibleLocals(currentSig);
+      bool macroLocalsChanged = false;
+      const auto macroLocalDeclarations =
+          collectStatementLikeMacroLocalDeclarations(preprocessorView,
+                                                     lineIndex, lineText);
+      for (const auto &decl : macroLocalDeclarations) {
+        if (decl.name.empty() || decl.type.empty())
+          continue;
+        if (hasDuplicateInCurrentScope(decl.name, currentSig)) {
+          emitHighConfidenceDiagnostic(
+              DiagnosticsRuleKind::SemanticSource, lineIndex,
+              decl.invocationStart, decl.invocationEnd, 2,
+              "Duplicate local declaration: " + decl.name + ".");
+        }
+        declareLocalInCurrentScope(decl.name,
+                                   normalizeTypeForLine(decl.type, lineIndex),
+                                   currentSig);
+        macroLocalsChanged = true;
+      }
+      if (macroLocalsChanged)
+        rebuildVisibleLocals(currentSig);
       size_t declarationEqTokenIndex = std::string::npos;
       if (!pendingMultilineLocalName.empty()) {
         bool hasSemi = false;

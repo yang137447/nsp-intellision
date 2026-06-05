@@ -59,6 +59,34 @@ export function registerInteractiveRuntimeCoreTests(): void {
 		assert.ok(labels.has('completionLocalColor'));
 	});
 
+	it('shares statement-like macro locals with completion and definition', async () => {
+		const document = await openFixture('module_diagnostics_macro_statement_locals.nsf');
+		const completionPosition = positionOf(document, 'float after = macro', 1, 'float after = macro'.length);
+		const completionItems = await waitForCompletionLabels(
+			document,
+			completionPosition,
+			['macroPrepared', 'macroVec'],
+			'statement-like macro local completion items'
+		);
+		const labels = new Set(completionItems.map((item) => item.label.toString()));
+		assert.ok(labels.has('macroPrepared'));
+		assert.ok(labels.has('macroVec'));
+
+		const definitionPosition = positionOf(document, 'macroVec.x', 1, 2);
+		const definitions = await waitFor(
+			() =>
+				vscode.commands.executeCommand<ProviderLocation[]>(
+					'vscode.executeDefinitionProvider',
+					document.uri,
+					definitionPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'statement-like macro local definition'
+		);
+		assert.strictEqual(toFsPath(definitions[0]), document.uri.fsPath);
+		assert.strictEqual(toRange(definitions[0]).start.line, 0);
+	});
+
 	it('prefers current-doc function symbols over workspace summary conflicts', async () => {
 		await withTemporaryIntellisionPath(
 			[path.join(getWorkspaceRoot(), 'test_files', 'current_doc_precedence_root')],
@@ -470,7 +498,7 @@ export function registerInteractiveRuntimeCoreTests(): void {
 			const defaultHovers = await waitForHoverText(
 				document,
 				positionOf(document, 'P14E_DEFAULT_MODE', 3, 2),
-				(text) => text.includes('Active value: `3`') && text.includes('#ifndef default define'),
+				(text) => text.includes('Active value: `3`') && text.includes('active unit compiler macro snapshot'),
 				'P14E ifndef default macro hover'
 			);
 			assert.ok(hoverToText(defaultHovers).includes('#define P14E_DEFAULT_MODE 3'));
@@ -548,7 +576,7 @@ export function registerInteractiveRuntimeCoreTests(): void {
 		const defaultHovers = await waitForHoverText(
 			document,
 			defaultPosition,
-			(text) => text.includes('Active value: `7`') && text.includes('#ifndef default define'),
+			(text) => text.includes('Active value: `7`') && text.includes('active unit compiler macro snapshot'),
 			'P14F included #ifndef default macro hover'
 		);
 		const defaultHoverText = hoverToText(defaultHovers);
