@@ -434,6 +434,83 @@ bool shouldReuseExistingGlobalContextSnapshot(
                                                   *changedRanges);
 }
 
+bool shouldFastReuseExistingGlobalContextForUnrelatedEdit(
+    const GlobalContextSnapshot &existing, const std::string &existingText,
+    const std::string &activeUnitUri, const std::string &activeUnitPath,
+    const std::string &activeUnitText,
+    const GlobalContextRuntimeOptions &options,
+    const std::string &changedDocumentUri) {
+  if (changedDocumentUri.empty())
+    return false;
+  if (changedDocumentIsActiveUnit(changedDocumentUri, activeUnitUri,
+                                  activeUnitPath)) {
+    return false;
+  }
+  if (existing.activeUnitSnapshot.uri != activeUnitUri ||
+      existing.activeUnitSnapshot.path != activeUnitPath ||
+      existing.activeUnitSnapshot.workspaceSummaryVersion !=
+          options.workspaceSummaryVersion) {
+    return false;
+  }
+  if (existing.activeUnitSnapshot.documentVersion !=
+          options.activeUnitDocumentVersion ||
+      existing.activeUnitSnapshot.documentEpoch !=
+          options.activeUnitDocumentEpoch ||
+      existingText != activeUnitText) {
+    return false;
+  }
+  if (existing.activeUnitSnapshot.workspaceFoldersFingerprint !=
+          fingerprintStringList(options.workspaceFolders) ||
+      existing.activeUnitSnapshot.includePathsFingerprint !=
+          fingerprintStringList(options.includePaths) ||
+      existing.activeUnitSnapshot.shaderCompilerPathFingerprint !=
+          fingerprintStringList({options.shaderCompilerPath}) ||
+      existing.activeUnitSnapshot.shaderExtensionsFingerprint !=
+          fingerprintStringList(options.shaderExtensions)) {
+    return false;
+  }
+  return true;
+}
+
+bool stableOptionsMatchExistingSnapshot(
+    const GlobalContextSnapshot &existing, const std::string &activeUnitUri,
+    const std::string &activeUnitPath,
+    const GlobalContextRuntimeOptions &options) {
+  return existing.activeUnitSnapshot.uri == activeUnitUri &&
+         existing.activeUnitSnapshot.path == activeUnitPath &&
+         existing.activeUnitSnapshot.workspaceSummaryVersion ==
+             options.workspaceSummaryVersion &&
+         existing.activeUnitSnapshot.workspaceFoldersFingerprint ==
+             fingerprintStringList(options.workspaceFolders) &&
+         existing.activeUnitSnapshot.includePathsFingerprint ==
+             fingerprintStringList(options.includePaths) &&
+         existing.activeUnitSnapshot.shaderCompilerPathFingerprint ==
+             fingerprintStringList({options.shaderCompilerPath}) &&
+         existing.activeUnitSnapshot.shaderExtensionsFingerprint ==
+             fingerprintStringList(options.shaderExtensions);
+}
+
+bool shouldFastReuseExistingGlobalContextForActiveUnitNeutralEdit(
+    const GlobalContextSnapshot &existing, const std::string &existingText,
+    const std::string &activeUnitUri, const std::string &activeUnitPath,
+    const std::string &activeUnitText,
+    const GlobalContextRuntimeOptions &options,
+    const std::string &changedDocumentUri,
+    const std::vector<ChangedRange> *changedRanges) {
+  if (changedDocumentUri.empty() || !changedRanges)
+    return false;
+  if (!changedDocumentIsActiveUnit(changedDocumentUri, activeUnitUri,
+                                   activeUnitPath)) {
+    return false;
+  }
+  if (!stableOptionsMatchExistingSnapshot(existing, activeUnitUri,
+                                          activeUnitPath, options)) {
+    return false;
+  }
+  return isPreprocessorNeutralEditAgainstPrevious(existingText, activeUnitText,
+                                                  *changedRanges);
+}
+
 std::string resolveCurrentActiveUnitText(
     const GlobalContextRuntimeOptions &options, const std::string &activeUnitPath) {
   std::string activeUnitText = options.activeUnitText;
@@ -494,6 +571,34 @@ std::shared_ptr<const GlobalContextSnapshot> globalContextRuntimeRefresh(
   const std::string activeUnitPath = getActiveUnitPath();
   const std::string activeUnitText =
       resolveCurrentActiveUnitText(options, activeUnitPath);
+
+  {
+    std::lock_guard<std::mutex> lock(gGlobalContextRuntimeMutex);
+    if (gGlobalContextRuntimeState.snapshot &&
+        shouldFastReuseExistingGlobalContextForUnrelatedEdit(
+            *gGlobalContextRuntimeState.snapshot,
+            gGlobalContextRuntimeState.activeUnitText, activeUnitUri,
+            activeUnitPath, activeUnitText, options, changedDocumentUri)) {
+      return gGlobalContextRuntimeState.snapshot;
+    }
+    if (gGlobalContextRuntimeState.snapshot &&
+        shouldFastReuseExistingGlobalContextForActiveUnitNeutralEdit(
+            *gGlobalContextRuntimeState.snapshot,
+            gGlobalContextRuntimeState.activeUnitText, activeUnitUri,
+            activeUnitPath, activeUnitText, options, changedDocumentUri,
+            changedRanges)) {
+      if (!snapshotActiveUnitVersionMatches(
+              *gGlobalContextRuntimeState.snapshot, options, activeUnitText,
+              gGlobalContextRuntimeState.activeUnitText)) {
+        gGlobalContextRuntimeState.snapshot =
+            makeUpdatedSnapshotPreservingIdentity(
+                *gGlobalContextRuntimeState.snapshot, options);
+      }
+      gGlobalContextRuntimeState.activeUnitText = activeUnitText;
+      return gGlobalContextRuntimeState.snapshot;
+    }
+  }
+
   const RuntimeDefineContext defineContext =
       buildRuntimeDefineContext(options, activeUnitPath);
   const RuntimeContextFingerprints contextFingerprints =

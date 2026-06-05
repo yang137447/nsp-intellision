@@ -38,8 +38,23 @@
     {
       "kind": "typeText",
       "label": "type open paren",
-      "payload": { "text": "(" },
-      "samplingWindow": { "label": "signature-window", "delaysMs": [0, 30, 80, 160, 320] }
+      "payload": { "text": "(" }
+    },
+    {
+      "kind": "captureSignatureHelp",
+      "label": "capture signature help after open paren",
+      "payload": {
+        "triggerCharacter": "(",
+        "retrigger": false,
+        "expectedSubstrings": ["Pixelate"],
+        "maxSignatures": 10,
+        "triggerParameterHintsUi": true
+      },
+      "samplingWindow": {
+        "label": "signature-window",
+        "delaysMs": [0, 30, 80, 160, 320],
+        "captureInteractiveDebug": true
+      }
     }
   ],
   "cleanup": { "restoreTouchedDocuments": true }

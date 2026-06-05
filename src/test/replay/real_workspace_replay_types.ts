@@ -122,6 +122,9 @@ export type ReplayStep =
 				triggerCharacter?: string;
 				expectedLabels?: string[];
 				maxLabels?: number;
+				triggerSuggestUi?: boolean;
+				completionUiMode?: 'nativeOnly' | 'explicitSuggest';
+				uiTriggerDelayMs?: number;
 			};
 			afterActionPauseMs?: number;
 			samplingWindow?: ReplaySamplingWindow;
@@ -134,6 +137,95 @@ export type ReplayStep =
 				retrigger?: boolean;
 				expectedSubstrings?: string[];
 				maxSignatures?: number;
+				triggerParameterHintsUi?: boolean;
+				uiTriggerDelayMs?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureHover';
+			label: string;
+			payload?: {
+				expectedSubstrings?: string[];
+				maxContents?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureDefinition';
+			label: string;
+			payload?: {
+				expectedUriSubstrings?: string[];
+				minLocations?: number;
+				maxLocations?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureReferences';
+			label: string;
+			payload?: {
+				expectedUriSubstrings?: string[];
+				minLocations?: number;
+				maxLocations?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureDocumentSymbols';
+			label: string;
+			payload?: {
+				expectedNames?: string[];
+				maxNames?: number;
+				waitForReadyMs?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureInlayHints';
+			label: string;
+			payload?: {
+				lineDeltaBefore?: number;
+				lineDeltaAfter?: number;
+				expectedLabels?: string[];
+				minHints?: number;
+				maxHints?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'capturePrepareRename';
+			label: string;
+			payload?: {
+				expectedPlaceholder?: string;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureRenameEdit';
+			label: string;
+			payload: {
+				newName: string;
+				minChanges?: number;
+				maxChanges?: number;
+			};
+			afterActionPauseMs?: number;
+			samplingWindow?: ReplaySamplingWindow;
+	  }
+	| {
+			kind: 'captureSemanticTokens';
+			label: string;
+			payload?: {
+				minDataLength?: number;
+				maxDataLength?: number;
+				waitForReadyMs?: number;
 			};
 			afterActionPauseMs?: number;
 			samplingWindow?: ReplaySamplingWindow;

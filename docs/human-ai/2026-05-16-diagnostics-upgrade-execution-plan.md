@@ -2732,6 +2732,16 @@ P15C：real audit 分流与边界确认。
   - P14 focus 宏 `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` / `FOLIAGE_MODE` 在 full aggregate 中 remaining undefined diagnostics 均为 `0`。
 - 阶段结论：P15 用户可见 parser-shaped missing-semicolon 和多行 RHS indeterminate 已收口；剩余 missing-semicolon 是真实源码样式，剩余 indeterminate 数组声明和 `Assignment type mismatch: half4 = half3` 属于 P17 type policy / source confirmation，`parser_region_unreliable` / `expression_type_unavailable` skipped metadata 当前是高置信 semantic diagnostics 的保护，不是 P15 待修用户可见问题。下一步应转入 P16 statement-like macro locals 或 P17 type policy / source confirmation。
 
+2026-06-05 P15 后续 UX / didChange 热路径复核：
+
+- 背景：综合 real workspace replay 暴露用户输入过程中的性能下降，根因是 `didChange` 热路径在普通编辑时仍可能重复重建 active-unit macro/profile/include context，拖慢 completion / signature help / diagnostics 恢复等交互体验。该问题发生在 shared global context runtime，不属于 P15 parser boundary 公开 diagnostics 行为变化。
+- 实现：`global_context_runtime.*` 在 `didChange` 热路径新增安全复用判断：非 active unit 文档编辑且 active unit 输入未变化时直接复用；active unit 编辑若 changed ranges 不触达预处理指令或续行指令，只更新 active unit version / epoch 元数据并复用既有 include closure、active branch fingerprint、profile / `#art` / compiler macro snapshot 输入。只有 active unit 预处理状态、配置、workspace summary、include/path/profile 输入或资源模型变化时才重建 P14 级 context。
+- replay 验证增强：新增默认 real replay 脚本 `rw-pbr-flow-water-user-journey`，按真实用户短链路覆盖 open unit、set active unit、workspace symbols、document symbols、semantic tokens、hover、definition、references、prepare rename、rename edit、inlay hints、成员补全、函数前缀补全、signature help、宏补全以及 diagnostics 删除/恢复。runner 同步新增顶层 capture step 的 expected 缺失 anomaly 检测，旧 `member-chain` / `signature-entry` 脚本也改为显式触发补全 / 签名帮助，避免只靠采样窗口判断体验。
+- 验证结果：`npm run test:client:real:replay` 通过，默认 suite `14 passing`；新 user-journey report 共 `37` steps，unexpected anomaly 为 `0`，仅剩已知 `active-rpc-backlog-never-settled` 采样尾噪。completion capture `4` 次，平均约 `357.3ms`、p95 `544ms`，provider p95 `7ms`；signature help capture `290ms`，provider `26ms`。
+- diagnostics 趋势复核：5-unit smoke `phase-replay-user-journey-smoke-5` 通过，`diagnosticsTotal=317`、`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`；50-unit trend `phase-replay-user-journey-trend-50` 提高 Mocha timeout 后通过，`diagnosticsTotal=2401`、`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。相对 P0 同范围 baseline，`preprocessor-context=0`、`numeric-literal=0`、50-unit `likely-plugin-limitation 34380 -> 432`，未发现 P15 / P14Q 后 diagnostics 趋势回退。
+- 文档同步：`docs/architecture.md` 已补充 shared global context `didChange` 复用契约；`docs/testing.md` 已补充 user-journey replay 定位、顶层 capture anomaly 门禁，以及 document outline / semantic tokens 这类 deferred surface 的 `waitForReadyMs` 规则。
+- 阶段判断：本轮优化不改变 diagnostics rule、severity、message、audit classifier、资源 bundle、schema 或类型规则，不新增 suppress / fallback / shim / 兼容层；它是 P15 后续用户体验和热路径验证补强，保持 P15 “parser-shaped 用户可见误报已收口，剩余迁出 P15” 的阶段结论不变。
+
 ## Phase 16 (P16): statement-like macro 声明局部变量语义边界
 
 ### 背景

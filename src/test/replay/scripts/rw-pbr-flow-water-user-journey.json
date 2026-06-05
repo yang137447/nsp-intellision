@@ -1,0 +1,421 @@
+{
+  "id": "rw-pbr-flow-water-user-journey",
+  "title": "Real workspace pbr_flow_water user journey",
+  "workspaceHint": "shader-source",
+  "targetDocument": {
+    "workspaceFolderSuffix": "shader-source",
+    "relativePath": "sfx/pbr_flow_water.nsf",
+    "anchorText": "struct VS_INPUT",
+    "occurrence": 1,
+    "characterOffset": 0
+  },
+  "intent": "Replay a bounded real-user workflow across the pbr_flow_water unit and node include: open the unit, wait for context, search symbols, edit existing code prefixes, request completion/signature help, touch preprocessor context, and verify diagnostics recovery.",
+  "tags": ["interactive", "completion", "signature-help", "diagnostics", "workspace-symbols", "user-journey", "pbr-flow-water", "real-workspace"],
+  "steps": [
+    {
+      "kind": "openDocument",
+      "label": "open pbr_flow_water unit document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/pbr_flow_water.nsf",
+        "anchorText": "struct VS_INPUT",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 300
+    },
+    {
+      "kind": "setActiveUnit",
+      "label": "pin pbr_flow_water active unit",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/pbr_flow_water.nsf",
+        "anchorText": "struct VS_INPUT",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 300
+    },
+    {
+      "kind": "waitForInternalStatus",
+      "label": "wait for active-unit workspace to settle",
+      "payload": {
+        "mode": "idle",
+        "timeoutMs": 240000
+      }
+    },
+    {
+      "kind": "captureWorkspaceSymbols",
+      "label": "search water helper symbols",
+      "payload": {
+        "query": "WaterFx",
+        "expectedNames": ["WaterFxUv", "WaterFxClampUv", "WaterFxNanPow"],
+        "maxNames": 40
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "openDocument",
+      "label": "open pbr_flow_water nodes document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "void PixelNodesBasedGraph",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 200
+    },
+    {
+      "kind": "captureDocumentSymbols",
+      "label": "capture nodes document outline",
+      "payload": {
+        "expectedNames": ["AssignParamCar", "WaterFxUv", "CalcFoamTransmission", "PixelNodesBasedGraph"],
+        "maxNames": 80,
+        "waitForReadyMs": 10000
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "captureSemanticTokens",
+      "label": "capture nodes semantic tokens",
+      "payload": {
+        "minDataLength": 100,
+        "waitForReadyMs": 10000
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on water helper call",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "WaterFxUv(diffuse_uv",
+        "occurrence": 1,
+        "characterOffset": 3
+      }
+    },
+    {
+      "kind": "captureHover",
+      "label": "capture water helper hover",
+      "payload": {
+        "expectedSubstrings": ["WaterFxUv", "float2"],
+        "maxContents": 8
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "capture water helper definition",
+      "payload": {
+        "expectedUriSubstrings": ["pbr_flow_water_nodes.hlsl"],
+        "minLocations": 1,
+        "maxLocations": 8
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "captureReferences",
+      "label": "capture water helper references",
+      "payload": {
+        "expectedUriSubstrings": ["pbr_flow_water_nodes.hlsl"],
+        "minLocations": 2,
+        "maxLocations": 80
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "capturePrepareRename",
+      "label": "capture water helper prepare rename",
+      "payload": {
+        "expectedPlaceholder": "WaterFxUv"
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "captureRenameEdit",
+      "label": "capture water helper rename edit",
+      "payload": {
+        "newName": "WaterFxUvReplayProbe",
+        "minChanges": 2,
+        "maxChanges": 80
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "captureInlayHints",
+      "label": "capture water helper inlay hints",
+      "payload": {
+        "lineDeltaBefore": 0,
+        "lineDeltaAfter": 0,
+        "expectedLabels": ["uv:", "tiling:", "offset:", "speed:"],
+        "minHints": 4,
+        "maxHints": 40
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "selectRange",
+      "label": "select material parameter member suffix",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "MaterialParameters.uv1",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": {
+        "startOffset": 18,
+        "endOffset": 22
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "type material parameter dot",
+      "payload": {
+        "text": "."
+      }
+    },
+    {
+      "kind": "captureCompletion",
+      "label": "capture material parameter member completion",
+      "payload": {
+        "expectedLabels": ["uv1", "uv0", "world_normal", "camera_vector"],
+        "maxLabels": 120,
+        "triggerSuggestUi": true
+      },
+      "samplingWindow": {
+        "label": "user-journey-material-parameter-member",
+        "delaysMs": [0, 40, 120, 240],
+        "captureInteractiveDebug": true
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "restore material parameter member",
+      "payload": {
+        "text": "uv1"
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "selectRange",
+      "label": "select texture method suffix",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "NormalMap.SampleBias",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": {
+        "startOffset": 9,
+        "endOffset": 20
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "type texture method dot",
+      "payload": {
+        "text": "."
+      }
+    },
+    {
+      "kind": "captureCompletion",
+      "label": "capture texture method completion",
+      "payload": {
+        "expectedLabels": ["SampleBias", "Sample", "Load"],
+        "maxLabels": 120,
+        "triggerSuggestUi": true
+      },
+      "samplingWindow": {
+        "label": "user-journey-texture-method-member",
+        "delaysMs": [0, 40, 120, 240],
+        "captureInteractiveDebug": true
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "restore texture method",
+      "payload": {
+        "text": "SampleBias"
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "selectRange",
+      "label": "select water helper name",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "WaterFxUv(diffuse_uv",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": {
+        "startOffset": 0,
+        "endOffset": 9
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "type water helper prefix",
+      "payload": {
+        "text": "WaterFx"
+      }
+    },
+    {
+      "kind": "captureCompletion",
+      "label": "capture water helper prefix completion",
+      "payload": {
+        "expectedLabels": ["WaterFxUv", "WaterFxClampUv", "WaterFxNanPow"],
+        "maxLabels": 80,
+        "triggerSuggestUi": true
+      },
+      "samplingWindow": {
+        "label": "user-journey-water-helper-prefix",
+        "delaysMs": [0, 40, 120, 240],
+        "captureInteractiveDebug": true
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "restore water helper name",
+      "payload": {
+        "text": "Uv"
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "selectRange",
+      "label": "select water helper call prefix",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "WaterFxUv(diffuse_uv",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": {
+        "startOffset": 0,
+        "endOffset": 10
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "type water helper call open paren",
+      "payload": {
+        "text": "WaterFxUv("
+      }
+    },
+    {
+      "kind": "captureSignatureHelp",
+      "label": "capture water helper signature help",
+      "payload": {
+        "triggerCharacter": "(",
+        "retrigger": false,
+        "expectedSubstrings": ["WaterFxUv", "float2 uv", "float2 tiling", "float2 offset", "float2 speed"],
+        "maxSignatures": 10,
+        "triggerParameterHintsUi": true
+      },
+      "samplingWindow": {
+        "label": "user-journey-water-helper-signature",
+        "delaysMs": [0, 40, 120, 240],
+        "captureInteractiveDebug": true
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "selectRange",
+      "label": "select main uv preprocessor macro",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "USE_MAIN_ROTATION_UV",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "payload": {
+        "startOffset": 0,
+        "endOffset": 20
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "type main uv macro prefix",
+      "payload": {
+        "text": "USE_MAIN_"
+      }
+    },
+    {
+      "kind": "captureCompletion",
+      "label": "capture preprocessor macro completion",
+      "payload": {
+        "expectedLabels": ["USE_MAIN_ROTATION_UV", "USE_MAIN_PIXELATE_UV", "USE_MAIN_POLAR_UV"],
+        "maxLabels": 120,
+        "triggerSuggestUi": true
+      },
+      "samplingWindow": {
+        "label": "user-journey-preprocessor-macro",
+        "delaysMs": [0, 40, 120, 240],
+        "captureRuntimeDebug": true,
+        "captureInteractiveDebug": true
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "restore main uv macro",
+      "payload": {
+        "text": "ROTATION_UV"
+      },
+      "afterActionPauseMs": 100
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor after opacity semicolon",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "MaterialInputs.opacity = saturate(WaterFxNanPow(base_color_texture.a, u_water_transparent_contrast));",
+        "occurrence": 1,
+        "characterOffset": 101
+      }
+    },
+    {
+      "kind": "deleteLeft",
+      "label": "delete opacity semicolon",
+      "payload": {
+        "count": 1
+      },
+      "samplingWindow": {
+        "label": "user-journey-diagnostics-delete",
+        "delaysMs": [0, 50, 150, 350],
+        "captureRuntimeDebug": true
+      }
+    },
+    {
+      "kind": "typeText",
+      "label": "restore opacity semicolon",
+      "payload": {
+        "text": ";"
+      },
+      "samplingWindow": {
+        "label": "user-journey-diagnostics-restore",
+        "delaysMs": [0, 50, 150, 350],
+        "captureRuntimeDebug": true
+      }
+    },
+    {
+      "kind": "waitForInternalStatus",
+      "label": "wait for user journey edits to settle",
+      "payload": {
+        "mode": "idle",
+        "timeoutMs": 120000
+      }
+    }
+  ],
+  "cleanup": {
+    "restoreTouchedDocuments": true
+  }
+}

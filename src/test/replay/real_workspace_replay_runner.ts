@@ -5,6 +5,7 @@ import { resolveReplaySamplingDelays, sampleReplayWindow } from './real_workspac
 import { resolveReplayAnchor } from './real_workspace_replay_targets';
 import type { ReplaySampleSnapshot, ReplayScript, ReplayStep, ReplayTypingProbe } from './real_workspace_replay_types';
 import {
+    countWorkspaceEdits,
     deleteLeftForTests,
     touchDocument,
     typeTextForTests,
@@ -42,6 +43,99 @@ function getLineText(document: vscode.TextDocument, line: number): string {
     } catch {
         return '';
     }
+}
+
+function markdownContentToString(value: unknown): string {
+    if (typeof value === 'string') {
+        return value;
+    }
+    const markdown = value as { value?: unknown } | undefined;
+    if (typeof markdown?.value === 'string') {
+        return markdown.value;
+    }
+    const languageString = value as { language?: unknown; value?: unknown } | undefined;
+    if (typeof languageString?.language === 'string' && typeof languageString?.value === 'string') {
+        return `${languageString.language}\n${languageString.value}`;
+    }
+    return String(value ?? '');
+}
+
+function hoverContentsToStrings(hovers: vscode.Hover[] | undefined, maxContents: number): string[] {
+    const contents: string[] = [];
+    for (const hover of hovers ?? []) {
+        for (const content of hover.contents ?? []) {
+            const text = markdownContentToString(content).trim();
+            if (text.length > 0) {
+                contents.push(text);
+            }
+            if (contents.length >= maxContents) {
+                return contents;
+            }
+        }
+    }
+    return contents;
+}
+
+function locationUriString(value: unknown): string {
+    const directUri = (value as { uri?: unknown } | undefined)?.uri;
+    if (directUri instanceof vscode.Uri) {
+        return directUri.toString();
+    }
+    const targetUri = (value as { targetUri?: unknown } | undefined)?.targetUri;
+    if (targetUri instanceof vscode.Uri) {
+        return targetUri.toString();
+    }
+    return '';
+}
+
+function locationRangeString(value: unknown): string {
+    const range = (value as { range?: unknown } | undefined)?.range ??
+        (value as { targetRange?: unknown } | undefined)?.targetRange;
+    if (range instanceof vscode.Range) {
+        return `${range.start.line + 1}:${range.start.character + 1}`;
+    }
+    return '';
+}
+
+function locationToString(value: unknown): string {
+    const uri = locationUriString(value);
+    const range = locationRangeString(value);
+    return range.length > 0 ? `${uri}#${range}` : uri;
+}
+
+function flattenDocumentSymbolNames(
+    symbols: Array<vscode.DocumentSymbol | vscode.SymbolInformation> | undefined,
+    output: string[] = []
+): string[] {
+    for (const symbol of symbols ?? []) {
+        const name = (symbol as { name?: unknown }).name;
+        if (typeof name === 'string' && name.length > 0) {
+            output.push(name);
+        }
+        const children = (symbol as vscode.DocumentSymbol).children;
+        if (Array.isArray(children) && children.length > 0) {
+            flattenDocumentSymbolNames(children, output);
+        }
+    }
+    return output;
+}
+
+function inlayHintLabelToString(label: unknown): string {
+    if (typeof label === 'string') {
+        return label;
+    }
+    if (Array.isArray(label)) {
+        return label
+            .map((part) => {
+                if (typeof part === 'string') {
+                    return part;
+                }
+                const value = (part as { value?: unknown } | undefined)?.value;
+                return typeof value === 'string' ? value : '';
+            })
+            .join('');
+    }
+    return String(label ?? '');
 }
 
 async function waitForReplayServerIndexingIdle(label: string, timeoutMs: number): Promise<void> {
@@ -134,6 +228,93 @@ type WorkspaceSymbolCaptureReport = {
     expectedPresent?: Record<string, boolean>;
     error?: string;
     workspaceIndexDebug?: unknown;
+};
+
+type HoverCaptureReport = {
+    durationMs: number;
+    hoverCount: number;
+    topContents: string[];
+    expectedSubstrings?: string[];
+    expectedMatched?: Record<string, boolean>;
+    line?: number;
+    character?: number;
+    lineText?: string;
+    error?: string;
+};
+
+type LocationCaptureReport = {
+    durationMs: number;
+    locationCount: number;
+    topLocations: string[];
+    expectedUriSubstrings?: string[];
+    expectedMatched?: Record<string, boolean>;
+    minLocations?: number;
+    maxLocations?: number;
+    withinExpectedMin?: boolean;
+    withinExpectedMax?: boolean;
+    line?: number;
+    character?: number;
+    lineText?: string;
+    error?: string;
+};
+
+type DocumentSymbolCaptureReport = {
+    durationMs: number;
+    symbolCount: number;
+    topNames: string[];
+    expectedNames?: string[];
+    expectedPresent?: Record<string, boolean>;
+    error?: string;
+};
+
+type InlayHintsCaptureReport = {
+    durationMs: number;
+    hintCount: number;
+    rangeStartLine: number;
+    rangeEndLine: number;
+    topLabels: string[];
+    expectedLabels?: string[];
+    expectedPresent?: Record<string, boolean>;
+    minHints?: number;
+    maxHints?: number;
+    withinExpectedMin?: boolean;
+    withinExpectedMax?: boolean;
+    error?: string;
+};
+
+type PrepareRenameCaptureReport = {
+    durationMs: number;
+    placeholder?: string;
+    expectedPlaceholder?: string;
+    placeholderMatched?: boolean;
+    line?: number;
+    character?: number;
+    lineText?: string;
+    error?: string;
+};
+
+type RenameEditCaptureReport = {
+    durationMs: number;
+    newName: string;
+    changeCount: number;
+    minChanges?: number;
+    maxChanges?: number;
+    withinExpectedMin?: boolean;
+    withinExpectedMax?: boolean;
+    line?: number;
+    character?: number;
+    lineText?: string;
+    error?: string;
+};
+
+type SemanticTokensCaptureReport = {
+    durationMs: number;
+    dataLength: number;
+    minDataLength?: number;
+    maxDataLength?: number;
+    withinExpectedMin?: boolean;
+    withinExpectedMax?: boolean;
+    error?: string;
 };
 
 type DiagnosticsCaptureReport = {
@@ -400,6 +581,14 @@ type ReplayStepReport = {
     anomalies: string[];
     completionCapture?: CompletionCaptureReport;
     signatureHelpCapture?: SignatureHelpCaptureReport;
+    hoverCapture?: HoverCaptureReport;
+    definitionCapture?: LocationCaptureReport;
+    referencesCapture?: LocationCaptureReport;
+    documentSymbolCapture?: DocumentSymbolCaptureReport;
+    inlayHintsCapture?: InlayHintsCaptureReport;
+    prepareRenameCapture?: PrepareRenameCaptureReport;
+    renameEditCapture?: RenameEditCaptureReport;
+    semanticTokensCapture?: SemanticTokensCaptureReport;
     workspaceSymbolCapture?: WorkspaceSymbolCaptureReport;
     fullDocumentTyping?: FullDocumentTypingReport;
 };
@@ -1347,6 +1536,344 @@ async function captureSignatureHelpAtEditor(
     };
 }
 
+async function captureHoverAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload?: Extract<ReplayStep, { kind: 'captureHover' }>['payload']
+): Promise<HoverCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const position = activeEditor.selection.active;
+    const lineText = getLineText(document, position.line);
+    const expectedSubstrings = Array.isArray(payload?.expectedSubstrings)
+        ? payload.expectedSubstrings.filter((entry): entry is string => typeof entry === 'string')
+        : undefined;
+    const maxContents = Math.max(1, Math.min(50, payload?.maxContents ?? 10));
+
+    const startedAt = Date.now();
+    let hovers: vscode.Hover[] | undefined;
+    let error: string | undefined;
+    try {
+        hovers = await vscode.commands.executeCommand<vscode.Hover[] | undefined>(
+            'vscode.executeHoverProvider',
+            document.uri,
+            position
+        );
+    } catch (captureError) {
+        error = captureError instanceof Error ? captureError.message : String(captureError);
+    }
+    const topContents = hoverContentsToStrings(hovers, maxContents);
+    const allText = topContents.join('\n');
+    const expectedMatched = expectedSubstrings
+        ? Object.fromEntries(expectedSubstrings.map((needle) => [needle, allText.includes(needle)]))
+        : undefined;
+
+    return {
+        durationMs: Date.now() - startedAt,
+        hoverCount: Array.isArray(hovers) ? hovers.length : 0,
+        topContents,
+        expectedSubstrings,
+        expectedMatched,
+        line: position.line,
+        character: position.character,
+        lineText,
+        error
+    };
+}
+
+async function captureLocationsAtEditor(
+    activeEditor: vscode.TextEditor,
+    command: 'vscode.executeDefinitionProvider' | 'vscode.executeReferenceProvider',
+    payload?: Extract<ReplayStep, { kind: 'captureDefinition' | 'captureReferences' }>['payload']
+): Promise<LocationCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const position = activeEditor.selection.active;
+    const lineText = getLineText(document, position.line);
+    const expectedUriSubstrings = Array.isArray(payload?.expectedUriSubstrings)
+        ? payload.expectedUriSubstrings.filter((entry): entry is string => typeof entry === 'string')
+        : undefined;
+    const minLocations = typeof payload?.minLocations === 'number' ? Math.max(0, payload.minLocations) : undefined;
+    const maxLocations = typeof payload?.maxLocations === 'number' ? Math.max(0, payload.maxLocations) : undefined;
+    const maxTopLocations = Math.max(1, Math.min(200, maxLocations ?? 50));
+
+    const startedAt = Date.now();
+    let locations: unknown[] | undefined;
+    let error: string | undefined;
+    try {
+        locations = await vscode.commands.executeCommand<unknown[] | undefined>(
+            command,
+            document.uri,
+            position
+        );
+    } catch (captureError) {
+        error = captureError instanceof Error ? captureError.message : String(captureError);
+    }
+    const allLocations = Array.isArray(locations) ? locations.map(locationToString).filter((item) => item.length > 0) : [];
+    const topLocations = allLocations.slice(0, maxTopLocations);
+    const expectedMatched = expectedUriSubstrings
+        ? Object.fromEntries(
+              expectedUriSubstrings.map((needle) => [
+                  needle,
+                  allLocations.some((location) => location.toLowerCase().includes(needle.toLowerCase()))
+              ])
+          )
+        : undefined;
+
+    return {
+        durationMs: Date.now() - startedAt,
+        locationCount: allLocations.length,
+        topLocations,
+        expectedUriSubstrings,
+        expectedMatched,
+        minLocations,
+        maxLocations,
+        withinExpectedMin: minLocations === undefined ? undefined : allLocations.length >= minLocations,
+        withinExpectedMax: maxLocations === undefined ? undefined : allLocations.length <= maxLocations,
+        line: position.line,
+        character: position.character,
+        lineText,
+        error
+    };
+}
+
+async function captureDocumentSymbolsAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload?: Extract<ReplayStep, { kind: 'captureDocumentSymbols' }>['payload']
+): Promise<DocumentSymbolCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const expectedNames = Array.isArray(payload?.expectedNames)
+        ? payload.expectedNames.filter((entry): entry is string => typeof entry === 'string')
+        : undefined;
+    const maxNames = Math.max(1, Math.min(200, payload?.maxNames ?? 80));
+    const waitForReadyMs = Math.max(0, Math.min(30000, payload?.waitForReadyMs ?? 3000));
+
+    const startedAt = Date.now();
+    let symbols: Array<vscode.DocumentSymbol | vscode.SymbolInformation> | undefined;
+    let error: string | undefined;
+    let names: string[] = [];
+    const deadline = Date.now() + waitForReadyMs;
+    do {
+        try {
+            symbols = await vscode.commands.executeCommand<Array<vscode.DocumentSymbol | vscode.SymbolInformation> | undefined>(
+                'vscode.executeDocumentSymbolProvider',
+                document.uri
+            );
+            error = undefined;
+        } catch (captureError) {
+            error = captureError instanceof Error ? captureError.message : String(captureError);
+            symbols = undefined;
+        }
+        names = flattenDocumentSymbolNames(symbols);
+        const expectedReady = expectedNames === undefined || expectedNames.every((name) => names.includes(name));
+        if (expectedReady && (expectedNames !== undefined || names.length > 0 || waitForReadyMs === 0)) {
+            break;
+        }
+        if (Date.now() >= deadline) {
+            break;
+        }
+        await delay(100);
+    } while (true);
+    const topNames = names.slice(0, maxNames);
+    const expectedPresent = expectedNames
+        ? Object.fromEntries(expectedNames.map((name) => [name, names.includes(name)]))
+        : undefined;
+
+    return {
+        durationMs: Date.now() - startedAt,
+        symbolCount: names.length,
+        topNames,
+        expectedNames,
+        expectedPresent,
+        error
+    };
+}
+
+async function captureInlayHintsAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload?: Extract<ReplayStep, { kind: 'captureInlayHints' }>['payload']
+): Promise<InlayHintsCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const position = activeEditor.selection.active;
+    const before = Math.max(0, Math.min(200, payload?.lineDeltaBefore ?? 0));
+    const after = Math.max(0, Math.min(200, payload?.lineDeltaAfter ?? 0));
+    const startLine = Math.max(0, position.line - before);
+    const endLine = Math.min(document.lineCount - 1, position.line + after);
+    const endCharacter = getLineText(document, endLine).length;
+    const range = new vscode.Range(
+        new vscode.Position(startLine, 0),
+        new vscode.Position(endLine, endCharacter)
+    );
+    const expectedLabels = Array.isArray(payload?.expectedLabels)
+        ? payload.expectedLabels.filter((entry): entry is string => typeof entry === 'string')
+        : undefined;
+    const minHints = typeof payload?.minHints === 'number' ? Math.max(0, payload.minHints) : undefined;
+    const maxHints = typeof payload?.maxHints === 'number' ? Math.max(0, payload.maxHints) : undefined;
+    const maxTopHints = Math.max(1, Math.min(200, maxHints ?? 80));
+
+    const startedAt = Date.now();
+    let hints: vscode.InlayHint[] | undefined;
+    let error: string | undefined;
+    try {
+        hints = await vscode.commands.executeCommand<vscode.InlayHint[] | undefined>(
+            'vscode.executeInlayHintProvider',
+            document.uri,
+            range
+        );
+    } catch (captureError) {
+        error = captureError instanceof Error ? captureError.message : String(captureError);
+    }
+    const labels = (hints ?? []).map((hint) => inlayHintLabelToString(hint.label)).filter((label) => label.length > 0);
+    const topLabels = labels.slice(0, maxTopHints);
+    const expectedPresent = expectedLabels
+        ? Object.fromEntries(expectedLabels.map((label) => [label, labels.includes(label)]))
+        : undefined;
+
+    return {
+        durationMs: Date.now() - startedAt,
+        hintCount: Array.isArray(hints) ? hints.length : 0,
+        rangeStartLine: startLine,
+        rangeEndLine: endLine,
+        topLabels,
+        expectedLabels,
+        expectedPresent,
+        minHints,
+        maxHints,
+        withinExpectedMin: minHints === undefined ? undefined : (hints?.length ?? 0) >= minHints,
+        withinExpectedMax: maxHints === undefined ? undefined : (hints?.length ?? 0) <= maxHints,
+        error
+    };
+}
+
+async function capturePrepareRenameAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload?: Extract<ReplayStep, { kind: 'capturePrepareRename' }>['payload']
+): Promise<PrepareRenameCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const position = activeEditor.selection.active;
+    const lineText = getLineText(document, position.line);
+    const expectedPlaceholder = typeof payload?.expectedPlaceholder === 'string'
+        ? payload.expectedPlaceholder
+        : undefined;
+
+    const startedAt = Date.now();
+    let result: unknown;
+    let error: string | undefined;
+    try {
+        result = await vscode.commands.executeCommand<unknown>(
+            'vscode.prepareRename',
+            document.uri,
+            position
+        );
+    } catch (captureError) {
+        error = captureError instanceof Error ? captureError.message : String(captureError);
+    }
+    const placeholder = typeof (result as { placeholder?: unknown } | undefined)?.placeholder === 'string'
+        ? (result as { placeholder: string }).placeholder
+        : undefined;
+
+    return {
+        durationMs: Date.now() - startedAt,
+        placeholder,
+        expectedPlaceholder,
+        placeholderMatched: expectedPlaceholder === undefined ? undefined : placeholder === expectedPlaceholder,
+        line: position.line,
+        character: position.character,
+        lineText,
+        error
+    };
+}
+
+async function captureRenameEditAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload: Extract<ReplayStep, { kind: 'captureRenameEdit' }>['payload']
+): Promise<RenameEditCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const position = activeEditor.selection.active;
+    const lineText = getLineText(document, position.line);
+    const newName = String(payload.newName ?? '').trim();
+    const minChanges = typeof payload.minChanges === 'number' ? Math.max(0, payload.minChanges) : undefined;
+    const maxChanges = typeof payload.maxChanges === 'number' ? Math.max(0, payload.maxChanges) : undefined;
+
+    const startedAt = Date.now();
+    let changeCount = 0;
+    let error: string | undefined;
+    try {
+        const edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit | undefined>(
+            'vscode.executeDocumentRenameProvider',
+            document.uri,
+            position,
+            newName
+        );
+        changeCount = edit ? countWorkspaceEdits(edit) : 0;
+    } catch (captureError) {
+        error = captureError instanceof Error ? captureError.message : String(captureError);
+    }
+
+    return {
+        durationMs: Date.now() - startedAt,
+        newName,
+        changeCount,
+        minChanges,
+        maxChanges,
+        withinExpectedMin: minChanges === undefined ? undefined : changeCount >= minChanges,
+        withinExpectedMax: maxChanges === undefined ? undefined : changeCount <= maxChanges,
+        line: position.line,
+        character: position.character,
+        lineText,
+        error
+    };
+}
+
+async function captureSemanticTokensAtEditor(
+    activeEditor: vscode.TextEditor,
+    payload?: Extract<ReplayStep, { kind: 'captureSemanticTokens' }>['payload']
+): Promise<SemanticTokensCaptureReport> {
+    activeEditor = await vscode.window.showTextDocument(activeEditor.document, { preview: false });
+    const document = activeEditor.document;
+    const minDataLength = typeof payload?.minDataLength === 'number' ? Math.max(0, payload.minDataLength) : undefined;
+    const maxDataLength = typeof payload?.maxDataLength === 'number' ? Math.max(0, payload.maxDataLength) : undefined;
+    const waitForReadyMs = Math.max(0, Math.min(30000, payload?.waitForReadyMs ?? 3000));
+
+    const startedAt = Date.now();
+    let dataLength = 0;
+    let error: string | undefined;
+    const deadline = Date.now() + waitForReadyMs;
+    do {
+        try {
+            const tokens = await vscode.commands.executeCommand<vscode.SemanticTokens | undefined>(
+                'vscode.provideDocumentSemanticTokens',
+                document.uri
+            );
+            dataLength = tokens?.data?.length ?? 0;
+            error = undefined;
+        } catch (captureError) {
+            error = captureError instanceof Error ? captureError.message : String(captureError);
+            dataLength = 0;
+        }
+        if ((minDataLength === undefined || dataLength >= minDataLength) && (dataLength > 0 || waitForReadyMs === 0)) {
+            break;
+        }
+        if (Date.now() >= deadline) {
+            break;
+        }
+        await delay(100);
+    } while (true);
+
+    return {
+        durationMs: Date.now() - startedAt,
+        dataLength,
+        minDataLength,
+        maxDataLength,
+        withinExpectedMin: minDataLength === undefined ? undefined : dataLength >= minDataLength,
+        withinExpectedMax: maxDataLength === undefined ? undefined : dataLength <= maxDataLength,
+        error
+    };
+}
+
 function createProbeStep(probe: ReplayTypingProbe): ReplayStep {
     return {
         kind: 'typeText',
@@ -1537,6 +2064,108 @@ function collectFullDocumentTypingAnomalies(report: FullDocumentTypingReport): s
                 anomalies.push(`diagnostics-errors-out-of-range:${label}`);
             }
         }
+    }
+    return anomalies;
+}
+
+function collectTopLevelCaptureAnomalies(report: ReplayStepReport): string[] {
+    const anomalies: string[] = [];
+    const label = report.stepLabel.replace(/\s+/g, '-').toLowerCase();
+    for (const missing of expectedMissing(report.completionCapture?.expectedPresent)) {
+        anomalies.push(`completion-expected-missing:${label}:${missing}`);
+    }
+    if (report.completionCapture?.error) {
+        anomalies.push(`completion-capture-error:${label}`);
+    }
+    if (report.completionCapture?.uiTrigger?.error) {
+        anomalies.push(`completion-ui-trigger-error:${label}`);
+    }
+    for (const missing of expectedMissing(report.signatureHelpCapture?.expectedMatched)) {
+        anomalies.push(`signature-expected-missing:${label}:${missing}`);
+    }
+    if (report.signatureHelpCapture?.error) {
+        anomalies.push(`signature-capture-error:${label}`);
+    }
+    if (report.signatureHelpCapture?.uiTrigger?.error) {
+        anomalies.push(`signature-ui-trigger-error:${label}`);
+    }
+    for (const missing of expectedMissing(report.hoverCapture?.expectedMatched)) {
+        anomalies.push(`hover-expected-missing:${label}:${missing}`);
+    }
+    if (report.hoverCapture?.error) {
+        anomalies.push(`hover-capture-error:${label}`);
+    }
+    for (const missing of expectedMissing(report.definitionCapture?.expectedMatched)) {
+        anomalies.push(`definition-expected-missing:${label}:${missing}`);
+    }
+    if (report.definitionCapture?.withinExpectedMin === false) {
+        anomalies.push(`definition-count-below-min:${label}`);
+    }
+    if (report.definitionCapture?.withinExpectedMax === false) {
+        anomalies.push(`definition-count-above-max:${label}`);
+    }
+    if (report.definitionCapture?.error) {
+        anomalies.push(`definition-capture-error:${label}`);
+    }
+    for (const missing of expectedMissing(report.referencesCapture?.expectedMatched)) {
+        anomalies.push(`references-expected-missing:${label}:${missing}`);
+    }
+    if (report.referencesCapture?.withinExpectedMin === false) {
+        anomalies.push(`references-count-below-min:${label}`);
+    }
+    if (report.referencesCapture?.withinExpectedMax === false) {
+        anomalies.push(`references-count-above-max:${label}`);
+    }
+    if (report.referencesCapture?.error) {
+        anomalies.push(`references-capture-error:${label}`);
+    }
+    for (const missing of expectedMissing(report.documentSymbolCapture?.expectedPresent)) {
+        anomalies.push(`document-symbol-expected-missing:${label}:${missing}`);
+    }
+    if (report.documentSymbolCapture?.error) {
+        anomalies.push(`document-symbol-capture-error:${label}`);
+    }
+    for (const missing of expectedMissing(report.inlayHintsCapture?.expectedPresent)) {
+        anomalies.push(`inlay-expected-missing:${label}:${missing}`);
+    }
+    if (report.inlayHintsCapture?.withinExpectedMin === false) {
+        anomalies.push(`inlay-count-below-min:${label}`);
+    }
+    if (report.inlayHintsCapture?.withinExpectedMax === false) {
+        anomalies.push(`inlay-count-above-max:${label}`);
+    }
+    if (report.inlayHintsCapture?.error) {
+        anomalies.push(`inlay-capture-error:${label}`);
+    }
+    if (report.prepareRenameCapture?.placeholderMatched === false) {
+        anomalies.push(`prepare-rename-placeholder-mismatch:${label}`);
+    }
+    if (report.prepareRenameCapture?.error) {
+        anomalies.push(`prepare-rename-capture-error:${label}`);
+    }
+    if (report.renameEditCapture?.withinExpectedMin === false) {
+        anomalies.push(`rename-edit-count-below-min:${label}`);
+    }
+    if (report.renameEditCapture?.withinExpectedMax === false) {
+        anomalies.push(`rename-edit-count-above-max:${label}`);
+    }
+    if (report.renameEditCapture?.error) {
+        anomalies.push(`rename-edit-capture-error:${label}`);
+    }
+    if (report.semanticTokensCapture?.withinExpectedMin === false) {
+        anomalies.push(`semantic-tokens-count-below-min:${label}`);
+    }
+    if (report.semanticTokensCapture?.withinExpectedMax === false) {
+        anomalies.push(`semantic-tokens-count-above-max:${label}`);
+    }
+    if (report.semanticTokensCapture?.error) {
+        anomalies.push(`semantic-tokens-capture-error:${label}`);
+    }
+    for (const missing of expectedMissing(report.workspaceSymbolCapture?.expectedPresent)) {
+        anomalies.push(`workspace-symbol-expected-missing:${label}:${missing}`);
+    }
+    if (report.workspaceSymbolCapture?.error) {
+        anomalies.push(`workspace-symbol-capture-error:${label}`);
     }
     return anomalies;
 }
@@ -1789,6 +2418,14 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
 
             let completionCapture: CompletionCaptureReport | undefined;
             let signatureHelpCapture: SignatureHelpCaptureReport | undefined;
+            let hoverCapture: HoverCaptureReport | undefined;
+            let definitionCapture: LocationCaptureReport | undefined;
+            let referencesCapture: LocationCaptureReport | undefined;
+            let documentSymbolCapture: DocumentSymbolCaptureReport | undefined;
+            let inlayHintsCapture: InlayHintsCaptureReport | undefined;
+            let prepareRenameCapture: PrepareRenameCaptureReport | undefined;
+            let renameEditCapture: RenameEditCaptureReport | undefined;
+            let semanticTokensCapture: SemanticTokensCaptureReport | undefined;
             let workspaceSymbolCapture: WorkspaceSymbolCaptureReport | undefined;
             let fullDocumentTyping: FullDocumentTypingReport | undefined;
             let completionCapturePromise: Promise<CompletionCaptureReport> | undefined;
@@ -1888,6 +2525,70 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                     signatureHelpCapturePromise = captureSignatureHelpAtEditor(activeEditor, step.payload);
                     break;
                 }
+                case 'captureHover': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] captureHover requires an active editor. Step: ${step.label}`);
+                    }
+                    hoverCapture = await captureHoverAtEditor(activeEditor, step.payload);
+                    break;
+                }
+                case 'captureDefinition': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] captureDefinition requires an active editor. Step: ${step.label}`);
+                    }
+                    definitionCapture = await captureLocationsAtEditor(
+                        activeEditor,
+                        'vscode.executeDefinitionProvider',
+                        step.payload
+                    );
+                    break;
+                }
+                case 'captureReferences': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] captureReferences requires an active editor. Step: ${step.label}`);
+                    }
+                    referencesCapture = await captureLocationsAtEditor(
+                        activeEditor,
+                        'vscode.executeReferenceProvider',
+                        step.payload
+                    );
+                    break;
+                }
+                case 'captureDocumentSymbols': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] captureDocumentSymbols requires an active editor. Step: ${step.label}`);
+                    }
+                    documentSymbolCapture = await captureDocumentSymbolsAtEditor(activeEditor, step.payload);
+                    break;
+                }
+                case 'captureInlayHints': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] captureInlayHints requires an active editor. Step: ${step.label}`);
+                    }
+                    inlayHintsCapture = await captureInlayHintsAtEditor(activeEditor, step.payload);
+                    break;
+                }
+                case 'capturePrepareRename': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] capturePrepareRename requires an active editor. Step: ${step.label}`);
+                    }
+                    prepareRenameCapture = await capturePrepareRenameAtEditor(activeEditor, step.payload);
+                    break;
+                }
+                case 'captureRenameEdit': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] captureRenameEdit requires an active editor. Step: ${step.label}`);
+                    }
+                    renameEditCapture = await captureRenameEditAtEditor(activeEditor, step.payload);
+                    break;
+                }
+                case 'captureSemanticTokens': {
+                    if (!activeEditor) {
+                        throw new Error(`[real-replay] captureSemanticTokens requires an active editor. Step: ${step.label}`);
+                    }
+                    semanticTokensCapture = await captureSemanticTokensAtEditor(activeEditor, step.payload);
+                    break;
+                }
                 case 'captureWorkspaceSymbols': {
                     const query = String(step.payload?.query ?? '');
                     const expectedNames = Array.isArray(step.payload?.expectedNames)
@@ -1979,7 +2680,7 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
             if (fullDocumentTyping?.anomalies.length) {
                 anomalies.push(...fullDocumentTyping.anomalies);
             }
-            stepReports.push({
+            const stepReport: ReplayStepReport = {
                 stepLabel: step.label,
                 stepKind: step.kind,
                 actionStartedAtMs,
@@ -1989,9 +2690,19 @@ export async function runReplayScript(script: ReplayScript): Promise<{ scriptId:
                 anomalies,
                 completionCapture,
                 signatureHelpCapture,
+                hoverCapture,
+                definitionCapture,
+                referencesCapture,
+                documentSymbolCapture,
+                inlayHintsCapture,
+                prepareRenameCapture,
+                renameEditCapture,
+                semanticTokensCapture,
                 workspaceSymbolCapture,
                 fullDocumentTyping
-            });
+            };
+            stepReport.anomalies.push(...collectTopLevelCaptureAnomalies(stepReport));
+            stepReports.push(stepReport);
         }
     } finally {
         if (script.cleanup?.restoreTouchedDocuments) {

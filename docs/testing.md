@@ -178,6 +178,10 @@ $env:NSF_TEST_REAL_REPLAY_SCRIPT_FILTER = "pbr-flow-water-full-input"
 npm run test:client:real:replay
 ```
 
+`pbr-flow-water-user-journey` 是默认 real replay suite 中的综合 UX 脚本，覆盖真实用户常见的主 unit 打开、active unit settle、workspace symbol 搜索、document outline、semantic tokens、hover、definition、references、prepare rename、rename edit 预览、inlay hints、include 内局部替换、成员补全、函数前缀补全、signature help、预处理宏补全，以及 diagnostics 删除/恢复。新增或调整真实交互体验检测时，应优先把“用户实际会怎样输入”的短链路沉淀到该类 user-journey 脚本；完整文件输入或高采样压力流仍应保留 `long-running` 标签并显式启用。顶层 capture step 的 expected 缺失会进入 replay anomaly，并由 real replay 测试直接失败。
+
+document outline 和 semantic tokens 属于 deferred surface；对应 replay capture 应显式设置 `waitForReadyMs`，等待 expected 可验证后再记录报告，避免把合法的后台物化时序误判成用户能力缺失。
+
 `pbr-flow-water-full-input` 会从空 buffer 输入完整节点文件，按成员补全、texture method、函数族补全、内置函数、局部变量、uniform、预处理宏、signature help 和最终 diagnostics 分组采样；脚本属于重型验证，单次运行可能需要数分钟。
 
 ## 测试写法约束

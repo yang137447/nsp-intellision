@@ -38,8 +38,12 @@
     {
       "kind": "typeText",
       "label": "type member prefix",
-      "payload": { "text": ".x" },
-      "samplingWindow": { "label": "member-window", "delaysMs": [0, 30, 80, 160, 320, 640, 1280] }
+      "payload": { "text": "." }
+    },
+    {
+      "kind": "captureCompletion",
+      "label": "capture member completion after dot",
+      "payload": { "expectedLabels": ["x", "y"], "maxLabels": 40, "triggerSuggestUi": true }
     }
   ],
   "cleanup": { "restoreTouchedDocuments": true }

@@ -76,8 +76,10 @@ struct InteractiveVisibilityKey {
 // active unit when available. `shaderCompilerPath` is an optional read-only
 // profile source root; the runtime includes it in cache fingerprints but does
 // not execute external compiler processes. The runtime may reuse a cached
-// snapshot across comment/whitespace edits that do not affect preprocessor
-// state, but only this module decides when that reuse is safe.
+// snapshot across edits that cannot affect active-unit preprocessor state:
+// unrelated include/document edits while the active unit is unchanged, and
+// active-unit edits whose changed ranges do not touch preprocessor directives or
+// continued directive lines. Only this module decides when that reuse is safe.
 struct GlobalContextRuntimeOptions {
   std::vector<std::string> workspaceFolders;
   std::vector<std::string> includePaths;
@@ -104,10 +106,10 @@ struct GlobalContextSnapshot {
 
 // Rebuilds or reuses the shared global context snapshot.
 //
-// Callers should provide the changed document when the current event is a
-// `didChange`/`didOpen` for the active unit so the runtime can keep the old
-// snapshot across preprocessor-neutral edits. For other callers, pass empty
-// `changedDocumentUri` and `changedRanges`.
+// Callers should provide the changed document for `didChange` so the runtime can
+// bypass expensive active-unit macro/profile/include recomputation when the edit
+// is unrelated to the active unit or is active-unit preprocessor-neutral. For
+// non-edit refreshes, pass empty `changedDocumentUri` and `changedRanges`.
 std::shared_ptr<const GlobalContextSnapshot> globalContextRuntimeRefresh(
     const GlobalContextRuntimeOptions &options,
     const std::string &changedDocumentUri = std::string(),
