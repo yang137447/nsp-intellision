@@ -37,6 +37,42 @@ float3 BuildSplitReturn(float3 input)
         , input.z);
 }
 
+float3 BuildSplitLerpReturn(float3 baseColor, float3 blendColor, float weight)
+{
+    return lerp(float3(baseColor.x, baseColor.y, baseColor.z),
+        float3(blendColor.x, blendColor.y, blendColor.z),
+        weight);
+}
+
+half3 BuildSplitHalfReturn(half3 normalBlur, half3 normalGreen, half3 normalBlue)
+{
+    return half3(normalBlur.x
+        , normalGreen.y
+        , normalBlue.z);
+}
+
+float
+BuildReturnTypeSplitHeader(float value)
+{
+    return value;
+}
+
+float4 BuildNameSplitHeader
+(
+    float3 input
+)
+{
+    return float4(input, 1.0);
+}
+
+float4 BuildSplitAssignment(float3 input)
+{
+    float4 accumulated = float4(input.x, input.y, input.z, 1.0)
+        + float4(0.1, 0.2, 0.3, 0.0)
+        + float4(input.z, input.y, input.x, 0.0);
+    return accumulated;
+}
+
 void ComplexConditionBoundary(in FGBufferData gbuffer, inout PixelData p)
 {
     if ((gbuffer.ShadingModelID == 1) ||
@@ -59,4 +95,11 @@ float2 ArrayInitializerBoundary(int index)
         float2(1.0, 1.0)
     };
     return offsets[index];
+}
+
+technique InlinePassBoundary
+{ pass p0
+    {
+        VertexShader = CompileShader(vs_3_0, ConvertToBasePassOutput());
+    }
 }

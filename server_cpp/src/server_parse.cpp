@@ -226,6 +226,20 @@ bool isStateBlockHeaderBeforeLine(const std::string &trimmed,
   return extractFxBlockDeclarationHeaderShared(trimmed, typeName, symbolName);
 }
 
+bool isInlineEffectBlockHeaderBeforeLine(const std::string &trimmed,
+                                         const std::string &nextTrimmed) {
+  if (!nextLineStartsWith(nextTrimmed, "{") ||
+      !nextLineStartsWith(trimmed, "{")) {
+    return false;
+  }
+  const std::string afterOpen =
+      trimRightCopy(trimLeftCopy(trimmed.substr(1)));
+  std::string effectKind;
+  std::string ignoredName;
+  return extractTechniquePassDeclarationHeaderShared(afterOpen, effectKind,
+                                                     ignoredName);
+}
+
 bool isMultilineFunctionSignatureTailBeforeLine(
     const std::vector<LexToken> &tokens, const std::string &nextTrimmed) {
   if (tokens.empty() || !nextLineStartsWith(nextTrimmed, "{"))
@@ -306,6 +320,93 @@ bool isGroupingTailBeforeBlock(const std::vector<LexToken> &tokens,
   }
   const auto &last = tokens.back();
   return last.kind == LexToken::Kind::Punct && last.text == ")";
+}
+
+bool isFunctionHeaderFragmentLine(const std::vector<LexToken> &tokens) {
+  if (tokens.empty())
+    return false;
+  int identifiers = 0;
+  int angleDepth = 0;
+  int bracketDepth = 0;
+  for (const auto &token : tokens) {
+    if (token.kind == LexToken::Kind::Identifier) {
+      if (!isQualifierToken(token.text))
+        identifiers++;
+      continue;
+    }
+    if (token.kind != LexToken::Kind::Punct)
+      return false;
+    const std::string &text = token.text;
+    if (text == "<") {
+      angleDepth++;
+      continue;
+    }
+    if (text == ">" && angleDepth > 0) {
+      angleDepth--;
+      continue;
+    }
+    if (text == "[") {
+      bracketDepth++;
+      continue;
+    }
+    if (text == "]" && bracketDepth > 0) {
+      bracketDepth--;
+      continue;
+    }
+    if (text == "*" || text == "&" || text == "::") {
+      continue;
+    }
+    return false;
+  }
+  return identifiers > 0 && angleDepth == 0 && bracketDepth == 0;
+}
+
+bool nextLineContinuesFunctionHeader(const std::string &nextTrimmed) {
+  const auto nextTokens = lexLineTokens(nextTrimmed);
+  if (nextTokens.empty())
+    return false;
+  if (nextTokens.front().kind == LexToken::Kind::Punct &&
+      nextTokens.front().text == "(") {
+    return true;
+  }
+  if (nextTokens.size() < 2 ||
+      nextTokens.front().kind != LexToken::Kind::Identifier) {
+    return false;
+  }
+  for (size_t i = 1; i < nextTokens.size(); i++) {
+    if (nextTokens[i].kind == LexToken::Kind::Punct &&
+        nextTokens[i].text == "(") {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool isFunctionSignatureNameLineAfterFragment(
+    const std::string &previousTrimmed, const std::vector<LexToken> &tokens,
+    const std::string &nextTrimmed) {
+  if (!nextLineStartsWith(nextTrimmed, "{"))
+    return false;
+  const auto previousTokens = lexLineTokens(previousTrimmed);
+  if (!isFunctionHeaderFragmentLine(previousTokens))
+    return false;
+  size_t openParen = std::string::npos;
+  for (size_t i = 0; i < tokens.size(); i++) {
+    if (tokens[i].kind == LexToken::Kind::Punct && tokens[i].text == "(") {
+      openParen = i;
+      break;
+    }
+  }
+  if (openParen == std::string::npos)
+    return false;
+  int identifiersBeforeParen = 0;
+  for (size_t i = 0; i < openParen; i++) {
+    if (tokens[i].kind == LexToken::Kind::Identifier &&
+        !isQualifierToken(tokens[i].text)) {
+      identifiersBeforeParen++;
+    }
+  }
+  return identifiersBeforeParen == 1;
 }
 
 bool isMacroOnlyLine(const std::vector<LexToken> &tokens) {
@@ -1377,7 +1478,8 @@ TrimmedCodeLineScanSharedResult buildTrimmedCodeLineScanShared(
   return result;
 }
 
-bool shouldReportMissingSemicolonShared(const std::string &trimmed,
+bool shouldReportMissingSemicolonShared(const std::string &previousTrimmed,
+                                        const std::string &trimmed,
                                         const std::string &nextTrimmed,
                                         bool insideOpenGroupingBeforeLine,
                                         bool insideOpenGroupingAfterLine) {
@@ -1421,7 +1523,12 @@ bool shouldReportMissingSemicolonShared(const std::string &trimmed,
   }
   if (isMetadataBlockHeaderBeforeLine(trimmed, nextTrimmed) ||
       isStateBlockHeaderBeforeLine(trimmed, nextTrimmed) ||
+      isInlineEffectBlockHeaderBeforeLine(trimmed, nextTrimmed) ||
       isMultilineFunctionSignatureTailBeforeLine(tokens, nextTrimmed) ||
+      (isFunctionHeaderFragmentLine(tokens) &&
+       nextLineContinuesFunctionHeader(nextTrimmed)) ||
+      isFunctionSignatureNameLineAfterFragment(previousTrimmed, tokens,
+                                               nextTrimmed) ||
       isParameterTailBeforeBlock(tokens, nextTrimmed) ||
       isGroupingTailBeforeBlock(tokens, nextTrimmed,
                                 insideOpenGroupingBeforeLine) ||
@@ -1460,6 +1567,15 @@ bool shouldReportMissingSemicolonShared(const std::string &trimmed,
     return true;
   }
   return false;
+}
+
+bool shouldReportMissingSemicolonShared(const std::string &trimmed,
+                                        const std::string &nextTrimmed,
+                                        bool insideOpenGroupingBeforeLine,
+                                        bool insideOpenGroupingAfterLine) {
+  return shouldReportMissingSemicolonShared(
+      std::string{}, trimmed, nextTrimmed, insideOpenGroupingBeforeLine,
+      insideOpenGroupingAfterLine);
 }
 
 bool findTypeOfIdentifierInDeclarationLineShared(const std::string &line,

@@ -126,10 +126,18 @@ TrimmedCodeLineScanSharedResult buildTrimmedCodeLineScanShared(
 // code line likely needs a terminating semicolon. It owns syntax-boundary
 // exceptions for NSF metadata/state blocks, multi-line function/control headers,
 // expression continuations, and macro-only recovery regions so diagnostics
-// layers do not repeat parser boundary rules. `insideOpenGroupingBeforeLine` and
-// `insideOpenGroupingAfterLine` come from the shared line scan and describe
-// whether the line starts/finishes inside a multi-line `(`/`[` grouping.
+// layers do not repeat parser boundary rules. The overload with
+// `previousTrimmed` handles signatures split as return-type / name(args) / body.
+// `insideOpenGroupingBeforeLine` and `insideOpenGroupingAfterLine` come from the
+// shared line scan and describe whether the line starts/finishes inside a
+// multi-line `(`/`[` grouping.
 bool shouldReportMissingSemicolonShared(const std::string &trimmed,
+                                        const std::string &nextTrimmed,
+                                        bool insideOpenGroupingBeforeLine,
+                                        bool insideOpenGroupingAfterLine);
+
+bool shouldReportMissingSemicolonShared(const std::string &previousTrimmed,
+                                        const std::string &trimmed,
                                         const std::string &nextTrimmed,
                                         bool insideOpenGroupingBeforeLine,
                                         bool insideOpenGroupingAfterLine);

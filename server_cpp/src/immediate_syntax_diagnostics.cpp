@@ -383,6 +383,18 @@ void collectMissingSemicolonDiagnostics(
         break;
       }
     }
+    std::string previousTrimmed;
+    for (int previousLine = lineIndex - 1; previousLine >= 0;
+         previousLine--) {
+      if (previousLine < static_cast<int>(preprocessorView.lineActive.size()) &&
+          !preprocessorView.lineActive[previousLine]) {
+        continue;
+      }
+      if (!trimmedLines[previousLine].empty()) {
+        previousTrimmed = trimmedLines[previousLine];
+        break;
+      }
+    }
 
     const std::string &trimmed = trimmedLines[lineIndex];
     const bool insideOpenGroupingBeforeLine =
@@ -399,7 +411,7 @@ void collectMissingSemicolonDiagnostics(
         (lineIndex <
              static_cast<int>(lineScan.bracketDepthAfterLine.size()) &&
          lineScan.bracketDepthAfterLine[lineIndex] > 0);
-    if (!shouldReportMissingSemicolonShared(trimmed, nextTrimmed,
+    if (!shouldReportMissingSemicolonShared(previousTrimmed, trimmed, nextTrimmed,
                                             insideOpenGroupingBeforeLine,
                                             insideOpenGroupingAfterLine))
       continue;

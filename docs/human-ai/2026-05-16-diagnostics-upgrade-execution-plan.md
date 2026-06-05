@@ -2665,42 +2665,72 @@ P14Q-C：profile / generated config 剩余项分流。
 
 ### 背景
 
-P13 full audit 中 parser / recovery 相关剩余约 `6948` 条：
+P14Q final reviewed 50-unit audit 已把宏缺口清零，剩余 diagnostics 的 parser / recovery 相关入口变为：
 
-- `Missing semicolon` / `effect-syntax-or-macro` / `likely-plugin-limitation`: `3056`
-- `Missing semicolon` / `syntax-structure` / `needs-manual-review`: `3886`
-- `Indeterminate assignment type: rhs type unavailable`: `6`
+- `Missing semicolon` / `effect-syntax-or-macro` / `likely-plugin-limitation`: `287`
+- `Missing semicolon` / `syntax-structure` / `needs-manual-review`: `261`
+- `Assignment type mismatch: half4 = half3`: `50`，样例是多行 RHS 只按首行推断。
+- semantic prerequisite skipped：`parser_region_unreliable=11458`、`expression_type_unavailable=4094`。
 
-典型误报集中在合法多行表达式：`return lerp(...)`、`return float3x3(...)`、多行 `float2(...)` 赋值、`saturate(length(...))` RHS continuation。与此同时，`height_bias.r = height_offset.r` 这类样本可能是真实缺分号，不能被整体吞掉。
+当前典型误报集中在合法多行表达式首行：`return lerp(...,`、`return half3(...`、`return float3(`、多行 `half4 env_diffuse = ...` RHS continuation。与此同时，`height_bias.r = height_offset.r`、broken multiline constructor closing line 这类样本可能是真实缺分号，不能被整体吞掉。
 
 ### 目标
 
-在共享 parser / syntax boundary 层区分合法多行 continuation 和真实 missing semicolon，降低 parser false positive，同时保留高置信真实语法错误。
+在共享 parser / syntax boundary 层区分合法多行 continuation 和真实 missing semicolon，降低 parser false positive 与多行 RHS 类型误判，同时保留高置信真实语法错误。
 
-### 方案
+### 子阶段
 
-1. 新增 focused fixtures，覆盖：
-   - 多行 `return float3(...)`
-   - 多行 `return lerp(...)`
-   - 多行 matrix constructor
-   - 多行 assignment constructor
-   - nested call + trailing comma continuation
-   - 真实 missing semicolon sentinel，例如 `height_bias.r = height_offset.r`
-2. 修 `server_parse.*` / syntax diagnostics 的共享 statement-boundary 逻辑，不在具体 diagnostics emitter 里局部 suppress。
-3. 把 open paren / bracket / brace、continuation comma、函数调用参数列表、constructor 列表、macro continuation 纳入 parser boundary 前提。
-4. parser region 不可靠时，优先通过 `diagnostics_prerequisites.*` 统计 skipped reason，不发布高置信伪错误。
-5. 修复后重新分流 `Missing semicolon`：
-   - parser continuation 已修复。
-   - 真实源码 syntax。
-   - parser region unreliable metadata。
+P15A：semantic return / assignment 专项路径回归共享 boundary。
+
+- 根因：`server_parse.*` / immediate syntax 的共享 `shouldReportMissingSemicolonShared(...)` 已能识别 open grouping continuation，但 `diagnostics_semantic.cpp` 中 return / assignment 专项路径在同一行看不到 `;` 时直接报 `Missing semicolon.`，绕过了共享 boundary。
+- 实现：把这些专项路径统一接入共享 statement-boundary 判定；合法多行 return / assignment 首行不报缺分号，broken multiline expression 仍在闭合行或函数结束前报高置信 syntax diagnostic。
+- 覆盖：`return lerp(...,`、`return half3(...`、`return float3(`、多行 local assignment constructor、多行 assignment continuation，以及真实 broken multiline sentinel。
+
+P15B：parser-region skipped metadata 复核。
+
+- 根因候选：P14Q final / P15A 后仍有大量 `parser_region_unreliable` / `expression_type_unavailable` skipped metadata；这些计数表示高置信 semantic rule 被 parser 前提挡下，不等于用户可见 diagnostics。
+- 实现边界：先抽样确认 skipped metadata 是否对应真实可修复 parser continuation。只有当完整 statement expression span 明确缺失且导致用户可见误报时，才在共享 expression typing 或 semantic diagnostics 入口构建 span；不在单条 rule 中猜测后续行。
+- 覆盖：多行 arithmetic RHS、nested call / constructor continuation、真实类型 mismatch sentinel。
+
+P15C：real audit 分流与边界确认。
+
+- 目标：修复后重新分流 `Missing semicolon`，区分 parser continuation 已修复、真实源码 syntax、parser region unreliable metadata 和后续 P16 statement-like macro local。
+- 验证：diagnostics focused fixture、5-unit smoke、50-unit trend；如 50-unit 下降明显再补 full audit。
+
+禁止边界：不在 diagnostics emitter 里新增 message allowlist / suppress，不用短路隐藏问题，不把所有多行场景统一降级；所有公开 syntax diagnostics 行为变化必须走共享 parser / prerequisite 边界。
 
 ### 验收标准
 
 - focused fixture 中合法多行 return / constructor / assignment 不再报 missing semicolon。
 - 真实缺分号 sentinel 仍发布 syntax diagnostic。
-- `Indeterminate assignment type: rhs type unavailable` 的多行 RHS 样本下降或迁移为明确 parser prerequisite skipped reason。
+- parser-region skipped metadata 完成抽样分流；若发现用户可见多行 RHS 误报，则进入共享 expression span 实现，否则迁出 P15。
 - 5-unit / 50-unit audit 中 parser-shaped missing semicolon 明显下降；如 50-unit 下降明显，补跑 full audit。
 - 公开 syntax diagnostics 行为变化已在最终说明中明确记录。
+
+2026-06-03 P15A execution evidence / implementation：
+
+- 根因确认：P14Q final 后剩余 `return lerp(...,`、`return half3(...`、`return float3(` 等缺分号样例不是 `server_parse.*` shared boundary 不认识 open grouping，而是 `diagnostics_semantic.cpp` 的 return / assignment 专项路径在当前行未见 `;` 时直接发布 `Missing semicolon.`，绕过了共享 `shouldReportMissingSemicolonShared(...)`。
+- 实现：在 semantic diagnostics 内新增 per-line shared boundary helper，return value、void return 和 existing-local assignment 三条 direct missing-semicolon 路径发布前统一调用共享 boundary。合法多行 continuation 首行不报；已有 broken multiline constructor closing-line sentinel 仍由 shared boundary / pending multiline local 路径保留。
+- Focused 覆盖：`test_files/module_diagnostics_parser_boundary_recovery.nsf` 新增 `return lerp(...,`、`return half3(...` 和多行 assignment continuation 样式；既有 diagnostics fixture 继续覆盖真实 missing semicolon、broken multiline constructor closing line、basic-mode immediate syntax 和 editing 删除分号。
+- 验证：
+  - `cmake --build .\server_cpp\build` 通过。
+  - `node .\out\test\runCodeTests.js --mode repo --file-filter diagnostics` 首跑出现 whitespace-only edit last-good 时序失败；按仓库规则重跑同一 diagnostics suite 通过，90 passing / 1 pending。
+  - 5-unit smoke `phase-15a-semantic-boundary-smoke-5` 通过；diagnostics `372 -> 317`（相对 `phase-14q-legacy-zero-completed-smoke-5`），`effect-syntax-or-macro Missing semicolon 30 -> 0`，`syntax-structure Missing semicolon 29 -> 4`，剩余样例为 `height_bias.r = height_offset.r`。
+  - 50-unit trend `phase-15a-semantic-boundary-trend-50` 通过；diagnostics `2938 -> 2401`（相对 `phase-14q-final-reviewed-trend-50`），files with diagnostics `19 -> 14`，`effect-syntax-or-macro Missing semicolon 287 -> 0`，`syntax-structure Missing semicolon 261 -> 11`，`fileErrors=0`、`truncatedFiles=0`、`timedOutFiles=0`。
+- P15B 预检：剩余 `Assignment type mismatch: half4 = half3` 50 条样例来自 `shaderlib/indirect_lighting.hlsl` 的 `half4 env_diffuse = square.x * half3(...) + ...`；完整 RHS 仍为 `half3`，不是多行只看首行导致的 parser span 缺失。该项应迁出 P15，进入 P17 type policy / source confirmation，不能通过多行 RHS 建模或 suppress 处理。
+- P15B / P15C skipped metadata 抽样：
+  - `parser_region_unreliable` top files 为 `shaderlib/vertex_functions.hlsl`、`shaderlib/function.hlsl`、`shaderlib/indirect_lighting.hlsl`、`shaderlib/pbr_basic.hlsl`、`shaderlib/lighting.hlsl`、`shaderlib/shading_models.hlsl`、`shaderlib/monte_carlo.hlsl`。抽样行均为合法多行 constructor / return / condition 内部，例如 `float3(... dot(...), ...)`、`return float3x3(...)`、`return half3(...`、`return lerp(...`、多行 `if ((...) || (...))`。
+  - `expression_type_unavailable` top 文件包含 `shaderlib/indirect_lighting.hlsl`、`shaderlib/lighting_functions.hlsl`、`shaderlib/monte_carlo.hlsl` 等；当前用户可见剩余只有 `half4 = half3` 真实类型策略项，未发现新的 P15 parser continuation 可修复误报。
+  - 剩余 `syntax-structure Missing semicolon` 11 条全部落在 `shaderlib/season_uniforms.hlsl:1021` 的 `height_bias.r = height_offset.r`，下一行是 `height_bias.g = ...;`，属于真实源码缺分号样式。
+- 2026-06-04 full audit 补充：
+  - 单条 full audit 曾因 Mocha 用例预算耗尽失败：2h 上限时扫到约 `525/811`，5h 预算时扫到约 `750/811` 后超时且无报告落盘。测试入口已补 `NSF_REAL_DIAGNOSTICS_UNIT_OFFSET`，full audit 改为先发现完整 unit 列表，再按 offset / limit 分批扫描；`docs/testing.md` 已记录 100-unit batch 推荐命令和 full audit timeout 上限。
+  - P15 full 使用 9 个 batch 覆盖 `0-99`、`100-199`、`200-299`、`300-399`、`400-499`、`500-599`、`600-699`、`700-799`、`800-810`，合计 `811/811` units。所有 batch 通过，`fileErrors=0`；仅 `ui/floor_board_ui.nsf` 在 batch `700-799` 因单文件诊断构建预算产生 `truncated=1` / `timedOut=1`，属于 audit 单文件预算限制，非 P15 parser boundary 回归。
+  - full aggregate：`diagnosticsTotal=24374`，`unitsWithDiagnostics=769`，`filesWithDiagnostics=270`，`filesDiscovered=1187`，`filesScanned=1187`，`prerequisiteSkippedTotal=168023`（`parser_region_unreliable=120768`、`expression_type_unavailable=47255`）。
+  - full missing-semicolon 结果：`effect-syntax-or-macro Missing semicolon 0`；`syntax-structure Missing semicolon 56`，全部样例为 `shaderlib/season_uniforms.hlsl:1021` 的 `height_bias.r = height_offset.r`，下一行 `height_bias.g = height_offset.g + mask.r;`，属于真实源码缺分号样式。
+  - full audit 额外暴露并已修复的 P15 parser boundary 小尾巴：合法函数头拆行（`float` / `Func(args)` / `{`、`float4 Func` / `(`）和 effect inline pass header（`{ pass p0` / `{`）不再报缺分号。实现仍在共享 `shouldReportMissingSemicolonShared(...)` 边界内，semantic / immediate diagnostics 都传入 active previous / current / next trimmed line，不在 emitter 里按 message suppress。
+  - full indeterminate assignment：原 P15 parser continuation 样式 `half sun_dis = saturate(length(`、`half3 lm_day_night = lerp(`、`half3 normal = normalize(` 已通过 incomplete-line guard 收口，不再发布 `rhs type unavailable`。剩余 `2` 条都来自 `pbr/nodes/pbr_procedure_tex_nodes.hlsl` 的 `half tile_array[4] = {...};` 数组声明，属于数组 type modeling / call policy 缺口，迁出 P15，进入 P17 type policy / source confirmation。
+  - P14 focus 宏 `COLOR_CHANGE_MODE` / `EMISSIVE_MODE` / `FOLIAGE_MODE` 在 full aggregate 中 remaining undefined diagnostics 均为 `0`。
+- 阶段结论：P15 用户可见 parser-shaped missing-semicolon 和多行 RHS indeterminate 已收口；剩余 missing-semicolon 是真实源码样式，剩余 indeterminate 数组声明和 `Assignment type mismatch: half4 = half3` 属于 P17 type policy / source confirmation，`parser_region_unreliable` / `expression_type_unavailable` skipped metadata 当前是高置信 semantic diagnostics 的保护，不是 P15 待修用户可见问题。下一步应转入 P16 statement-like macro locals 或 P17 type policy / source confirmation。
 
 ## Phase 16 (P16): statement-like macro 声明局部变量语义边界
 

@@ -208,6 +208,45 @@ void collectReturnAndTypeDiagnostics(
     }
     return {};
   };
+  auto previousTrimmedCodeLine = [&](int currentLine) -> std::string {
+    for (int previousLine = currentLine - 1; previousLine >= 0;
+         previousLine--) {
+      if (previousLine < static_cast<int>(preprocessorView.lineActive.size()) &&
+          !preprocessorView.lineActive[previousLine]) {
+        continue;
+      }
+      if (!trimmedCodeLines[previousLine].empty())
+        return trimmedCodeLines[previousLine];
+    }
+    return {};
+  };
+  auto shouldReportMissingSemicolonOnLine = [&](int line) {
+    if (line < 0 || line >= static_cast<int>(trimmedCodeLines.size()))
+      return true;
+    const size_t index = static_cast<size_t>(line);
+    const bool insideOpenGroupingBefore =
+        (index < lineScan.parenDepthBeforeLine.size() &&
+         lineScan.parenDepthBeforeLine[index] > 0) ||
+        (index < lineScan.bracketDepthBeforeLine.size() &&
+         lineScan.bracketDepthBeforeLine[index] > 0);
+    const bool insideOpenGroupingAfter =
+        (index < lineScan.parenDepthAfterLine.size() &&
+         lineScan.parenDepthAfterLine[index] > 0) ||
+        (index < lineScan.bracketDepthAfterLine.size() &&
+         lineScan.bracketDepthAfterLine[index] > 0);
+    return shouldReportMissingSemicolonShared(
+        previousTrimmedCodeLine(line), trimmedCodeLines[index],
+        nextTrimmedCodeLine(line),
+        insideOpenGroupingBefore, insideOpenGroupingAfter);
+  };
+  auto shouldSkipIndeterminateOnIncompleteLine = [&](int line) {
+    if (line < 0 || line >= static_cast<int>(trimmedCodeLines.size()))
+      return false;
+    const std::string &trimmed = trimmedCodeLines[static_cast<size_t>(line)];
+    if (trimmed.find(';') != std::string::npos)
+      return false;
+    return !shouldReportMissingSemicolonOnLine(line);
+  };
   const bool builtinRegistryAvailable = isHlslBuiltinRegistryAvailable();
   const std::string builtinRegistryError = getHlslBuiltinRegistryError();
   if (!builtinRegistryAvailable) {
@@ -1472,11 +1511,13 @@ void collectReturnAndTypeDiagnostics(
                   } else {
                     rhsEval.reasonCode =
                         IndeterminateReason::DiagnosticsRhsTypeEmpty;
-                    emitIndeterminate(
-                        lineIndex, static_cast<int>(tokens[eqIndex].start),
-                        static_cast<int>(tokens[eqIndex].end),
-                        "NSF_INDET_RHS_TYPE_EMPTY", rhsEval.reasonCode,
-                        "Indeterminate assignment type: rhs type unavailable.");
+                    if (!shouldSkipIndeterminateOnIncompleteLine(lineIndex)) {
+                      emitIndeterminate(
+                          lineIndex, static_cast<int>(tokens[eqIndex].start),
+                          static_cast<int>(tokens[eqIndex].end),
+                          "NSF_INDET_RHS_TYPE_EMPTY", rhsEval.reasonCode,
+                          "Indeterminate assignment type: rhs type unavailable.");
+                    }
                   }
                 }
                 const std::string rhsType = rhsEval.type;
@@ -1565,11 +1606,13 @@ void collectReturnAndTypeDiagnostics(
                   } else {
                     rhsEval.reasonCode =
                         IndeterminateReason::DiagnosticsRhsTypeEmpty;
-                    emitIndeterminate(
-                        lineIndex, static_cast<int>(tokens[k].start),
-                        static_cast<int>(tokens[k].end),
-                        "NSF_INDET_RHS_TYPE_EMPTY", rhsEval.reasonCode,
-                        "Indeterminate assignment type: rhs type unavailable.");
+                    if (!shouldSkipIndeterminateOnIncompleteLine(lineIndex)) {
+                      emitIndeterminate(
+                          lineIndex, static_cast<int>(tokens[k].start),
+                          static_cast<int>(tokens[k].end),
+                          "NSF_INDET_RHS_TYPE_EMPTY", rhsEval.reasonCode,
+                          "Indeterminate assignment type: rhs type unavailable.");
+                    }
                   }
                 }
                 const std::string rhsType = rhsEval.type;
@@ -1652,7 +1695,7 @@ void collectReturnAndTypeDiagnostics(
               break;
             }
           }
-          if (!hasSemi)
+          if (!hasSemi && shouldReportMissingSemicolonOnLine(lineIndex))
             emitCurrentLineMissingSemicolon(
                 static_cast<int>(tokens[i].start),
                 static_cast<int>(tokens[i].end));
@@ -1690,7 +1733,7 @@ void collectReturnAndTypeDiagnostics(
             break;
           }
         }
-        if (!hasSemi)
+        if (!hasSemi && shouldReportMissingSemicolonOnLine(lineIndex))
           emitCurrentLineMissingSemicolon(static_cast<int>(tokens[i].start),
                                           static_cast<int>(tokens[i].end));
         unreachableActive = true;
@@ -1733,11 +1776,13 @@ void collectReturnAndTypeDiagnostics(
                 IndeterminateReason::DiagnosticsHeavyRulesSkipped;
           } else {
             rhsEval.reasonCode = IndeterminateReason::DiagnosticsRhsTypeEmpty;
-            emitIndeterminate(
-                lineIndex, static_cast<int>(tokens[i + 1].start),
-                static_cast<int>(tokens[i + 1].end), "NSF_INDET_RHS_TYPE_EMPTY",
-                rhsEval.reasonCode,
-                "Indeterminate assignment type: rhs type unavailable.");
+            if (!shouldSkipIndeterminateOnIncompleteLine(lineIndex)) {
+              emitIndeterminate(
+                  lineIndex, static_cast<int>(tokens[i + 1].start),
+                  static_cast<int>(tokens[i + 1].end),
+                  "NSF_INDET_RHS_TYPE_EMPTY", rhsEval.reasonCode,
+                  "Indeterminate assignment type: rhs type unavailable.");
+            }
           }
         }
         const std::string rhsType = rhsEval.type;
@@ -1753,7 +1798,7 @@ void collectReturnAndTypeDiagnostics(
             break;
           }
         }
-        if (!hasSemi) {
+        if (!hasSemi && shouldReportMissingSemicolonOnLine(lineIndex)) {
           if (!(tokens[i].text == pendingMultilineLocalName &&
                 pendingMultilineLocalDepth == functionBraceDepth)) {
             emitCurrentLineMissingSemicolon(
@@ -2582,8 +2627,8 @@ void collectReturnAndTypeDiagnostics(
                  static_cast<int>(lineScan.bracketDepthAfterLine.size()) &&
              lineScan.bracketDepthAfterLine[lineIndex] > 0);
         if (shouldReportMissingSemicolonShared(
-                trimmed, nextTrimmed, insideOpenGroupingBeforeLine,
-                insideOpenGroupingAfterLine)) {
+                previousTrimmedCodeLine(lineIndex), trimmed, nextTrimmed,
+                insideOpenGroupingBeforeLine, insideOpenGroupingAfterLine)) {
           size_t endByte = lineText.find_last_not_of(" \t");
           if (endByte == std::string::npos)
             endByte = trimmed.empty() ? 0 : trimmed.size() - 1;

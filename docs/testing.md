@@ -77,8 +77,10 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 ```
 
   - 可选限制 unit 数量：`$env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "100"`；历史兼容变量 `NSF_REAL_DIAGNOSTICS_MAX_FILES` 仍会作为未设置 `MAX_UNITS` 时的 fallback
+  - 可选设置 unit 起始偏移：`$env:NSF_REAL_DIAGNOSTICS_UNIT_OFFSET = "200"`；runner 会先发现完整 `.nsf` unit 列表，再按 offset 和 `MAX_UNITS` 切片，适合把 full audit 拆成多个固定批次。`MAX_UNITS=0` 表示从当前 offset 扫到末尾。分批报告会记录完整 discovered 数量、batch offset、batch limit 和实际 scanned 数量；非 5 / 50 / full 的批次默认不加载 full baseline 做趋势比较
   - 可选限制单个 unit include closure：`$env:NSF_REAL_DIAGNOSTICS_CLOSURE_LIMIT = "1024"`
   - 可选限制写入 JSON 的诊断样本数量：`NSF_REAL_DIAGNOSTICS_SAMPLE_PER_GROUP`、`NSF_REAL_DIAGNOSTICS_SAMPLE_PER_UNIT`、`NSF_REAL_DIAGNOSTICS_SAMPLE_MAX_TOTAL`
+  - `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS` 是整条 Mocha audit 用例预算；5-unit / 50-unit 可用较短预算，full audit 可按真实 workspace 规模设置到数小时，当前上限为 6 小时
   - 5-unit smoke audit 推荐命令：
 
 ```powershell
@@ -96,6 +98,25 @@ $env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
 $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "50"
 $env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "1800000"
 $env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL = "phase-XX-topic-trend-50"
+node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
+```
+  - 100-unit batch audit 推荐命令：
+
+```powershell
+$env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
+$env:NSF_REAL_DIAGNOSTICS_UNIT_OFFSET = "0"
+$env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "100"
+$env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "3600000"
+$env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL = "phase-XX-topic-batch-000-099"
+node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
+```
+  - full audit 推荐命令：
+
+```powershell
+$env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
+$env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "0"
+$env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "18000000"
+$env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL = "phase-XX-topic-full"
 node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
 ```
 - `npm run gate:d3`

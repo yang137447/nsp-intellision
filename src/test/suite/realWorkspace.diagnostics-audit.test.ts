@@ -301,6 +301,7 @@ const REPORT_DIR = path.resolve(__dirname, '..', '..', '..', 'out', 'test', 'dia
 const DEFAULT_BASELINE_REPORT = 'real-workspace-diagnostics-audit.baseline-2026-05-16.json';
 const DEFAULT_SMOKE_BASELINE_REPORT = 'real-workspace-diagnostics-audit.phase-00-baseline-smoke-5.json';
 const DEFAULT_TREND_BASELINE_REPORT = 'real-workspace-diagnostics-audit.phase-00-baseline-trend-50.json';
+const REAL_DIAGNOSTICS_TIMEOUT_MAX_MS = 21600000;
 const P14_FOCUS_MACROS = ['COLOR_CHANGE_MODE', 'EMISSIVE_MODE', 'FOLIAGE_MODE'];
 const P14L_COMPILER_CONTEXT_MACROS = [
 	'API_MOBILE_HIGH_QUALITY',
@@ -522,6 +523,8 @@ function buildTrendComparison(report: any, baseline: any, baselinePath: string):
 		'unitsScanned',
 		'unitsWithDiagnostics',
 		'unitFileVisits',
+		'unitOffset',
+		'unitLimit',
 		'filesDiscovered',
 		'filesScanned',
 		'filesWithDiagnostics',
@@ -552,7 +555,10 @@ function buildTrendComparison(report: any, baseline: any, baselinePath: string):
 	};
 }
 
-function defaultBaselineCandidates(maxUnits: number): string[] {
+function defaultBaselineCandidates(maxUnits: number, unitOffset: number): string[] {
+	if (unitOffset > 0) {
+		return [];
+	}
 	const candidates: string[] = [];
 	if (maxUnits === 5) {
 		candidates.push(DEFAULT_SMOKE_BASELINE_REPORT);
@@ -560,18 +566,20 @@ function defaultBaselineCandidates(maxUnits: number): string[] {
 	if (maxUnits === 50) {
 		candidates.push(DEFAULT_TREND_BASELINE_REPORT);
 	}
-	candidates.push(DEFAULT_BASELINE_REPORT);
+	if (maxUnits === 0 || maxUnits === 5 || maxUnits === 50) {
+		candidates.push(DEFAULT_BASELINE_REPORT);
+	}
 	return candidates.map((name) => path.join(REPORT_DIR, name));
 }
 
-function loadBaselineReport(maxUnits: number): { baselinePath: string; report: any } | undefined {
+function loadBaselineReport(maxUnits: number, unitOffset: number): { baselinePath: string; report: any } | undefined {
 	const rawPath = readStringEnv('NSF_REAL_DIAGNOSTICS_BASELINE_JSON');
 	const lowered = rawPath.toLowerCase();
 	if (lowered === '0' || lowered === 'false' || lowered === 'none') {
 		return undefined;
 	}
 	const explicit = rawPath.length > 0;
-	const candidates = explicit ? [path.resolve(rawPath)] : defaultBaselineCandidates(maxUnits);
+	const candidates = explicit ? [path.resolve(rawPath)] : defaultBaselineCandidates(maxUnits, unitOffset);
 	const baselinePath = candidates.find((candidate) => fs.existsSync(candidate));
 	if (!baselinePath) {
 		if (explicit) {
@@ -1049,9 +1057,16 @@ async function findShaderFiles(
 	return deduped;
 }
 
-async function findNsfUnits(maxUnits: number, searchRoots: string[]): Promise<vscode.Uri[]> {
-	const units = await findShaderFiles(['.nsf'], maxUnits, searchRoots);
-	return units;
+async function findNsfUnits(
+	maxUnits: number,
+	unitOffset: number,
+	searchRoots: string[]
+): Promise<{ allUnits: vscode.Uri[]; units: vscode.Uri[] }> {
+	const allUnits = await findShaderFiles(['.nsf'], 0, searchRoots);
+	const units = maxUnits > 0
+		? allUnits.slice(unitOffset, unitOffset + maxUnits)
+		: allUnits.slice(unitOffset);
+	return { allUnits, units };
 }
 
 async function getUnitIncludeClosure(unit: vscode.Uri, limit: number): Promise<vscode.Uri[]> {
@@ -1946,6 +1961,10 @@ function buildMarkdownReport(report: any): string {
 	lines.push(`- Search roots: ${report.settings.searchRoots.join(', ')}`);
 	if (report.summary.unitsDiscovered !== undefined) {
 		lines.push(`- NSF units discovered: ${report.summary.unitsDiscovered}`);
+		if (report.summary.unitOffset !== undefined || report.summary.unitLimit !== undefined) {
+			lines.push(`- NSF unit batch offset: ${report.summary.unitOffset ?? 0}`);
+			lines.push(`- NSF unit batch limit: ${report.summary.unitLimit ?? 0}`);
+		}
 		lines.push(`- NSF units scanned: ${report.summary.unitsScanned}`);
 		lines.push(`- NSF units with diagnostics: ${report.summary.unitsWithDiagnostics}`);
 		lines.push(`- Unit file visits: ${report.summary.unitFileVisits}`);
@@ -2270,7 +2289,7 @@ function writeReport(report: any): {
 
 realDescribe('NSF real workspace diagnostics audit', () => {
 	it('collects and classifies diagnostics by NSF unit include closure', async function () {
-		this.timeout(readIntEnv('NSF_REAL_DIAGNOSTICS_TIMEOUT_MS', 1800000, 60000, 7200000));
+		this.timeout(readIntEnv('NSF_REAL_DIAGNOSTICS_TIMEOUT_MS', 1800000, 60000, REAL_DIAGNOSTICS_TIMEOUT_MAX_MS));
 
 		const extensions = configuredShaderExtensions();
 		const maxUnits = readIntEnv(
@@ -2279,6 +2298,7 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 			0,
 			100000
 		);
+		const unitOffset = readIntEnv('NSF_REAL_DIAGNOSTICS_UNIT_OFFSET', 0, 0, 100000);
 		const closureLimit = readIntEnv('NSF_REAL_DIAGNOSTICS_CLOSURE_LIMIT', 1024, 1, 10000);
 		const diagnosticTimeBudgetMs = readIntEnv('NSF_REAL_DIAGNOSTICS_BUILD_BUDGET_MS', 5000, 30, 120000);
 		const diagnosticMaxItems = readIntEnv('NSF_REAL_DIAGNOSTICS_BUILD_MAX_ITEMS', 2400, 20, 100000);
@@ -2289,8 +2309,12 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 		};
 		const reportLabel = sanitizeReportLabel(readStringEnv('NSF_REAL_DIAGNOSTICS_REPORT_LABEL'));
 		const searchRoots = configuredAuditSearchRoots();
-		const units = await findNsfUnits(maxUnits, searchRoots);
-		assert.ok(units.length > 0, 'Expected .nsf units in real workspace.');
+		const { allUnits, units } = await findNsfUnits(maxUnits, unitOffset, searchRoots);
+		assert.ok(allUnits.length > 0, 'Expected .nsf units in real workspace.');
+		assert.ok(
+			units.length > 0,
+			`Expected .nsf units in selected audit batch. Discovered ${allUnits.length}, offset ${unitOffset}, max ${maxUnits}.`
+		);
 
 		const activationDocument = await vscode.workspace.openTextDocument(units[0]);
 		await vscode.window.showTextDocument(activationDocument, { preview: false });
@@ -2477,13 +2501,17 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 					vscode.workspace.getConfiguration('nsf').get<Record<string, unknown>>('preprocessorMacros', {})
 				).length,
 				preprocessorMacrosSeededForAudit: seededPreprocessorMacroCount,
+				unitOffset,
+				unitLimit: maxUnits,
 				unitClosureLimit: closureLimit,
 				diagnosticBuildBudgetMs: diagnosticTimeBudgetMs,
 				diagnosticBuildMaxItems: diagnosticMaxItems,
 				diagnosticSample: sampleConfig
 			},
 			summary: {
-				unitsDiscovered: units.length,
+				unitsDiscovered: allUnits.length,
+				unitOffset,
+				unitLimit: maxUnits,
 				unitsScanned: units.length,
 				unitsWithDiagnostics,
 				unitFileVisits: fileStats.length,
@@ -2517,7 +2545,7 @@ realDescribe('NSF real workspace diagnostics audit', () => {
 			diagnosticSamples: sampleDiagnostics(diagnostics, sampleConfig)
 		};
 
-		const baseline = loadBaselineReport(maxUnits);
+		const baseline = loadBaselineReport(maxUnits, unitOffset);
 		if (baseline) {
 			(report as any).trendComparison = buildTrendComparison(report, baseline.report, baseline.baselinePath);
 		}
