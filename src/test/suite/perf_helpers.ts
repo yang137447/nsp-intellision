@@ -28,6 +28,22 @@ export type LatencyStats = {
 	p99Ms: number;
 };
 
+export type AggregatedMetricBucket = Record<string, number>;
+
+export type AggregatedMetricsHistory = {
+	windowCount: number;
+	revisions: number[];
+	methods: Record<string, AggregatedMetricBucket>;
+	completionMetrics: AggregatedMetricBucket;
+	definitionMetrics: AggregatedMetricBucket;
+	signatureHelp: AggregatedMetricBucket;
+	hoverMetrics: AggregatedMetricBucket;
+	inlayMetrics: AggregatedMetricBucket;
+	diagnostics: AggregatedMetricBucket;
+	deferredDocRuntime: AggregatedMetricBucket;
+	interactiveRuntime: AggregatedMetricBucket;
+};
+
 export async function getLatestMetricsSnapshot(): Promise<LatestMetricsSnapshot> {
 	const snapshot = await waitFor(
 		() => vscode.commands.executeCommand<LatestMetricsSnapshot>('nsf._getLatestMetrics'),
@@ -60,7 +76,11 @@ export async function waitForNextMetricsRevision(
 
 export async function drainMetricsWindow(label: string): Promise<LatestMetricsSnapshot> {
 	const current = await getLatestMetricsSnapshot();
-	return waitForNextMetricsRevision(current.revision ?? 0, `${label}: next metrics window`);
+	try {
+		return await waitForNextMetricsRevision(current.revision ?? 0, `${label}: next metrics window`, 5000);
+	} catch {
+		return getLatestMetricsSnapshot();
+	}
 }
 
 export async function waitForMetricsHistorySinceRevision(
@@ -123,6 +143,66 @@ export function computeLatencyStats(samples: number[]): LatencyStats {
 		p95Ms: percentile(0.95),
 		p99Ms: percentile(0.99)
 	};
+}
+
+function mergeMetricBucket(target: AggregatedMetricBucket, source: unknown): void {
+	if (!source || typeof source !== 'object') {
+		return;
+	}
+	for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
+		if (typeof value !== 'number' || !Number.isFinite(value)) {
+			continue;
+		}
+		if (
+			key.endsWith('MaxMs') ||
+			key.endsWith('AvgMs') ||
+			key.endsWith('Rate') ||
+			key === 'avgMs' ||
+			key === 'maxMs' ||
+			key === 'p50Ms' ||
+			key === 'p95Ms' ||
+			key === 'p99Ms'
+		) {
+			target[key] = Math.max(target[key] ?? 0, value);
+			continue;
+		}
+		target[key] = (target[key] ?? 0) + value;
+	}
+}
+
+export function aggregateMetricsHistory(snapshots: MetricsHistorySnapshot[]): AggregatedMetricsHistory {
+	const aggregate: AggregatedMetricsHistory = {
+		windowCount: snapshots.length,
+		revisions: snapshots.map((snapshot) => snapshot.revision),
+		methods: {},
+		completionMetrics: {},
+		definitionMetrics: {},
+		signatureHelp: {},
+		hoverMetrics: {},
+		inlayMetrics: {},
+		diagnostics: {},
+		deferredDocRuntime: {},
+		interactiveRuntime: {}
+	};
+
+	for (const snapshot of snapshots) {
+		const payload = snapshot.payload ?? {};
+		for (const [method, bucket] of Object.entries(payload.methods ?? {})) {
+			const target = aggregate.methods[method] ?? {};
+			mergeMetricBucket(target, bucket);
+			aggregate.methods[method] = target;
+		}
+		mergeMetricBucket(aggregate.completionMetrics, payload.completionMetrics);
+		mergeMetricBucket(aggregate.definitionMetrics, payload.definitionMetrics);
+		mergeMetricBucket(aggregate.signatureHelp, payload.signatureHelp);
+		mergeMetricBucket(aggregate.hoverMetrics, payload.hoverMetrics);
+		mergeMetricBucket(aggregate.inlayMetrics, payload.inlayMetrics);
+		mergeMetricBucket(aggregate.diagnostics, payload.diagnostics);
+		mergeMetricBucket(aggregate.deferredDocRuntime, payload.deferredDocRuntime);
+		mergeMetricBucket(aggregate.interactiveRuntime, payload.interactiveRuntime);
+	}
+
+	return aggregate;
 }
 
 export function readPerfIntEnv(name: string, fallback: number, min = 1, max = 200): number {

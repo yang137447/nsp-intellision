@@ -5,10 +5,12 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 
 import {
+	aggregateMetricsHistory,
 	computeLatencyStats,
 	drainMetricsWindow,
 	measureLatencySamples,
 	readPerfIntEnv,
+	waitForMetricsHistorySinceRevision,
 	waitForNextMetricsRevision,
 	writePerfReport
 } from './perf_helpers';
@@ -93,10 +95,21 @@ perfDescribe('NSF perf baseline: Inlay metrics', () => {
 			'perf inlay client status'
 		);
 
-		const metrics = await waitForNextMetricsRevision(
+		const metricWindows = await waitForMetricsHistorySinceRevision(
 			drained.revision ?? 0,
-			'perf inlay metrics flush'
+			(snapshots) => {
+				const aggregate = aggregateMetricsHistory(snapshots);
+				return (
+					((aggregate.inlayMetrics.rangeBuildSamples ?? 0) +
+						(aggregate.inlayMetrics.rangeFilterSamples ?? 0)) >=
+						iterations * 2 &&
+					(aggregate.inlayMetrics.responseWriteSamples ?? 0) >= iterations * 2
+				);
+			},
+			'perf inlay metrics history'
 		);
+		const aggregatedMetrics = aggregateMetricsHistory(metricWindows);
+		const metrics = metricWindows[metricWindows.length - 1];
 		const buildComparison = (
 			status: InlayClientInternalStatus | undefined,
 			serverMetrics: { payload?: any } | undefined
@@ -137,12 +150,13 @@ perfDescribe('NSF perf baseline: Inlay metrics', () => {
 				inlayLarge: computeLatencyStats(largeRun.samples)
 			},
 			clientStatus,
+			aggregatedMetrics,
 			metrics,
-			comparison: buildComparison(clientStatus, metrics)
+			comparison: buildComparison(clientStatus, { payload: { inlayMetrics: aggregatedMetrics.inlayMetrics, methods: aggregatedMetrics.methods } })
 		};
 		writePerfReport('m4-inlay-metrics', report);
 
-		const inlayMetrics = metrics.payload?.inlayMetrics;
+		const inlayMetrics = aggregatedMetrics.inlayMetrics;
 		assert.ok(
 			typeof inlayMetrics?.deferredSnapshotHitCount === 'number',
 			`Expected deferredSnapshotHitCount to be exported. Actual=${JSON.stringify(inlayMetrics)}`

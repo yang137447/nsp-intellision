@@ -809,7 +809,7 @@ export function createEditorFeedbackController(options: EditorFeedbackOptions): 
 						recordDuration(inlayMetrics.rangeAdjust, Date.now() - rangeAdjustStartedAt);
 					}
 					const lastGoodFallback = (): InlayHint[] => {
-						const cached = getLastGoodInlayHints(document.uri.toString(), effectiveRange);
+						const cached = getLastGoodInlayHints(document.uri.toString(), range);
 						return cached ?? [];
 					};
 					if (!client || !client.initializeResult) {

@@ -64,9 +64,6 @@ void documentOwnerDidChange(const Document &document,
   auto owner = getOrCreateOwnerState(document.uri);
   std::lock_guard<std::mutex> ownerLock(owner->mutex);
   documentRuntimeUpsert(document, changedRanges, options);
-  DocumentRuntime runtime;
-  if (documentRuntimeGet(document.uri, runtime))
-    interactiveVisibilityRuntimePrewarm(runtime);
   recordInteractiveOwnerDidChange(
       std::chrono::duration<double, std::milli>(
           std::chrono::steady_clock::now() - startedAt)

@@ -3,10 +3,12 @@ import * as vscode from 'vscode';
 
 import { PERF_FIXTURES } from './perf_fixtures';
 import {
+	aggregateMetricsHistory,
 	computeLatencyStats,
 	drainMetricsWindow,
 	measureLatencySamples,
 	readPerfIntEnv,
+	waitForMetricsHistorySinceRevision,
 	waitForNextMetricsRevision,
 	writePerfReport
 } from './perf_helpers';
@@ -62,9 +64,27 @@ perfDescribe('NSF perf baseline: Interactive hot-path metrics', () => {
 			return getCompletionItems(result).length;
 		});
 
+		const metricWindows = await waitForMetricsHistorySinceRevision(
+			drained.revision ?? 0,
+			(snapshots) => {
+				const aggregate = aggregateMetricsHistory(snapshots);
+				const interactiveRuntime = aggregate.interactiveRuntime;
+				const completionMetrics = aggregate.completionMetrics;
+				return (
+					(interactiveRuntime.requestQueueWaitSamples ?? 0) >= iterations &&
+					(interactiveRuntime.requestContextBuildSamples ?? 0) >= iterations &&
+					(interactiveRuntime.ownerDidChangeSamples ?? 0) >= iterations &&
+					(completionMetrics.interactiveCollectSamples ?? 0) >= iterations &&
+					(completionMetrics.workspaceSummaryQuerySamples ?? 0) >= iterations &&
+					(completionMetrics.itemAssemblySamples ?? 0) >= iterations
+				);
+			},
+			'perf interactive metrics history flush'
+		);
+		const aggregatedMetrics = aggregateMetricsHistory(metricWindows);
 		const metrics = await waitForNextMetricsRevision(
 			drained.revision ?? 0,
-			'perf interactive metrics flush'
+			'perf interactive metrics latest flush'
 		);
 		const report = {
 			scenario: 'm3-current-doc-interactive-metrics',
@@ -74,12 +94,14 @@ perfDescribe('NSF perf baseline: Interactive hot-path metrics', () => {
 			wallClock: {
 				completionAfterTouches: computeLatencyStats(completionRun.samples)
 			},
-			metrics
+			metrics,
+			metricWindows,
+			aggregatedMetrics
 		};
 		writePerfReport('m3-current-doc-interactive-metrics', report);
 
-		const interactiveRuntime = metrics.payload?.interactiveRuntime;
-		const completionMetrics = metrics.payload?.completionMetrics;
+		const interactiveRuntime = aggregatedMetrics.interactiveRuntime;
+		const completionMetrics = aggregatedMetrics.completionMetrics;
 		assert.ok((interactiveRuntime?.requestQueueWaitSamples ?? 0) >= iterations);
 		assert.ok((interactiveRuntime?.requestContextBuildSamples ?? 0) >= iterations);
 		assert.ok((interactiveRuntime?.ownerDidChangeSamples ?? 0) >= iterations);
@@ -178,9 +200,28 @@ perfDescribe('NSF perf baseline: Interactive hot-path metrics', () => {
 		});
 
 		const spamResult = await spamPromise;
+		const metricWindows = await waitForMetricsHistorySinceRevision(
+			drained.revision ?? 0,
+			(snapshots) => {
+				const aggregate = aggregateMetricsHistory(snapshots);
+				const interactiveRuntime = aggregate.interactiveRuntime;
+				const completionMetrics = aggregate.completionMetrics;
+				return (
+					(aggregate.methods['textDocument/inlayHint']?.count ?? 0) > 0 &&
+					(interactiveRuntime.requestQueueWaitSamples ?? 0) >= iterations &&
+					(interactiveRuntime.requestContextBuildSamples ?? 0) >= iterations &&
+					(interactiveRuntime.ownerDidChangeSamples ?? 0) >= iterations * 2 &&
+					(completionMetrics.interactiveCollectSamples ?? 0) >= iterations &&
+					(completionMetrics.workspaceSummaryQuerySamples ?? 0) >= iterations &&
+					(completionMetrics.itemAssemblySamples ?? 0) >= iterations
+				);
+			},
+			'perf interactive syntax-only metrics history flush'
+		);
+		const aggregatedMetrics = aggregateMetricsHistory(metricWindows);
 		const metrics = await waitForNextMetricsRevision(
 			drained.revision ?? 0,
-			'perf interactive syntax-only metrics flush'
+			'perf interactive syntax-only metrics latest flush'
 		);
 		const report = {
 			scenario: 'm3-current-doc-syntax-only-load-bg-metrics',
@@ -192,17 +233,19 @@ perfDescribe('NSF perf baseline: Interactive hot-path metrics', () => {
 			wallClock: {
 				completionAfterSyntaxOnlyEdits: computeLatencyStats(completionRun.samples)
 			},
-			metrics
+			metrics,
+			metricWindows,
+			aggregatedMetrics
 		};
 		writePerfReport('m3-current-doc-syntax-only-load-bg-metrics', report);
 
-		const interactiveRuntime = metrics.payload?.interactiveRuntime;
-		const completionMetrics = metrics.payload?.completionMetrics;
+		const interactiveRuntime = aggregatedMetrics.interactiveRuntime;
+		const completionMetrics = aggregatedMetrics.completionMetrics;
 		assert.strictEqual(
 			(spamResult?.completed ?? 0) + (spamResult?.cancelled ?? 0) + (spamResult?.failed ?? 0),
 			spamCount
 		);
-		assert.ok((metrics.payload?.methods?.['textDocument/inlayHint']?.count ?? 0) > 0);
+		assert.ok((aggregatedMetrics.methods['textDocument/inlayHint']?.count ?? 0) > 0);
 		assert.ok((interactiveRuntime?.requestQueueWaitSamples ?? 0) >= iterations);
 		assert.ok((interactiveRuntime?.requestContextBuildSamples ?? 0) >= iterations);
 		assert.ok((interactiveRuntime?.ownerDidChangeSamples ?? 0) >= iterations * 2);

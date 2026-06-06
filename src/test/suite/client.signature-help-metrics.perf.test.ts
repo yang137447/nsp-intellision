@@ -2,10 +2,12 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 
 import {
+	aggregateMetricsHistory,
 	computeLatencyStats,
 	drainMetricsWindow,
 	measureLatencySamples,
 	readPerfIntEnv,
+	waitForMetricsHistorySinceRevision,
 	waitForNextMetricsRevision,
 	writePerfReport
 } from './perf_helpers';
@@ -75,9 +77,21 @@ perfDescribe('NSF perf baseline: Signature help metrics', () => {
 			return help.signatures.length;
 		});
 
+		const metricWindows = await waitForMetricsHistorySinceRevision(
+			drained.revision ?? 0,
+			(snapshots) => {
+				const signatureHelp = aggregateMetricsHistory(snapshots).signatureHelp;
+				return (
+					(signatureHelp.builtinSignatureSamples ?? 0) >= iterations &&
+					(signatureHelp.responseWriteSamples ?? 0) >= iterations * 2
+				);
+			},
+			'perf signature-help metrics history flush'
+		);
+		const aggregatedMetrics = aggregateMetricsHistory(metricWindows);
 		const metrics = await waitForNextMetricsRevision(
 			drained.revision ?? 0,
-			'perf signature-help metrics flush'
+			'perf signature-help metrics latest flush'
 		);
 		const report = {
 			scenario: 'm3-signature-help-metrics',
@@ -91,11 +105,13 @@ perfDescribe('NSF perf baseline: Signature help metrics', () => {
 				interactiveSignatureHelp: computeLatencyStats(interactiveRun.samples),
 				builtinSignatureHelp: computeLatencyStats(builtinRun.samples)
 			},
-			metrics
+			metrics,
+			metricWindows,
+			aggregatedMetrics
 		};
 		writePerfReport('m3-signature-help-metrics', report);
 
-		const signatureHelp = metrics.payload?.signatureHelp;
+		const signatureHelp = aggregatedMetrics.signatureHelp;
 		assert.strictEqual(signatureHelp?.interactiveOverloadSamples ?? 0, 0);
 		assert.ok((signatureHelp?.builtinSignatureSamples ?? 0) >= iterations);
 		assert.ok((signatureHelp?.responseWriteSamples ?? 0) >= iterations * 2);
@@ -154,9 +170,21 @@ perfDescribe('NSF perf baseline: Signature help metrics', () => {
 			return help.signatures.length;
 		});
 		const spamResult = await spamPromise;
+		const metricWindows = await waitForMetricsHistorySinceRevision(
+			drained.revision ?? 0,
+			(snapshots) => {
+				const aggregate = aggregateMetricsHistory(snapshots);
+				return (
+					(aggregate.methods['textDocument/inlayHint']?.count ?? 0) > 0 &&
+					(aggregate.signatureHelp.responseWriteSamples ?? 0) >= iterations
+				);
+			},
+			'perf signature-help load-bg metrics history flush'
+		);
+		const aggregatedMetrics = aggregateMetricsHistory(metricWindows);
 		const metrics = await waitForNextMetricsRevision(
 			drained.revision ?? 0,
-			'perf signature-help load-bg metrics flush'
+			'perf signature-help load-bg metrics latest flush'
 		);
 		const report = {
 			scenario: 'm3-signature-help-load-bg-metrics',
@@ -171,16 +199,18 @@ perfDescribe('NSF perf baseline: Signature help metrics', () => {
 			wallClock: {
 				interactiveSignatureHelp: computeLatencyStats(interactiveRun.samples)
 			},
-			metrics
+			metrics,
+			metricWindows,
+			aggregatedMetrics
 		};
 		writePerfReport('m3-signature-help-load-bg-metrics', report);
 
-		const signatureHelp = metrics.payload?.signatureHelp;
+		const signatureHelp = aggregatedMetrics.signatureHelp;
 		assert.strictEqual(
 			(spamResult?.completed ?? 0) + (spamResult?.cancelled ?? 0) + (spamResult?.failed ?? 0),
 			spamCount
 		);
-		assert.ok((metrics.payload?.methods?.['textDocument/inlayHint']?.count ?? 0) > 0);
+		assert.ok((aggregatedMetrics.methods['textDocument/inlayHint']?.count ?? 0) > 0);
 		assert.strictEqual(signatureHelp?.interactiveOverloadSamples ?? 0, 0);
 		assert.ok((signatureHelp?.responseWriteSamples ?? 0) >= iterations);
 		assert.ok(

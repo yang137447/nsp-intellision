@@ -46,6 +46,11 @@ struct NumericLiteralParseResult {
 // Builtin modeling covers common scalar/vector/matrix intrinsics in one shared
 // path; unsupported or unavailable argument types should surface as
 // indeterminate diagnostics instead of feature-local fallback guesses.
+// `mul(matrix, vector)` also models the confirmed project shadercompiler
+// lowering where a matrix with more columns than the vector dimension is
+// accepted and returns a vector with the matrix row count; the reverse
+// vector-matrix form and vector dimensions larger than matrix columns remain
+// invalid.
 // Numeric literal parsing is token-span aware because the shared lexer splits
 // decimal points and exponent signs into punctuation tokens. The accepted
 // decimal/octal/hex literal grammar follows official HLSL numeric literal forms,

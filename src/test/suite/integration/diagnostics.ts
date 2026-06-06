@@ -2024,6 +2024,31 @@ export function registerDiagnosticsTests(): void {
 		}
 	});
 
+	itWithDiagnosticsMode('balanced', 'keeps P17 call and type policy boundaries explicit', async () => {
+		const document = await openFixture('module_diagnostics_p17_call_type_policy.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Function call argument mismatch: P17AcceptFloat3.') &&
+					messages.includes('Function call argument count mismatch: P17SampleArray.') &&
+					messages.includes('Assignment type mismatch: half4 = half3.') &&
+					messages.includes('Builtin call type mismatch: mul. Args: (half2, float3x3).')
+				);
+			},
+			'P17 call/type policy diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(!messages.includes('Builtin call type mismatch: mul. Args: (float3x3, half2).'), messages);
+		assert.ok(messages.includes('Function call argument mismatch: P17AcceptFloat3.'), messages);
+		assert.ok(messages.includes('Function call argument count mismatch: P17SampleArray.'), messages);
+		assert.ok(messages.includes('Assignment type mismatch: half4 = half3.'), messages);
+		assert.ok(messages.includes('Builtin call type mismatch: mul. Args: (half2, float3x3).'), messages);
+	});
+
 	it('publishes diagnostics for user function call argument mismatches', async () => {
 		const document = await openFixture('module_diagnostics_user_function_call_args.nsf');
 

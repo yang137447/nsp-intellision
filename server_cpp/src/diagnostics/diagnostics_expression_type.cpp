@@ -632,7 +632,7 @@ resolveBuiltinCall(const std::string &name,
     }
     if (a.shape == BuiltinTypeInfo::ShapeKind::Matrix &&
         b.shape == BuiltinTypeInfo::ShapeKind::Vector) {
-      if (a.cols != b.dim)
+      if (a.cols < b.dim)
         return r;
       r.ok = true;
       r.ret.shape = BuiltinTypeInfo::ShapeKind::Vector;

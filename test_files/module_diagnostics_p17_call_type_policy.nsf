@@ -1,0 +1,28 @@
+Texture2DArray p17TexArray;
+sampler p17Sampler;
+
+half4 P17SampleArray(Texture2DArray tex, sampler sam, float2 uv, float id, float bias)
+{
+    return tex.SampleBias(sam, float3(uv, id), bias);
+}
+
+float3 P17AcceptFloat3(float3 value)
+{
+    return value;
+}
+
+float4 P17CallTypePolicy(half2 uv, half3 normal)
+{
+    float3x3 cameraMatrix = float3x3(
+        float3(1.0, 0.0, 0.0),
+        float3(0.0, 1.0, 0.0),
+        float3(0.0, 0.0, 1.0));
+    float3 projectLowered = mul(cameraMatrix, uv);
+
+    float3 userMismatch = P17AcceptFloat3(uv);
+    half4 vectorExpansion = normal;
+    half4 countMismatch = P17SampleArray(p17TexArray, p17Sampler, float3(uv, 1.0), 0.0);
+    float3 rejectedMul = mul(uv, cameraMatrix);
+
+    return float4(projectLowered + userMismatch + vectorExpansion.xyz + rejectedMul, countMismatch.a);
+}

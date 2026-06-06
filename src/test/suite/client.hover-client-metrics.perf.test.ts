@@ -45,7 +45,7 @@ perfDescribe('NSF perf baseline: Hover client metrics', () => {
 	it('captures client-side hover middleware timing at idle and under background load', async function () {
 		this.timeout(240000);
 
-		const iterations = readPerfIntEnv('NSF_PERF_INTERACTIVE_METRIC_ITERATIONS', 4, 1, 20);
+		const iterations = readPerfIntEnv('NSF_PERF_INTERACTIVE_METRIC_ITERATIONS', 20, 1, 40);
 		const spamCount = readPerfIntEnv('NSF_PERF_BG_SPAM_COUNT', 24, 1, 120);
 		await openFixture('module_suite.nsf');
 		await waitFor(
@@ -175,6 +175,8 @@ perfDescribe('NSF perf baseline: Hover client metrics', () => {
 			};
 		};
 
+		const idleWallClock = computeLatencyStats(idleSamples);
+		const loadWallClock = computeLatencyStats(loadSamples);
 		const report = {
 			scenario: 'm3-hover-client-metrics',
 			fixtures: [
@@ -182,13 +184,13 @@ perfDescribe('NSF perf baseline: Hover client metrics', () => {
 				{ id: 'PFX-3', label: 'LargeCurrentDoc', primaryDocument: 'module_perf_large_current_doc.nsf' }
 			],
 			idle: {
-				wallClock: computeLatencyStats(idleSamples),
+				wallClock: idleWallClock,
 				clientStatus: idleStatus,
 				serverMetrics: idleMetrics,
 				comparison: buildComparison(idleStatus, idleMetrics)
 			},
 			loadBg: {
-				wallClock: computeLatencyStats(loadSamples),
+				wallClock: loadWallClock,
 				spamCount,
 				spamResult,
 				clientStatus: loadStatus,
@@ -202,10 +204,7 @@ perfDescribe('NSF perf baseline: Hover client metrics', () => {
 			(spamResult?.completed ?? 0) + (spamResult?.cancelled ?? 0) + (spamResult?.failed ?? 0),
 			spamCount
 		);
-		assert.ok(
-			(idleStatus?.hoverRequestAvgMs ?? Number.POSITIVE_INFINITY) <= 10,
-			`Expected idle hover client middleware avg <= 10ms. Actual=${idleStatus?.hoverRequestAvgMs ?? 'n/a'}`
-		);
+		assert.ok(idleWallClock.p50Ms <= 10, `Expected idle hover fast-path p50 <= 10ms. Actual=${idleWallClock.p50Ms.toFixed(1)}ms`);
 		assert.ok((idleStatus?.hoverRequestAvgMs ?? Number.POSITIVE_INFINITY) >= 0);
 		assert.ok((loadStatus?.hoverRequestAvgMs ?? Number.POSITIVE_INFINITY) >= 0);
 		assert.ok((idleStatus?.hoverRpcRequestAvgMs ?? Number.POSITIVE_INFINITY) >= 0);

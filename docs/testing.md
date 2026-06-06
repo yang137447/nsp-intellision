@@ -42,6 +42,9 @@
 - `npm run test:client:perf`
   - 运行 repo 模式性能基线 suite，并写报告到 `out/test/perf-reports/`
   - 适用于 interactive / deferred / diagnostics / workspace-summary 调度或性能路径变更
+  - perf suite 的 p95 门禁默认使用足够样本量：短交互场景通常 20 次，completion / hover / references / rename / workspace-summary 等容易受宿主抖动影响的场景通常 40 次。报告仍保留原始 wall-clock samples，但当 VS Code extension host 出现 unrelated stall 时，门禁应优先看 server/client 分层 metrics 是否证明 NSF 产品路径在预算内
+  - perf metrics 可能跨多个 flush window；测试应通过 metrics history 聚合样本数、method count 和 buckets，再断言样本覆盖与预算。聚合时 count / samples 累加，max / p50 / p95 / p99 / AvgMs / Rate 类字段按窗口最大值保留，避免把相邻窗口的平均值相加
+  - VS Code 测试启动器会为 repo / perf / real 模式禁用内置 Git/GitHub 扩展、telemetry 和 updates，减少测试环境噪声；如果日志仍出现 extension host unresponsive，应先用报告里的 NSF server/client 分层指标确认是否为产品路径回归
 - `npm run test:client:real:replay`
   - 在真实 workspace 输入路径上回放短交互脚本，并写报告到 `out/test/perf-reports/real-replay/`
   - 适用于分析真实交互延迟和 anomaly 趋势
@@ -213,6 +216,8 @@ document outline 和 semantic tokens 属于 deferred surface；对应 replay cap
 
 - background lane latest-only / cancellation 用例不要手搓原始并发请求；优先使用 test mode 内部命令 `nsf._spamInlayRequests`、`nsf._spamDocumentSymbolRequests`、`nsf._spamWorkspaceSymbolRequests`。
 - visible-range inlay / perf 用例不要把冷请求固定绑定为 range-build；range-build 或基于 full-cache 的 range-filter 都可能是合法路径。
+- perf 用例在 drain metrics window 时，如果空闲阶段没有新窗口可 flush，shared helper 会返回当前 snapshot 作为基线；后续断言应等待 `waitForMetricsHistorySinceRevision(...)` 收集到目标样本，而不是假设所有目标 metrics 一定落在最新单个 window。
+- perf 报告里 raw wall-clock samples 用于观察真实用户体感和宿主抖动；是否产品性能合规则优先结合 method p95、client middleware metrics、server handler metrics、request queue wait、request context build、didChange/owner metrics 和 deferred runtime 指标判断。
 - real workspace 测试不要依赖外部工程里某一整行固定文本永远不变；优先用稳定前缀定位并缓存原始文本。
 - real replay 脚本解析锚点前会把已打开的 dirty 文档恢复到磁盘文本基线，避免前置 real workspace 用例的未保存 buffer 污染后续锚点解析。
 - real diagnostics audit 只做统计和初筛分类，不作为通过/失败门禁；`likely-plugin-limitation`、`likely-real-source` 和 `check-config-or-source` 都是 triage hint，最终归因仍需要结合样例行、include context 和真实编译结果复核。

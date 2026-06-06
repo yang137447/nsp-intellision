@@ -13,8 +13,9 @@ struct ServerRequestContext;
 // - serialize per-document runtime mutations behind one owner mutex
 // - ensure didOpen/didChange/refresh flows all switch analysis context through
 //   document_runtime.* before publishing new snapshots
-// - prewarm current-doc semantic snapshots after document edits or context
-//   refreshes
+// - prewarm current-doc semantic snapshots after document opens or context
+//   refreshes; didChange stays lightweight and leaves semantic work to
+//   follow-up requests/workers
 //
 // Non-goals:
 // - does not answer LSP queries directly

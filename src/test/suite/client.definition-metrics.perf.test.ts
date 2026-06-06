@@ -3,10 +3,12 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import {
+	aggregateMetricsHistory,
 	computeLatencyStats,
 	drainMetricsWindow,
 	measureLatencySamples,
 	readPerfIntEnv,
+	waitForMetricsHistorySinceRevision,
 	waitForNextMetricsRevision,
 	writePerfReport
 } from './perf_helpers';
@@ -92,9 +94,23 @@ perfDescribe('NSF perf baseline: Definition metrics', () => {
 				return definitions.length;
 			});
 
+			const metricWindows = await waitForMetricsHistorySinceRevision(
+				drained.revision ?? 0,
+				(snapshots) => {
+					const aggregate = aggregateMetricsHistory(snapshots);
+					const definitionMetrics = aggregate.definitionMetrics;
+					return (
+						(definitionMetrics.currentDocInteractiveSamples ?? 0) >= iterations &&
+						(definitionMetrics.currentUnitCallSamples ?? 0) >= iterations &&
+						(definitionMetrics.responseWriteSamples ?? 0) >= iterations * 2
+					);
+				},
+				'perf definition metrics history flush'
+			);
+			const aggregatedMetrics = aggregateMetricsHistory(metricWindows);
 			const metrics = await waitForNextMetricsRevision(
 				drained.revision ?? 0,
-				'perf definition metrics flush'
+				'perf definition metrics latest flush'
 			);
 			const report = {
 				scenario: 'm3-definition-metrics',
@@ -108,11 +124,13 @@ perfDescribe('NSF perf baseline: Definition metrics', () => {
 					currentDocDefinition: computeLatencyStats(currentDocRun.samples),
 					currentUnitDefinition: computeLatencyStats(currentUnitRun.samples)
 				},
-				metrics
+				metrics,
+				metricWindows,
+				aggregatedMetrics
 			};
 			writePerfReport('m3-definition-metrics', report);
 
-			const definitionMetrics = metrics.payload?.definitionMetrics;
+			const definitionMetrics = aggregatedMetrics.definitionMetrics;
 			assert.ok((definitionMetrics?.currentDocInteractiveSamples ?? 0) >= iterations);
 			assert.ok((definitionMetrics?.currentUnitCallSamples ?? 0) >= iterations);
 			assert.ok((definitionMetrics?.responseWriteSamples ?? 0) >= iterations * 2);
@@ -208,9 +226,24 @@ perfDescribe('NSF perf baseline: Definition metrics', () => {
 			});
 			const spamResult = await spamPromise;
 
+			const metricWindows = await waitForMetricsHistorySinceRevision(
+				drained.revision ?? 0,
+				(snapshots) => {
+					const aggregate = aggregateMetricsHistory(snapshots);
+					const definitionMetrics = aggregate.definitionMetrics;
+					return (
+						(aggregate.methods['textDocument/inlayHint']?.count ?? 0) > 0 &&
+						(definitionMetrics.currentDocInteractiveSamples ?? 0) >= iterations &&
+						(definitionMetrics.currentUnitCallSamples ?? 0) >= iterations &&
+						(definitionMetrics.responseWriteSamples ?? 0) >= iterations * 2
+					);
+				},
+				'perf definition load-bg metrics history flush'
+			);
+			const aggregatedMetrics = aggregateMetricsHistory(metricWindows);
 			const metrics = await waitForNextMetricsRevision(
 				drained.revision ?? 0,
-				'perf definition load-bg metrics flush'
+				'perf definition load-bg metrics latest flush'
 			);
 			const report = {
 				scenario: 'm3-definition-load-bg-metrics',
@@ -227,16 +260,18 @@ perfDescribe('NSF perf baseline: Definition metrics', () => {
 					currentDocDefinition: computeLatencyStats(currentDocRun.samples),
 					currentUnitDefinition: computeLatencyStats(currentUnitRun.samples)
 				},
-				metrics
+				metrics,
+				metricWindows,
+				aggregatedMetrics
 			};
 			writePerfReport('m3-definition-load-bg-metrics', report);
 
-			const definitionMetrics = metrics.payload?.definitionMetrics;
+			const definitionMetrics = aggregatedMetrics.definitionMetrics;
 			assert.strictEqual(
 				(spamResult?.completed ?? 0) + (spamResult?.cancelled ?? 0) + (spamResult?.failed ?? 0),
 				spamCount
 			);
-			assert.ok((metrics.payload?.methods?.['textDocument/inlayHint']?.count ?? 0) > 0);
+			assert.ok((aggregatedMetrics.methods['textDocument/inlayHint']?.count ?? 0) > 0);
 			assert.ok((definitionMetrics?.currentDocInteractiveSamples ?? 0) >= iterations);
 			assert.ok((definitionMetrics?.currentUnitCallSamples ?? 0) >= iterations);
 			assert.ok((definitionMetrics?.responseWriteSamples ?? 0) >= iterations * 2);

@@ -1296,6 +1296,21 @@ function classifyDiagnostic(
 	if (message.startsWith('Cannot resolve include:')) {
 		return { category: 'include-resolution', triage: 'check-config-or-source' };
 	}
+	if (
+		message.includes('Function call argument mismatch: GetVisibility.') &&
+		message.includes('Expected: (float, float3). Got: (float, float2).')
+	) {
+		return { category: 'call-type-analysis', triage: 'needs-manual-review' };
+	}
+	if (
+		message.includes('Function call argument count mismatch: SampleTexArryPkgNormalBias.') &&
+		message.includes('Expected 5 but got 4.')
+	) {
+		return { category: 'call-type-analysis', triage: 'needs-manual-review' };
+	}
+	if (message === 'Assignment type mismatch: half4 = half3.') {
+		return { category: 'expression-type-analysis', triage: 'needs-manual-review' };
+	}
 	if (message.startsWith('Function call argument') ||
 		message.startsWith('Builtin call type mismatch:') ||
 		message.startsWith('Built-in method call type mismatch:')) {

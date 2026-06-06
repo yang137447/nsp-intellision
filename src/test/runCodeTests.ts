@@ -111,7 +111,13 @@ async function run(): Promise<void> {
 
 	const args = [
 		'--disable-extensions',
+		'--disable-extension=vscode.git',
+		'--disable-extension=vscode.git-ui',
+		'--disable-extension=vscode.github',
+		'--disable-extension=vscode.github-authentication',
 		'--disable-gpu',
+		'--disable-telemetry',
+		'--disable-updates',
 		'--disable-workspace-trust',
 		'--skip-welcome',
 		'--skip-release-notes',

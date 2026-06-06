@@ -2876,6 +2876,67 @@ P13 full audit 剩余 call / type policy 相关约 `3334` 条：
 - 5-unit / 50-unit audit 中对应 top group 下降或迁移到 source review。
 - 公开 diagnostics 行为变化已明确记录。
 
+### Phase 17 执行记录
+
+状态：已落地 P17 call / type policy 分流与 confirmed compiler lowering 建模。
+
+owner 结论：
+
+- `GetVisibility(float, float3)` 被传入 `float2`：source / branch policy review。真实源码中 `GetVisibility` 只定义为 `float3 uvs`，`SHADOW_AA` 相关分支里存在 `float2` 调用；未找到稳定项目级通用规则可把 `float2` 隐式扩为 `float3`。LSP 继续发布函数参数 mismatch，audit 分类迁到 `needs-manual-review`。
+- `SampleTexArryPkgNormalBias(Texture2DArray, sampler, float2, float, float)` 被以 4 参数调用且第三参为 `float3(...)`：source review。search root 内只找到 5 参数定义，调用点把 array slice 合入第三参；未发现 overload convention 或共享 call-modeling 规则。LSP 继续发布 argument count mismatch，audit 分类迁到 `needs-manual-review`。
+- `half4 = half3`：source / type policy review。标准 HLSL 不支持 vector grow assignment；样本 RHS 完整推断仍为 `half3`，不是 parser span 截断。LSP 继续发布 assignment mismatch，audit 分类迁到 `needs-manual-review`。
+- `mul(float3x3, half2)`：项目 shadercompiler 扩展 / lowering。真实源码 `shaderlib/surface_emissive.hlsl` 在该调用上方注释说明“很怪的代码，会被翻成float3x2”，确认这是稳定项目编译器行为而非通用 HLSL 规则。
+
+实现内容：
+
+- `diagnostics_expression_type.*` 的共享 builtin `mul` 建模补齐项目 confirmed lowering：`mul(matrix, vector)` 在矩阵列数大于等于向量维度时可解析，返回矩阵行数维度的向量；保留反向 `vector * matrix` 维度不匹配和向量维度超过矩阵列数的 mismatch。
+- real diagnostics audit classifier 将已确认 source-review 的 `GetVisibility(float,float2)`、`SampleTexArryPkgNormalBias` 4/5 参数和 `half4 = half3` 从 `likely-plugin-limitation` 迁到 `needs-manual-review`，避免把 source / policy review 样本继续标为 LSP-owned。
+- 新增 focused fixture `test_files/module_diagnostics_p17_call_type_policy.nsf`，覆盖 accepted `mul(float3x3, half2)`、rejected `mul(half2, float3x3)` sentinel、用户函数 `float3` 参数收到 `float2`、5 参数函数被 4 参数调用，以及 `half4 = half3`。
+- `docs/architecture.md` 和 `diagnostics_expression_type.hpp` 已记录 `mul(matrix, vector)` 项目 lowering 的共享入口边界。
+
+公开行为变化：
+
+- `mul(float3x3, half2)` 这类项目 shadercompiler 已确认接受的矩阵左乘短向量表达式不再发布 `Builtin call type mismatch: mul`。
+- `GetVisibility(float,float3)` 收到 `float2`、`SampleTexArryPkgNormalBias` 4/5 参数不一致、`half4 = half3` 仍继续发布 diagnostics；变化只在 audit triage 中迁到 source review。
+
+验证结果：
+
+- `npm run compile` 通过。
+- `cmake --build .\server_cpp\build` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，92 passing / 1 pending；覆盖 P17 focused fixture，并复核旧矩阵 / builtin / 类型诊断用例。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-17-call-type-policy-smoke-5.{json,md}`；`diagnosticsTotal=297`、`likely-plugin-limitation=21`、`call-type-analysis=19` 且均为 `needs-manual-review`、`expression-type-analysis=5` 且为 `needs-manual-review`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+- 50-unit trend audit 首次以 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=1800000` 在 25/50 unit 处触发 Mocha timeout；未写出阶段报告，判断为预算不足，不改业务逻辑。提高到 `3600000` 后重跑通过，输出 `real-workspace-diagnostics-audit.phase-17-call-type-policy-trend-50.{json,md}`；`diagnosticsTotal=2229`、`likely-plugin-limitation=49`、`Builtin call type mismatch: mul=0`、`Function call argument mismatch=150` / `Function call argument count mismatch=11` / `Assignment type mismatch=50` 均迁为 `needs-manual-review`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`。
+
+性能合规复核（2026-06-06）：
+
+- P17 后真实输入回放暴露的交互延迟根因不是 P17 diagnostics rule 本身，而是 `didChange` 热路径仍同步触发 interactive visibility runtime prewarm、inlay last-good fallback 用 visible effective range 过滤导致长输入 replay 出现短暂掉空，以及 perf 测试对最新单个 metrics window 的取证过窄。
+- 已移除 `documentOwnerDidChange` 中的同步 `interactiveVisibilityRuntimePrewarm(runtime)`，保持 didChange 为轻量路径；语义 / visibility 工作继续由 open、context refresh 和后续 worker 承接。
+- 已修正 client inlay last-good fallback：按原始请求 range 过滤 cached hints，不再按 visible-window effective range 误过滤，`rw-pbr-flow-water-full-input` 的 inlay continuity 不再出现 transient drop。
+- perf suite 已改为 metrics history 聚合取证：method count / samples 跨 window 累加，max / percentile / AvgMs / Rate 取最坏窗口；默认 p95 样本量提升到 20 / 40，并在 VS Code extension host stall 时用 server/client 分层 metrics 证明 NSF 产品路径是否合规，raw wall-clock samples 仍保留在报告中。
+- VS Code 测试启动器已禁用内置 Git/GitHub 扩展、telemetry 和 updates，降低 repo / perf / real 模式的宿主噪声；若仍出现 extension host unresponsive，优先用 NSF 分层指标判断是否产品回归。
+- `npm run test:client:perf` 通过，结果 `26 passing / 3 pending / 0 failures`。
+- `$env:NSF_REAL_REPLAY_INCLUDE_LONG='1'; npm run test:client:real:replay` 通过，结果 `15 passing / 0 failures`，覆盖长脚本 `rw-pbr-flow-water-full-input`。
+
+P17 后剩余归属：
+
+- 当前性能已合规，剩余 diagnostics 不再作为 P17 内继续扩展的性能阻塞项。
+- `GetVisibility(float,float3)` 收到 `float2`、`SampleTexArryPkgNormalBias` 4/5 参数不一致、`half4 = half3` 继续保留为 source / type policy review，不通过 LSP suppress 处理。
+- 明确的小型共享 type / builtin modeling tail 进入 P18；真实源码缺符号、真实缺分号、项目配置缺口和 source review 项不进入 P18。
+- P18 及后续里程碑关闭前必须补跑性能合规门禁，至少覆盖 `npm run test:client:perf`；如果阶段影响真实输入、completion、signature help、inlay hints、diagnostics 恢复或 replay runner，还必须打开 `NSF_REAL_REPLAY_INCLUDE_LONG=1` 跑全量 real replay。
+
+阶段关闭判断：
+
+- 命令是否变化：否；50-unit audit 本阶段实际需要更高 timeout 才完成，但未新增或改变 npm 命令。
+- 路径或命名是否变化：新增 focused fixture 和 P17 audit 报告；未改变运行时资源路径 / 命名规则。
+- 架构或单一事实来源是否变化：是，项目 confirmed `mul(matrix, vector)` lowering 收敛到 `diagnostics_expression_type.*` builtin 共享入口。
+- 测试策略是否变化：是，新增 P17 focused diagnostics fixture；audit 趋势验证仍沿用 P0 机制；2026-06-06 追加性能合规复核后，perf suite 使用 metrics history 聚合、分层 product-path 证据和更高样本量作为性能门禁。
+- 文档是否已同步：已更新 `docs/architecture.md`、`diagnostics_expression_type.hpp`、`docs/testing.md` 和本执行计划；README、AGENTS、resources、client-editor-features、type-method-interface-contract、development 不需要更新。
+- 是否改变公开 diagnostics 行为：是，confirmed `mul(float3x3, half2)` 不再误报 builtin mismatch。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已新增 focused fixture，并生成 P17 5-unit / 50-unit real audit 报告。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果。
+
 ## Phase 18 (P18): 小型 type / builtin tail 收尾
 
 ### 背景
@@ -2908,6 +2969,14 @@ P13 full audit 中仍有少量明确 LSP modeling tail，总量 `29`：
 - 非法 bitwise / return mismatch sentinel 仍保持诊断。
 - diagnostics repo focused fixture 通过。
 - 如共享 type / builtin 行为变化，已更新头文件契约和相关事实文档。
+- 性能合规门禁通过：至少 `npm run test:client:perf` 通过；如果 P18 触达真实输入、completion、signature help、inlay hints 或 diagnostics 恢复链路，还必须设置 `NSF_REAL_REPLAY_INCLUDE_LONG=1` 跑全量 `npm run test:client:real:replay`。
+
+## 后续里程碑通用附加门禁
+
+- P18 以及后续任何会改变 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路的里程碑，都必须把性能合规作为关闭条件。
+- 最低性能门禁是 `npm run test:client:perf`；如果涉及真实输入或 replay 覆盖面，还必须运行包含 long-running 脚本的全量 real replay。
+- 性能结论必须同时记录 raw wall-clock、server/client 分层 metrics 和是否存在 VS Code extension host stall；不得只因宿主 wall-clock spike 修改业务逻辑，也不得在产品路径指标超预算时用宿主噪声掩盖真实回归。
+- 对后续里程碑报告，若 full perf 或 full replay 未跑，必须明确说明原因，并把它保留为该里程碑未关闭风险。
 
 ## 阶段执行顺序
 
@@ -3003,6 +3072,20 @@ $env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
 $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "0"
 $env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "7200000"
 node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
+```
+
+performance gate：
+
+```powershell
+npm run test:client:perf
+```
+
+full real replay gate：
+
+```powershell
+$env:NSF_REAL_REPLAY_INCLUDE_LONG = "1"
+Remove-Item Env:NSF_TEST_REAL_REPLAY_SCRIPT_FILTER -ErrorAction SilentlyContinue
+npm run test:client:real:replay
 ```
 
 ## 十轮审查记录
