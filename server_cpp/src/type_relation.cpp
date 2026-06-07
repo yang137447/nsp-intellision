@@ -15,7 +15,8 @@ bool isFloatFamily(const std::string &base) {
 }
 
 bool isIntFamily(const std::string &base) {
-  return base == "int" || base == "uint";
+  return base == "int" || base == "uint" || base == "int64_t" ||
+         base == "uint64_t";
 }
 
 bool isNumericScalarBase(const std::string &base) {
@@ -29,6 +30,18 @@ int floatRank(const std::string &base) {
     return 1;
   if (base == "double")
     return 2;
+  return -1;
+}
+
+bool isUnsignedIntFamily(const std::string &base) {
+  return base == "uint" || base == "uint64_t";
+}
+
+int intRank(const std::string &base) {
+  if (base == "int" || base == "uint")
+    return 0;
+  if (base == "int64_t" || base == "uint64_t")
+    return 1;
   return -1;
 }
 
@@ -253,6 +266,11 @@ std::string commonNumericBase(const std::string &left,
       return "float";
     return "half";
   }
+  const int rank = std::max(intRank(left), intRank(right));
+  if (rank >= 1)
+    return (isUnsignedIntFamily(left) || isUnsignedIntFamily(right))
+               ? "uint64_t"
+               : "int64_t";
   if (left == "uint" || right == "uint")
     return "uint";
   return "int";

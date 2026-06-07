@@ -2971,6 +2971,51 @@ P13 full audit 中仍有少量明确 LSP modeling tail，总量 `29`：
 - 如共享 type / builtin 行为变化，已更新头文件契约和相关事实文档。
 - 性能合规门禁通过：至少 `npm run test:client:perf` 通过；如果 P18 触达真实输入、completion、signature help、inlay hints 或 diagnostics 恢复链路，还必须设置 `NSF_REAL_REPLAY_INCLUDE_LONG=1` 跑全量 `npm run test:client:real:replay`。
 
+### Phase 18 执行记录
+
+状态：已落地小型 type / builtin tail 收尾；公开 diagnostics 行为按 P18 目标收敛。
+
+实现内容：
+
+- `diagnostics_expression_type.*` 已把 `cosh` 纳入同型返回 common builtin 建模，把 `clip` 建模为 call-only / void builtin；`clip` 只作为合法 call 被 diagnostics 识别，不给 expression typing 编造返回类型。
+- `type_desc.*`、`type_relation.*` 和 diagnostics expression typing 已识别项目 64-bit integer scalar alias：`int64_t` / `uint64_t`。
+- bitwise shift 结果保留左操作数整型宽度，bitwise-or / and / xor 通过共享 integer scalar merge 保留 `uint64_t` / `int64_t` 和 signed / unsigned 组合结果；未在 return / binary diagnostics rule 里新增局部分支。
+- 新增 focused fixture `test_files/module_diagnostics_p18_uint64_bitwise_builtin_tail.nsf`，覆盖合法 `uint64_t(v.y) << 32 | uint64_t(v.x)`、signed / unsigned 组合、非法 object bitwise return sentinel，以及 `cosh` / `clip` builtin tail。
+- 既有 common builtin fixture 已补充 `cosh(x)` 与 `clip(x)`，repo integration 断言它们不再产生 indeterminate 或 builtin mismatch。
+- `docs/architecture.md`、`diagnostics_expression_type.hpp`、`type_desc.hpp` 和 `type_relation.hpp` 已同步共享 type / builtin 当前事实。
+
+公开行为变化：
+
+- `cosh(float)` 不再产生 unmodeled / indeterminate builtin diagnostics。
+- `clip(float)` 作为合法 call 不再产生 builtin mismatch / indeterminate diagnostics。
+- 合法 `uint64_t` shift / bitwise-or expression 可推断为 64-bit integer，合法 return 不再误报 `expected uint64_t but got int/uint`。
+- 非法 bitwise / return mismatch sentinel 仍保持诊断。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，93 passing / 1 pending；覆盖 P18 focused fixture、common builtin fixture、合法 bitwise return 和非法 sentinel。
+- `npm run test:client:perf` 通过，26 passing / 3 pending；报告写入 `out/test/perf-reports/`，未出现产品路径性能门禁失败。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-18-type-builtin-tail-smoke-5.{json,md}`；`diagnosticsTotal=297`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，top `Return type mismatch` / `Binary operator type mismatch` likely-plugin-limitation groups 为 `0`。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-18-type-builtin-tail-trend-50.{json,md}`；`diagnosticsTotal=2229`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，top `Return type mismatch`、`Binary operator type mismatch`、`Builtin call type mismatch` likely-plugin-limitation groups 为 `0`。
+- `git diff --check` 通过；仅有 Windows 工作区 CRLF 转换提示。
+- `npm run test:client:repo` 全量曾重跑但未通过；失败集中在非 P18 路径：`client.editor-runtime-defaults` 对 VS Code `editor.suggest.showInlineDetails.other` 的期望仍是 `on`，当前宿主实际为 `offWhenInlineCompletions`；`editing-runtime-layered` 的 global context id / local structural changed-window 时序断言稳定失败；`references-rename` 的 conditional branch references 三条稳定超时。P18 diagnostics focused suite、C++ build、perf 和 5/50 real audit 均已独立通过，因此这些失败记录为当前非 P18 验证风险，未在本阶段修改 unrelated 测试或业务逻辑。
+- 未运行 full real replay；P18 未触达真实输入、completion、signature help、inlay hints 或 diagnostics 恢复链路。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P18 focused fixture 和阶段 audit 报告；未改变运行时资源路径 / 命名规则。
+- 架构或单一事实来源是否变化：是，`cosh` / `clip` builtin tail 与 `int64_t` / `uint64_t` expression typing 收敛到共享 `diagnostics_expression_type.*`、`type_desc.*` 和 `type_relation.*`。
+- 测试策略是否变化：是，新增 P18 focused diagnostics fixture，并用 diagnostics focused repo、perf、5-unit / 50-unit audit 关闭本阶段。
+- 文档是否已同步：已更新 `docs/architecture.md`、相关头文件契约和本执行计划；`README.md`、`docs/resources.md`、`docs/testing.md`、`docs/client-editor-features.md`、`docs/type-method-interface-contract.md`、`docs/development.md` 无需更新，因为命令、资源、editor 壳层、对象方法和开发流程未变化。
+- 是否改变公开 diagnostics 行为：是，合法 `cosh` / `clip` 与合法 `uint64_t` bitwise return 不再误报；非法 sentinel 保持诊断。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：是，已新增 focused fixture，并生成 P18 5-unit / 50-unit real audit 报告。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果。
+
 ## 后续里程碑通用附加门禁
 
 - P18 以及后续任何会改变 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路的里程碑，都必须把性能合规作为关闭条件。

@@ -56,7 +56,8 @@ bool isQualifierToken(const std::string &value) {
 
 bool isNumericScalar(const std::string &base) {
   return base == "float" || base == "half" || base == "double" ||
-         base == "int" || base == "uint" || base == "bool";
+         base == "int" || base == "uint" || base == "int64_t" ||
+         base == "uint64_t" || base == "bool";
 }
 
 std::string normalizeMacroLikeNumericAlias(const std::string &typeToken) {
@@ -66,6 +67,8 @@ std::string normalizeMacroLikeNumericAlias(const std::string &typeToken) {
       {"materialdouble", "double"},
       {"materialint", "int"},
       {"materialuint", "uint"},
+      {"materialint64", "int64_t"},
+      {"materialuint64", "uint64_t"},
   };
   for (const auto &alias : aliases) {
     const std::string &prefix = alias.first;

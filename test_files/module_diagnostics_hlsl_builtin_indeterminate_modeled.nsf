@@ -13,6 +13,7 @@ void test_common_builtin_modeling()
     float rounded = round(x);
     float rad = Radians(x);
     float deg = degrees(x);
+    float ch = cosh(x);
     float dx = ddx(x);
     float dy = ddy(x);
     float fw = fwidth(x);
@@ -21,6 +22,7 @@ void test_common_builtin_modeling()
     float3x2 transposed = transpose(float2x3(1.0, 2.0, 3.0, 4.0, 5.0, 6.0));
 
     sincos(phase, phaseSin, phaseCos);
+    clip(x);
 
     float3 hardMismatch = float2(1.0, 2.0);
 }

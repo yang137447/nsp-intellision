@@ -53,7 +53,9 @@ struct TypeBinaryConversionResult {
 // be shown for legal but risky implicit conversions. It intentionally models
 // type compatibility only; target-profile-specific storage width, full constant
 // folding, object-method coordinate dimensions, and label syntax are owned by
-// their dedicated layers.
+// their dedicated layers. Project 64-bit integer scalar aliases (`int64_t` and
+// `uint64_t`) participate in the same shared integer conversion model so return
+// and expression diagnostics do not need local bitwise special cases.
 TypeRelationResult evaluateTypeRelation(const TypeDesc &expected,
                                         const TypeDesc &actual,
                                         bool allowNarrowing = false);

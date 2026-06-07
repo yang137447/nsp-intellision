@@ -1,0 +1,21 @@
+uint64_t pack_uint64_tail(uint2 v)
+{
+    return (uint64_t(v.y) << 32) | uint64_t(v.x);
+}
+
+uint64_t mix_signed_unsigned_tail(int64_t hi, uint lo)
+{
+    return (hi << 32) | uint64_t(lo);
+}
+
+uint64_t invalid_uint64_return_tail()
+{
+    Texture2D tex;
+    return tex | uint64_t(1);
+}
+
+void p18_builtin_tail(float x)
+{
+    float ch = cosh(x);
+    clip(x);
+}

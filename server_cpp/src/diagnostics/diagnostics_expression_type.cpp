@@ -71,6 +71,10 @@ static BuiltinElemKind parseBuiltinElemKind(const std::string &t) {
     return BuiltinElemKind::Int;
   if (t == "uint")
     return BuiltinElemKind::UInt;
+  if (t == "int64_t")
+    return BuiltinElemKind::Int64;
+  if (t == "uint64_t")
+    return BuiltinElemKind::UInt64;
   if (t == "half")
     return BuiltinElemKind::Half;
   if (t == "float")
@@ -87,6 +91,10 @@ static std::string builtinElemKindToString(BuiltinElemKind k) {
     return "int";
   if (k == BuiltinElemKind::UInt)
     return "uint";
+  if (k == BuiltinElemKind::Int64)
+    return "int64_t";
+  if (k == BuiltinElemKind::UInt64)
+    return "uint64_t";
   if (k == BuiltinElemKind::Half)
     return "half";
   if (k == BuiltinElemKind::Float)
@@ -170,6 +178,7 @@ static TypeDesc builtinInfoToTypeDesc(const BuiltinTypeInfo &t) {
 
 static bool isBuiltinNumericElem(BuiltinElemKind k) {
   return k == BuiltinElemKind::Int || k == BuiltinElemKind::UInt ||
+         k == BuiltinElemKind::Int64 || k == BuiltinElemKind::UInt64 ||
          k == BuiltinElemKind::Half || k == BuiltinElemKind::Float ||
          k == BuiltinElemKind::Double;
 }
@@ -177,7 +186,8 @@ static bool isBuiltinNumericElem(BuiltinElemKind k) {
 static bool isBuiltinUnarySameType(const std::string &name) {
   return name == "normalize" || name == "saturate" || name == "abs" ||
          name == "sin" || name == "cos" || name == "tan" || name == "asin" ||
-         name == "acos" || name == "atan" || name == "exp" || name == "exp2" ||
+         name == "acos" || name == "atan" || name == "cosh" ||
+         name == "exp" || name == "exp2" ||
          name == "log" || name == "log2" || name == "log10" ||
          name == "floor" || name == "ceil" || name == "frac" ||
          name == "fmod" || name == "rsqrt" || name == "sqrt" ||
@@ -345,6 +355,17 @@ resolveBuiltinCall(const std::string &name,
       r.ret.elem = BuiltinElemKind::Int;
     else if (builtinName == "asuint")
       r.ret.elem = BuiltinElemKind::UInt;
+    return r;
+  }
+
+  if (builtinName == "clip") {
+    if (args.size() != 1)
+      return r;
+    if (!isBuiltinNumericElem(args[0].elem))
+      return r;
+    if (args[0].shape == BuiltinTypeInfo::ShapeKind::Matrix)
+      return r;
+    r.ok = true;
     return r;
   }
 
@@ -780,12 +801,14 @@ bool isVectorType(const std::string &type, int &dimensionOut) {
 
 bool isScalarType(const std::string &type) {
   return type == "float" || type == "half" || type == "double" ||
-         type == "int" || type == "uint" || type == "bool";
+         type == "int" || type == "uint" || type == "int64_t" ||
+         type == "uint64_t" || type == "bool";
 }
 
 bool isNumericScalarType(const std::string &type) {
   return type == "float" || type == "half" || type == "double" ||
-         type == "int" || type == "uint";
+         type == "int" || type == "uint" || type == "int64_t" ||
+         type == "uint64_t";
 }
 
 bool isMatrixType(const std::string &type, std::string &scalarOut,
@@ -966,6 +989,23 @@ int diagnosticsNumericScalarRank(const std::string &scalar) {
   return -1;
 }
 
+bool isIntegerScalar(const std::string &scalar) {
+  return scalar == "int" || scalar == "uint" || scalar == "int64_t" ||
+         scalar == "uint64_t";
+}
+
+bool isUnsignedIntegerScalar(const std::string &scalar) {
+  return scalar == "uint" || scalar == "uint64_t";
+}
+
+int diagnosticsIntegerScalarRank(const std::string &scalar) {
+  if (scalar == "int" || scalar == "uint")
+    return 0;
+  if (scalar == "int64_t" || scalar == "uint64_t")
+    return 1;
+  return -1;
+}
+
 std::string mergeNumericScalar(const std::string &left,
                                const std::string &right) {
   if (left == right)
@@ -979,6 +1019,14 @@ std::string mergeNumericScalar(const std::string &left,
     if (outRank == 1)
       return "float";
     return "half";
+  }
+  const int intRank =
+      std::max(diagnosticsIntegerScalarRank(left),
+               diagnosticsIntegerScalarRank(right));
+  if (intRank >= 1) {
+    return (isUnsignedIntegerScalar(left) || isUnsignedIntegerScalar(right))
+               ? "uint64_t"
+               : "int64_t";
   }
   if (left == "uint" || right == "uint")
     return "uint";
@@ -1885,8 +1933,7 @@ struct ExprParser {
     bool rightOk = parseVectorOrScalarType(rightType, rightScalar, rightDim);
     if (!leftOk || !rightOk)
       return leftType;
-    if ((leftScalar != "int" && leftScalar != "uint") ||
-        (rightScalar != "int" && rightScalar != "uint")) {
+    if (!isIntegerScalar(leftScalar) || !isIntegerScalar(rightScalar)) {
       return leftType;
     }
     int outDim = 1;
@@ -1898,9 +1945,31 @@ struct ExprParser {
       outDim = leftDim;
     else
       outDim = leftDim;
-    std::string outScalar =
-        (leftScalar == "uint" || rightScalar == "uint") ? "uint" : "int";
+    std::string outScalar = mergeNumericScalar(leftScalar, rightScalar);
     return makeVectorOrScalarType(outScalar, outDim);
+  }
+
+  static std::string mergeShiftType(const std::string &leftType,
+                                    const std::string &rightType) {
+    if (leftType.empty())
+      return rightType;
+    if (rightType.empty())
+      return leftType;
+    std::string leftScalar;
+    std::string rightScalar;
+    int leftDim = 0;
+    int rightDim = 0;
+    bool leftOk = parseVectorOrScalarType(leftType, leftScalar, leftDim);
+    bool rightOk = parseVectorOrScalarType(rightType, rightScalar, rightDim);
+    if (!leftOk || !rightOk)
+      return leftType;
+    if (!isIntegerScalar(leftScalar) || !isIntegerScalar(rightScalar))
+      return leftType;
+    if (leftDim == rightDim || rightDim == 1)
+      return leftType;
+    if (leftDim == 1)
+      return makeVectorOrScalarType(leftScalar, rightDim);
+    return leftType;
   }
 
   static std::string mergeMultiplyType(const std::string &leftType,
@@ -1979,7 +2048,7 @@ struct ExprParser {
       if (left.empty())
         left = right;
       else if (!right.empty())
-        left = mergeBitwiseType(left, right);
+        left = mergeShiftType(left, right);
     }
     return left;
   }

@@ -10,7 +10,17 @@
 
 struct PreprocessorView;
 
-enum class BuiltinElemKind { Unknown, Bool, Int, UInt, Half, Float, Double };
+enum class BuiltinElemKind {
+  Unknown,
+  Bool,
+  Int,
+  UInt,
+  Int64,
+  UInt64,
+  Half,
+  Float,
+  Double
+};
 
 struct BuiltinTypeInfo {
   enum class ShapeKind { Unknown, Scalar, Vector, Matrix };
@@ -45,7 +55,9 @@ struct NumericLiteralParseResult {
 // type rules, and infer expression result types for semantic diagnostics.
 // Builtin modeling covers common scalar/vector/matrix intrinsics in one shared
 // path; unsupported or unavailable argument types should surface as
-// indeterminate diagnostics instead of feature-local fallback guesses.
+// indeterminate diagnostics instead of feature-local fallback guesses. The
+// expression model also recognizes project 64-bit integer scalar aliases and
+// keeps bitwise shift/or results in that shared type path.
 // `mul(matrix, vector)` also models the confirmed project shadercompiler
 // lowering where a matrix with more columns than the vector dimension is
 // accepted and returns a vector with the matrix row count; the reverse

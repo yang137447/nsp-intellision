@@ -1952,6 +1952,7 @@ export function registerDiagnosticsTests(): void {
 			'log2',
 			'log10',
 			'round',
+			'cosh',
 			'Radians',
 			'degrees',
 			'ddx',
@@ -1960,7 +1961,8 @@ export function registerDiagnosticsTests(): void {
 			'all',
 			'any',
 			'transpose',
-			'sincos'
+			'sincos',
+			'clip'
 		]) {
 			assert.ok(!messages.includes(`Indeterminate builtin call: type rules not implemented. Name: ${name}.`), messages);
 			assert.ok(!messages.includes(`Indeterminate builtin call: arg types unavailable. Name: ${name}.`), messages);
@@ -2477,6 +2479,28 @@ export function registerDiagnosticsTests(): void {
 		const messages = diagnostics.map((diag) => diag.message).join('\n');
 		assert.ok(!messages.includes('Assignment type mismatch: uint = bool.'));
 		assert.ok(!messages.includes('Return type mismatch'));
+	});
+
+	it('models P18 uint64 bitwise expressions and builtin tail intrinsics', async () => {
+		const document = await openFixture('module_diagnostics_p18_uint64_bitwise_builtin_tail.nsf');
+
+		const diagnostics = await waitFor(
+			() => vscode.languages.getDiagnostics(document.uri),
+			(value) => Array.isArray(value) && value.length >= 1,
+			'diagnostics'
+		);
+
+		const messages = diagnostics.map((diag) => diag.message).join('\n');
+		assert.ok(!messages.includes('Return type mismatch: expected uint64_t but got int.'), messages);
+		assert.ok(!messages.includes('Return type mismatch: expected uint64_t but got uint.'), messages);
+		assert.ok(!messages.includes('Builtin call type mismatch: cosh.'), messages);
+		assert.ok(!messages.includes('Builtin call type mismatch: clip.'), messages);
+		assert.ok(!messages.includes('Indeterminate builtin call: type rules not implemented. Name: cosh.'), messages);
+		assert.ok(!messages.includes('Indeterminate builtin call: type rules not implemented. Name: clip.'), messages);
+		assert.ok(
+			messages.includes('Return type mismatch: expected uint64_t but got Texture2D.'),
+			messages
+		);
 	});
 
 	it('supports HLSL attributes like [unroll] without false diagnostics', async () => {
