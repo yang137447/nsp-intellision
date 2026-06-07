@@ -1425,6 +1425,15 @@ static int currentBranchIndex(const PreprocessorInterpreterState &state) {
 
 static void mergeProbeObservations(PreprocessorInterpreterState &state,
                                    const PreprocessorView &probeView) {
+  const size_t lineCount =
+      std::min(state.result.branchSigs.size(), probeView.branchSigs.size());
+  for (size_t line = 0; line < lineCount; line++) {
+    if (!state.result.branchSigs[line].empty() ||
+        probeView.branchSigs[line].empty()) {
+      continue;
+    }
+    state.result.branchSigs[line] = probeView.branchSigs[line];
+  }
   state.result.conditionDiagnostics.insert(
       state.result.conditionDiagnostics.end(),
       probeView.conditionDiagnostics.begin(),

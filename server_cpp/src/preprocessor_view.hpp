@@ -97,7 +97,13 @@ struct PreprocessorMacroHealthMetrics {
 };
 
 struct PreprocessorView {
+  // Public active-line mask for the selected preprocessor path. Inactive branch
+  // lines remain false even when inactive-branch probes collect metadata.
   std::vector<char> lineActive;
+  // Per-line branch identity. Active path lines are written by the main
+  // interpreter; inactive branch declaration/use lines may be populated from
+  // isolated probes so all-branch consumers such as references/rename can group
+  // conditional symbol families without treating those lines as active.
   std::vector<PreprocBranchSig> branchSigs;
   // Diagnostics and macro events emitted by the shared preprocessor state
   // machine. Object-like macro chains, including workspace `#art` BOOL/INT

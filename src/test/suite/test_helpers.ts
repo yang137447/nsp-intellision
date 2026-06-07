@@ -596,6 +596,7 @@ export function flattenSymbolNames(symbols: SymbolLike[]): string[] {
 }
 
 export function findOffset(document: vscode.TextDocument, needle: string, occurrence = 1): number {
+	assert.ok(occurrence >= 1, `position occurrence is 1-based; got ${occurrence} for '${needle}'.`);
 	let fromIndex = 0;
 	let foundIndex = -1;
 	for (let current = 0; current < occurrence; current++) {

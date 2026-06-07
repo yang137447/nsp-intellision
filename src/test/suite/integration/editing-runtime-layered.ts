@@ -147,6 +147,7 @@ export function registerEditingRuntimeLayeredTests(): void {
 				let shared = await openFixture('layered_runtime_macro_shared.hlsl');
 				await vscode.commands.executeCommand('nsf._setActiveUnitForTests', root.uri.toString());
 				await waitForClientReady('client ready before global context debug');
+				await waitForClientQuiescent('client quiescent before global context baseline');
 
 				let lastGlobalContextDebug: unknown;
 				const initialRuntime = await waitFor(
@@ -174,13 +175,13 @@ export function registerEditingRuntimeLayeredTests(): void {
 				const rootNeutralEditPosition = positionOf(
 					root,
 					'return layeredRuntimeSharedColor();',
-					0,
+					1,
 					'return layeredRuntimeSharedColor();'.length
 				);
 				const sharedFollowupEditPosition = positionOf(
 					shared,
 					'return float4(1.0, 0.25, 0.0, 1.0);',
-					0,
+					1,
 					'return float4(1.0, 0.25, 0.0, 1.0);'.length
 				);
 

@@ -211,6 +211,7 @@ document outline 和 semantic tokens 属于 deferred surface；对应 replay cap
 - `didChange` 后的 local structural snapshot 由异步 fast diagnostics worker 补齐；runtime 断言应通过 `waitFor(...)` 轮询 `getDocumentRuntimeDebug(...)`，不要假设 `applyEdit(...)` 返回后同步 ready。
 - 跨文件或 deferred semantic diagnostics 用例应使用 `waitForDiagnostics(...)`；必要时用 `touchDocument(...)` 或 `waitForDiagnosticsWithTouches(...)` 重新排队。
 - definition / references 存在同名候选时，优先断言结果集合包含目标路径；只有当前架构明确承诺选主顺序时才断言首项。
+- `positionOf(...)` / `findOffset(...)` 的 occurrence 参数是 1-based；首个匹配传 `1`，不要传 `0`。helper 会直接拒绝小于 1 的 occurrence，避免编辑点跑偏后污染 runtime 断言。
 
 ### 并发与性能
 

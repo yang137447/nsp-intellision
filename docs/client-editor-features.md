@@ -27,6 +27,8 @@
   - 注释、配对、`wordPattern`、回车规则、folding markers
 - `snippets/nsf.code-snippets`
   - 代码片段内容
+- `package.json` 的 `configurationDefaults`
+  - `.nsf/.hlsl` 的语言级 editor 默认值：代码区 quick suggestions 开启，注释和字符串关闭，trigger-character suggestions 与 parameter hints 开启
 - `client/src/client_config_sync.ts`、`client/src/client_editor_feedback.ts`
   - client 运行时对 `nsf.shaderFileExtensions` 的默认值兜底
 - `server_cpp/src/app/main.cpp`
@@ -50,6 +52,7 @@
 - `///` 与 `/** */` 注释续写
 - `// #region` / `// #endregion` 折叠，支持嵌套；裸 `#region/#endregion` 不作为 folding marker 支持
 - 最小 snippets 集
+- `.nsf/.hlsl` 语言级 editor 默认值：代码区 quick suggestions 开启，注释和字符串关闭，trigger-character suggestions 与 parameter hints 开启；当前 VS Code runtime 可能把 manifest 的 `true` 归一化为 `on` 或 `offWhenInlineCompletions`，测试只把 `off`/`false` 视为关闭
 
 当前边界：
 
