@@ -3000,7 +3000,8 @@ P13 full audit 中仍有少量明确 LSP modeling tail，总量 `29`：
 - 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-18-type-builtin-tail-smoke-5.{json,md}`；`diagnosticsTotal=297`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，top `Return type mismatch` / `Binary operator type mismatch` likely-plugin-limitation groups 为 `0`。
 - 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-18-type-builtin-tail-trend-50.{json,md}`；`diagnosticsTotal=2229`，`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，top `Return type mismatch`、`Binary operator type mismatch`、`Builtin call type mismatch` likely-plugin-limitation groups 为 `0`。
 - `git diff --check` 通过；仅有 Windows 工作区 CRLF 转换提示。
-- `npm run test:client:repo` 全量曾重跑但未通过；失败集中在非 P18 路径：`client.editor-runtime-defaults` 对 VS Code `editor.suggest.showInlineDetails.other` 的期望仍是 `on`，当前宿主实际为 `offWhenInlineCompletions`；`editing-runtime-layered` 的 global context id / local structural changed-window 时序断言稳定失败；`references-rename` 的 conditional branch references 三条稳定超时。P18 diagnostics focused suite、C++ build、perf 和 5/50 real audit 均已独立通过，因此这些失败记录为当前非 P18 验证风险，未在本阶段修改 unrelated 测试或业务逻辑。
+- `npm run test:client:repo` 全量在 P18 初次关闭时曾暴露非 P18 路径失败：`client.editor-runtime-defaults` 对 VS Code runtime quick suggestions 新值域的断言过窄；`editing-runtime-layered` 的 neutral edit 测试把 `positionOf(...)` 1-based occurrence 误传为 `0` 导致编辑点跑偏；`references-rename` 的 conditional branch family references 依赖 inactive branch signature，但 `PreprocessorView` 当时未把 inactive probe 的 branch signature 合回主 view。这些已在 post-P18 回归收口提交 `bc936b7 fix repo regression test stability` 中修复，并同步 `docs/architecture.md`、`docs/client-editor-features.md`、`docs/testing.md`。
+- post-P18 全量 repo 回归已通过：`npm run test:client:repo` 通过，覆盖上述非 P18 失败项；工作区随后确认干净。P18 diagnostics focused suite、C++ build、perf 和 5/50 real audit 的阶段结论不变。
 - 未运行 full real replay；P18 未触达真实输入、completion、signature help、inlay hints 或 diagnostics 恢复链路。
 
 阶段关闭判断：
