@@ -3039,6 +3039,87 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 - 执行判断：post-P18 不建议立即开启 P19 大规模 LSP 规则阶段；应先建立真实源码 / 配置复核表，处理 top manual groups，再把确认属于插件的小尾巴拆成 focused fixture + 5/50 audit 验证的小提交。
 - 文档同步范围：本次只沉淀 `docs/human-ai` 阶段结论；未改变命令、路径 / 命名、资源 bundle、公开 diagnostics 行为或测试策略，因此 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md`、`docs/client-editor-features.md`、`docs/type-method-interface-contract.md` 和 `docs/development.md` 无需更新。
 
+## Phase 19 (P19): Source / Config Diagnostics Review
+
+状态：已确认新增；待执行。
+
+目标：
+
+- 基于 post-P18 100-unit audit 建立真实源码 / 配置 / policy 复核清单，优先处理 `needs-manual-review=3405` 的主量级问题。
+- 对 top groups 做 owner 分流：真实源码问题、项目配置 / compile profile 缺口、diagnostics policy 需要人工确认、以及确认属于 LSP 的小尾巴。
+- 形成可交给源码侧或配置侧处理的样本表，记录 active unit、文件、行号、诊断 message、可能 owner、真实编译对照状态和处理建议。
+- 为 P20 提供准入清单：只有经过 P19 复核并确认属于插件共享能力缺口的问题，才进入 P20。
+
+非目标：
+
+- 不在 P19 中新增 LSP suppress、fallback、compat layer、shim、feature flag 或新旧逻辑并存路径。
+- 不用 diagnostics rule 吞掉真实源码 / 配置噪声。
+- 不把 `Undefined identifier`、call mismatch 或 missing-return 这类混合 owner 问题直接归为插件 bug。
+- 不修改资源 bundle、宏 preset 或公开 diagnostics 行为，除非复核后单独提出方案并触发对应确认 / 文档更新。
+
+输入：
+
+- post-P18 100-unit audit：`out/test/diagnostics-audit/real-workspace-diagnostics-audit.post-p18-source-config-batch-000-099.{json,md}`。
+- P18 5-unit / 50-unit audit：`phase-18-type-builtin-tail-smoke-5`、`phase-18-type-builtin-tail-trend-50`。
+- P14-P18 阶段结论，尤其是 macro/profile 已清零、P18 type / builtin tail 已收口的证据。
+
+优先复核清单：
+
+| Group | Count | P19 复核重点 |
+| --- | ---: | --- |
+| `Duplicate local declaration: <symbol>.` | 1843 | 判断是否为真实同 scope 重复声明、宏展开生成重复声明、或 diagnostics local scope 边界误判。 |
+| `Unreachable code.` | 940 | 结合真实编译 / 项目 policy 判断是否为合法 shader 风格、宏条件残留或真实控制流问题。 |
+| `Function call argument mismatch: <function>.` | 261 | 抽样核对函数定义、调用点 active include context 和项目允许的隐式转换。 |
+| `Potential missing return on some paths.` | 174 | 结合 control-flow policy 判断真实风险、shadercompiler 容忍行为和 LSP rule 边界。 |
+| `Assignment type mismatch: <lhs> = <rhs>.` | 87 | 优先确认 `half4 = half3` 等样本是源码写法、项目隐式扩展还是 type relation 缺口。 |
+| `Duplicate global declaration: <symbol>.` | 58 | 区分 include 重复、条件分支 family、真实全局重名和 parser / preprocessor context 问题。 |
+| `Missing semicolon.` | 21 | 判断是否为真实缺分号、宏 / metadata 语法边界，或 parser recovery 剩余误报。 |
+| `Function call argument count mismatch: <function>.` | 21 | 核对 `SampleTexArryPkgNormalBias` 等样本的真实签名、宏展开和项目 overload 约定。 |
+
+P19 输出要求：
+
+- 在本执行计划或独立 `docs/human-ai/` review 文档中沉淀 owner table。
+- 每个 top group 至少保留代表样本、owner 判断、是否进入 P20、是否需要源码 / 配置侧处理。
+- 对进入 P20 的问题写清准入依据：共享入口缺口、focused fixture 设计、预期 diagnostics 变化和验证命令。
+- 如果确认存在公开 diagnostics 行为调整需求，先停下来说明触发点、风险和推荐方案，得到确认后再实施。
+
+P19 验证与关闭标准：
+
+- 不要求修改产品代码；如果只产出 review 文档，验证为 `git diff --check` 和文档审阅。
+- 若 P19 过程中修改测试 helper、audit classifier 或报告脚本，至少运行 `npm run compile` 和相关 real diagnostics audit。
+- 关闭时必须更新文档，记录 source/config owner 分流结果、P20 准入清单和不进入 P20 的原因。
+
+## Phase 20 (P20): Focused LSP Tail
+
+状态：已确认新增；待 P19 owner 分流后执行。
+
+目标：
+
+- 只治理 P19 已确认属于插件共享能力缺口的小尾巴，保持小范围 focused fixture + real audit 趋势验证。
+- 当前可直接候选：`isnan(float)` / `trunc(float)` builtin unmodeled 各 8 条；实现时应收敛在 `diagnostics_expression_type.*` 的 common builtin typing 入口或对应共享 builtin/type relation 层。
+- 当前需 P19 准入确认后再进入：`Undefined identifier` 130 条，以及 `UVToWorld` 参数 mismatch 1 条。
+
+准入条件：
+
+- 问题必须有 P19 owner 结论，确认不是真实源码问题、配置缺口或项目 policy 待确认项。
+- 必须能写出 focused repo fixture，证明症状属于共享能力缺口且修复后不会吞掉非法 sentinel。
+- 必须明确共享入口：builtin/type tail 走 `diagnostics_expression_type.*` / `type_desc.*` / `type_relation.*`；scope / undefined identifier 问题走 semantic snapshot、symbol query 或 diagnostics prerequisites，不在单条 rule 里特判。
+
+非目标：
+
+- 不治理 P19 标记为源码 / 配置 / policy 的 manual groups。
+- 不新增 allowlist、suppress、fallback 或项目名特判。
+- 不扩大为新的大规模 parser、scope 或 call-type 重写；如 P19 发现系统性根因，应另开专门架构阶段并先确认。
+
+验证与关闭标准：
+
+- 至少运行 `cmake --build .\server_cpp\build`。
+- 若修改 TypeScript 测试或 client/audit 入口，运行 `npm run compile`。
+- 运行 diagnostics focused repo 测试；如果触达 diagnostics 公开行为，补跑 `npm run test:client:repo` 或对应 diagnostics filter。
+- 运行 5-unit smoke audit 和 50-unit trend audit；若 P20 影响真实 workspace 主路径或需要证明 batch 稳定性，再补跑 100-unit batch audit。
+- 若修改 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路，按后续里程碑通用附加门禁补跑 `npm run test:client:perf`；涉及真实输入 / replay 覆盖面时补跑 long-running real replay。
+- 文档同步必须记录根因、实际改动、共享入口、验证结果、公开行为变化和剩余不处理项。
+
 ## 后续里程碑通用附加门禁
 
 - P18 以及后续任何会改变 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路的里程碑，都必须把性能合规作为关闭条件。
@@ -3069,6 +3150,8 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 17. Phase 16: statement-like macro 声明局部变量语义边界。
 18. Phase 17: call / type policy 与真实编译器行为确认。
 19. Phase 18: 小型 type / builtin tail 收尾。
+20. Phase 19: source / config diagnostics review。
+21. Phase 20: focused LSP tail。
 
 Phase 2、Phase 3、Phase 4、Phase 7、Phase 10、Phase 11、Phase 12、Phase 14、Phase 15 和 Phase 16 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约、builtin 类型规则共享入口、macro / parser 参数边界、macro-like expression typing、active-branch 宏上下文契约与共享预处理宏推导核心层、多行 parser continuation 和 statement-like macro local 语义；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。Phase 14 不能用 diagnostics-local 特判替代真实宏状态机、真实配置确认或共享快照契约；P14L 的 compiler context 收口必须先区分 preset 漂移、compiler 固定上下文和用户显式配置语义，再决定是否改变公开宏合并契约。Phase 17 仍包含 call / type policy 与真实编译器行为确认重点。
 
