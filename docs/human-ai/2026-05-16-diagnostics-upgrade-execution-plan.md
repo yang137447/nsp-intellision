@@ -3017,6 +3017,28 @@ P13 full audit 中仍有少量明确 LSP modeling tail，总量 `29`：
 - 是否补齐 focused fixture 或稳定 real audit sample：是，已新增 focused fixture，并生成 P18 5-unit / 50-unit real audit 报告。
 - 是否重新跑了对应验证并记录结果：是，见上方验证结果。
 
+2026-06-08 post-P18 100-unit source/config 分流复核：
+
+- 已执行 100-unit real workspace diagnostics audit：
+
+```powershell
+$env:NSF_REAL_DIAGNOSTICS_AUDIT='1'
+$env:NSF_REAL_DIAGNOSTICS_UNIT_OFFSET='0'
+$env:NSF_REAL_DIAGNOSTICS_MAX_UNITS='100'
+$env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS='3600000'
+$env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL='post-p18-source-config-batch-000-099'
+node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
+```
+
+- 验证结果：通过，1 passing，耗时约 47 分钟；报告输出到 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.post-p18-source-config-batch-000-099.{json,md}`。
+- 健康度：`unitsDiscovered=811`、`unitsScanned=100`、`filesScanned=179`、`diagnosticsTotal=3552`；`waitTimeouts=0`、`truncatedFiles=0`、`timedOutFiles=0`、`heavyRulesSkippedFiles=0`、`fileErrors=0`。
+- macro / profile 收口确认：`undefinedMacroDiagnosticCount=0`、`synthesizedZeroEvents=0`、`expansionWarningDiagnosticCount=0`；`COLOR_CHANGE_MODE`、`EMISSIVE_MODE`、`FOLIAGE_MODE` 的剩余 diagnostics 均为 `0`；P14L compiler context 宏剩余 undefined diagnostics 均为 `0`。
+- 分流结果：`needs-manual-review=3405`，`likely-plugin-limitation=147`。剩余主量级已经不是 P18 type / builtin tail，也不是 P14 macro/profile 缺口。
+- source / config / policy 优先清单：`Duplicate local declaration` 1843、`Unreachable code` 940、`Function call argument mismatch` 261、`Potential missing return on some paths` 174、`Assignment type mismatch` 87、`Duplicate global declaration` 58、`Missing semicolon` 21、`Function call argument count mismatch` 21。下一步应结合真实编译结果和项目源码规范人工复核，不应由 LSP 新增 suppress / fallback 吞掉。
+- 小型 LSP tail 清单：`Undefined identifier` 130 需要先做 source/config owner 复核，样本包括 `grass_max_offset`、`coverage_uv`、`blend_mask`、`bottom_layer_color`；只有确认存在共享真实输入来源或 parser/scope 根因时才进入实现。`isnan(float)` / `trunc(float)` builtin unmodeled 各 8 条可以作为 focused 小修；`UVToWorld` 参数 mismatch 1 条需先确认 `float4` 与 `float4x4` 来源是真实源码问题还是类型建模缺口。
+- 执行判断：post-P18 不建议立即开启 P19 大规模 LSP 规则阶段；应先建立真实源码 / 配置复核表，处理 top manual groups，再把确认属于插件的小尾巴拆成 focused fixture + 5/50 audit 验证的小提交。
+- 文档同步范围：本次只沉淀 `docs/human-ai` 阶段结论；未改变命令、路径 / 命名、资源 bundle、公开 diagnostics 行为或测试策略，因此 `README.md`、`docs/architecture.md`、`docs/resources.md`、`docs/testing.md`、`docs/client-editor-features.md`、`docs/type-method-interface-contract.md` 和 `docs/development.md` 无需更新。
+
 ## 后续里程碑通用附加门禁
 
 - P18 以及后续任何会改变 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路的里程碑，都必须把性能合规作为关闭条件。
