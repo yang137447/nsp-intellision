@@ -3310,6 +3310,244 @@ P19 验证与关闭标准：
 - 是否补齐 focused fixture 或稳定 real audit sample：是，新增 focused fixture，并完成 5-unit smoke 与 50-unit trend。
 - 是否重新跑了对应验证并记录结果：是，见上方验证结果；full repo 长链路已通过。
 
+## Phase 23 (P23): Post-tail Control-flow Diagnostics Closure
+
+状态：已执行 focused implementation；准入来自 `docs/human-ai/2026-06-08-diagnostics-p22-post-tail-control-flow-review.md`。
+
+目标：
+
+- 只治理 P22 后 50-unit audit 中剩余的两个 LSP control-flow false positive。
+- 修复 `if (cond) return a; return b;` 仍误报 `Potential missing return on some paths.` 的尾部状态合并问题。
+- 修复 unbraced `if` 与受控 `return` 中间存在 blank/comment-only trivia 时，`return` 被误当作顺序 return 并污染后续 sibling statement 的问题。
+
+准入条件：
+
+- 每个改动必须先有 focused fixture，覆盖合法 no-diagnostic case 和非法 sentinel。
+- 入口必须收敛在 semantic diagnostics control-flow / block-flow helper，不得在 message、文件路径、函数名或 audit 样本上做 suppress。
+- 如果 focused fixture 不能复现 audit 形态，先补 runtime/debug 证据或重新抽样，不直接修改业务逻辑猜测修复。
+
+非目标：
+
+- 不处理同一 audit 中的 duplicate local/global declaration、`GetVisibility` 参数 mismatch、`modf` indeterminate builtin、`grass_max_offset` unresolved、`season_uniforms.hlsl` syntax / call-count 或 `indirect_lighting.hlsl` assignment mismatch。
+- 不运行或要求 100-unit batch / full real audit 作为本阶段准入；它们可作为后续扩大验证范围。
+- 不全局关闭 `Unreachable code` 或 `Potential missing return`。
+- 不新增 fallback、compat layer、shim、feature flag、allowlist 或项目名特判。
+
+实现边界：
+
+- Conditional early return followed by unconditional final return:
+  - Fixture shape: `if (cond) return a; return b;`。
+  - Expected: no `Potential missing return on some paths.`。
+  - Sentinel: `if (cond) return a;` without a final return must still publish potential missing-return.
+- Unbraced `if` body with intervening trivia before `return`:
+  - Fixture shape: `if (cond)` followed by comment-only or blank lines, then `return a;`, then a reachable sibling statement.
+  - Expected: no false `Unreachable code.` on the sibling statement.
+  - Sentinel: truly sequential `return a; statement;` must still publish unreachable.
+- Preserve P22 contracts: branch-local returns must not leak to sibling branches, and inactive preprocessor branches must not publish semantic unreachable.
+
+验证与关闭标准：
+
+- 至少运行 `cmake --build .\server_cpp\build`。
+- 若修改 TypeScript 测试或 client/audit 入口，运行 `npm run compile`。
+- 运行 diagnostics focused repo 测试，至少覆盖新增 P23 fixture 和 P22 fixture。
+- 运行 5-unit smoke audit 和 50-unit trend audit；目标是本 review 中两个 control-flow group 在同范围消失，且 waitTimeouts / truncated / timedOut / fileErrors 不增加。
+- 按后续里程碑通用附加门禁补跑 `npm run test:client:perf`。
+- 文档同步必须记录根因、实际改动、共享入口、验证结果、公开行为变化和剩余不处理项。
+
+### Phase 23 执行记录
+
+状态：已落地 post-tail control-flow diagnostics closure。
+
+根因：
+
+- P22 后 block-flow helper 仍用“上一物理行是 `if`”近似判断 unbraced controlled return；`if (cond) return a;` 后的下一行 `return b;` 会被误归为同一个 `if` 控制下的 branch-local return，导致尾部 unconditional return 没有清掉 potential missing-return 状态。
+- 同一行多个 return 时，旧的 `sameLineIfBeforeReturn` 只看当前 return 之前是否出现过 `if`，没有按 statement 段在分号后重置；`if (cond) return a; return b;` 的第二个 return 也会被误归为 branch-local。
+- unbraced `if` 与受控 `return` 中间存在 blank / comment-only trivia 时，旧逻辑只接受相邻物理行，导致受控 return 被误当顺序 return 并污染后续 sibling statement。
+- P23 首轮实现把 pending unbraced branch 跨 trivia 保留后，发现 `else` 独占一行、下一行 return 的真实样本会被当作普通条件 return，而不是完整 if/else 双臂返回；因此 pending branch 状态还必须携带是否来自 `else` 的标记。
+
+实现内容：
+
+- `server_cpp/src/diagnostics/diagnostics_semantic.cpp` 将旧的 `lastIfLineByDepth` / `lastIfHadElseByDepth` 替换为 pending unbraced branch 状态，按 brace depth 记录尚未消费的 `if/else` control header。
+- return 归属判断改为按当前 statement 段计算：同一行遇到 `;` 后重置 `if/else` 控制标记，避免前一个条件 return 污染同一行后续 unconditional return。
+- pending unbraced branch 会跨 blank / comment-only trivia 保留，到下一条真实语句时消费；如果 pending 来源是 `else`，其受控 return 会按完整 if/else 双臂返回处理。
+- 新增 focused fixture `test_files/module_diagnostics_p23_control_flow_closure.nsf`，覆盖 conditional early return + final return、同一行 final return、trivia-separated unbraced return、split-else return，以及 partial-return / sequential-unreachable sentinels。
+- 新增 integration 断言 `models P23 focused control-flow diagnostics closure`，同时继续跑 P22 fixture 防止回退。
+
+公开行为变化：
+
+- `if (cond) return a; return b;` 和 `if (cond) return a;` 后续独立 final return 不再误报 `Potential missing return on some paths.`。
+- `if (cond)` 与受控 `return` 中间只有 blank / comment-only trivia 时，后续 sibling statement 不再误报 `Unreachable code.`。
+- `else` 独占一行、下一行 return 的 if/else 双臂返回不再误报 potential missing-return。
+- 真正只有条件 return 且没有 final return 的函数仍发布 `Potential missing return on some paths.`；真正顺序 `return` 后语句仍发布 `Unreachable code.`。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`96 passing / 1 pending`；覆盖新增 P23 fixture 和已有 P22 fixture。首轮 focused diagnostics 运行中出现一次 VS Code extension host unresponsive/responsive 事件，但测试最终通过；第二轮 focused diagnostics 未复现该宿主事件。
+- 5-unit real diagnostics audit 通过，输出 `real-workspace-diagnostics-audit.phase-23-control-flow-closure-smoke-5.{json,md}`；units scanned `5`，diagnostics total `209`，`Unreachable code.` / `Potential missing return on some paths.` 均为 `0`，waitTimeouts / truncated / timedOut / heavyRulesSkipped / fileErrors 均为 `0`。
+- 50-unit real diagnostics audit 首次使用 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=1800000` 跑到 `25/50` 时触发 Mocha timeout，未生成阶段报告；判断为本机审计耗时预算不足，不是 diagnostics 断言失败。随后使用 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=3600000` 重跑通过，输出 `real-workspace-diagnostics-audit.phase-23-control-flow-closure-trend-50.{json,md}`；units scanned `50`，diagnostics total `1704`，`Unreachable code.` / `Potential missing return on some paths.` 均为 `0`，waitTimeouts / truncated / timedOut / heavyRulesSkipped / fileErrors 均为 `0`。相对 P22 trend-50，`Unreachable code.` 从 `50` 降到 `0`，`Potential missing return on some paths.` 从 `50` 降到 `0`；P23 首轮中临时暴露的 split-else pending 状态泄漏也已消除。
+- `npm run test:client:perf` 通过，`26 passing / 3 pending`；perf 报告显示 diagnostics timeout / stale / heavyRulesSkipped 未增加，server/client 分层指标在门禁内。
+
+当前状态：
+
+- P23 admitted 的两个 control-flow groups 已在 focused fixture、5-unit smoke 和 50-unit trend 中消失。
+- 本阶段未处理 duplicate local/global declaration、`GetVisibility` 参数 mismatch、`modf` indeterminate builtin、`grass_max_offset` unresolved、`season_uniforms.hlsl` syntax / call-count 或 `indirect_lighting.hlsl` assignment mismatch；它们仍属于后续独立 owner review 范围。
+- 本阶段未运行 100-unit batch audit、full real audit 或 full real replay；P23 目标限定在 post-tail 50-unit control-flow closure，扩大覆盖可作为后续阶段风险验证。
+
+阶段关闭判断：
+
+- 命令是否变化：否；50-unit audit 本阶段实际使用更高 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=3600000` 只是本机长链路预算调整，未新增或改变 npm 命令。
+- 路径或命名是否变化：新增 P23 focused fixture 和阶段 audit 报告；未改变运行时路径 / 命名规则。
+- 架构或单一事实来源是否变化：是，semantic block-flow diagnostics 明确用 pending unbraced branch statement 状态和 pending `else` 标记判断 branch-local / complete if-else return；已同步 `docs/architecture.md`。
+- 测试策略是否变化：是，新增 P23 focused integration fixture 作为回归锚点；执行计划已记录。`docs/testing.md` 无需更新，因为验证命令、入口和共享测试制度未变化。
+- 文档是否已同步：已更新 `docs/architecture.md` 和本执行计划；README、AGENTS、resources、testing、client editor、type-method、development 均无对应事实变化。
+- 是否改变公开 diagnostics 行为：是，P23 admitted 的 control-flow false positives 不再发布；非法 sentinel 仍发布。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：是，新增 focused fixture，并完成 phase-23 5-unit smoke 与 50-unit trend。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果。
+
+## Phase 24 (P24): Remaining Diagnostics Closure Umbrella
+
+状态：待执行 owner review + focused implementation；准入基线为 `real-workspace-diagnostics-audit.phase-23-control-flow-closure-trend-50.{json,md}`。
+
+### 背景
+
+P23 后，50-unit trend 中 P22/P23 admitted 的 control-flow diagnostics 已清零：`Unreachable code.` = `0`，`Potential missing return on some paths.` = `0`，waitTimeouts / truncated / timedOut / heavyRulesSkipped / fileErrors 均为 `0`。
+
+剩余 top groups 不再共享同一个 control-flow 根因，必须拆成 owner review 和 focused 子阶段。P24 不允许把真实源码 / 配置 / policy 问题通过 diagnostics suppress、allowlist、fallback、shim 或项目名特判吞掉；每个子阶段都必须先确认 owner，再决定是否进入实现。
+
+### P24A: `modf` builtin indeterminate modeling
+
+目标：
+
+- 收敛 `Indeterminate builtin call: type rules not implemented. Name: modf. Args: (float, float).`
+- 收敛 `Indeterminate builtin call: type rules not implemented. Name: modf. Args: (float2, float2).`
+
+准入与边界：
+
+- 先确认 HLSL `modf` 的官方签名和 out 参数语义，以及当前真实样本是否符合合法调用。
+- 如果确认为 LSP builtin modeling 缺口，入口必须收敛到 builtin overload / diagnostics expression type / shared type relation 相关共享模块。
+- 不在 diagnostics rule 中按 `modf` message 做 suppress。
+
+验收：
+
+- 新增 focused fixture 覆盖 `modf(float, out float)`、`modf(float2, out float2)`、非法 arity / type sentinel。
+- focused diagnostics repo 测试通过。
+- 5-unit smoke 和 50-unit trend 中对应 `modf` indeterminate group 消失或迁移为明确真实 mismatch。
+
+### P24B: duplicate local / global declaration owner review
+
+目标：
+
+- 分流 `Duplicate local declaration: <symbol>.` 约 `1290` 条。
+- 分流 `Duplicate global declaration: <symbol>.` 约 `43` 条。
+
+准入与边界：
+
+- 先抽样 review `surface_functions.hlsl` / `shading_models.hlsl` 等代表样本，区分真实源码重复、预处理分支签名重叠误判、include closure 重复访问、macro-generated declaration 或 parser recovery。
+- 如果是 LSP 作用域 / branch signature / macro local / include 去重缺口，再进入 focused implementation。
+- 如果是真实源码或项目 policy，形成 owner 清单，不修改业务逻辑。
+- 不全局关闭 duplicate declaration，也不按 symbol / file allowlist。
+
+验收：
+
+- review 文档列出 owner table、代表样本、进入实现的 admitted list 和不处理项。
+- 每个 admitted LSP 缺口都有 focused fixture 和 sentinel。
+- 5-unit / 50-unit audit 证明 admitted group 下降，且真实 duplicate sentinel 仍发布。
+
+### P24C: `GetVisibility` function call argument mismatch
+
+目标：
+
+- 分流 `Function call argument mismatch: GetVisibility(...)` 约 `150` 条。
+
+准入与边界：
+
+- 先确认真实 `GetVisibility` overload / macro-generated signature / active branch include context，以及 shadercompiler 是否接受当前调用形态。
+- 如果是签名发现、macro-generated function、argument expression typing 或 type policy 缺口，修共享 call / type 入口。
+- 如果是真实源码或配置问题，输出 owner 清单，不新增 LSP allowlist。
+
+验收：
+
+- focused fixture 覆盖合法 `GetVisibility` 样本和非法 sentinel。
+- 50-unit trend 中 admitted mismatch group 消失或被明确迁移为真实源码 / policy 类别。
+
+### P24D: `grass_max_offset` unresolved / undefined identifier
+
+目标：
+
+- 分流 `Undefined identifier: <symbol>.` 中 `grass_max_offset` 相关约 `49` 条。
+
+准入与边界：
+
+- 先确认 symbol 来源：uniform / macro / include / generated config / active unit profile / source owner。
+- 如果是 workspace summary、active unit include closure、profile input 或 semantic snapshot 缺口，修共享输入链路。
+- 如果是配置缺失或真实源码问题，记录 owner，不在 diagnostics 中猜默认。
+
+验收：
+
+- review 文档给出 source / config / LSP owner 判定。
+- 若进入实现，focused fixture 必须覆盖合法来源注入和真实 undefined sentinel。
+- 50-unit trend 中相关 undefined group 下降，且其他 undefined diagnostics 不被吞掉。
+
+### P24E: `indirect_lighting.hlsl` assignment mismatch
+
+目标：
+
+- 分流 `Assignment type mismatch: <lhs> = <rhs>.` 中 `indirect_lighting.hlsl` 代表样本约 `50` 条。
+
+准入与边界：
+
+- 先确认真实表达式类型、shadercompiler conversion policy、数组 / constructor / macro-like alias 推断路径。
+- 如果是 LSP expression typing 或 type relation 缺口，修共享 `diagnostics_expression_type.*` / `type_relation.*`。
+- 如果是真实 source / policy 风险，记录 owner 或保留 warning，不把 assignment mismatch 全局降级。
+
+验收：
+
+- focused fixture 覆盖代表 assignment 和 mismatch sentinel。
+- 50-unit trend 中 admitted sample 消失或迁移为明确 conversion-risk / source-review 类别。
+
+### P24F: `season_uniforms.hlsl` syntax / call-count tail
+
+目标：
+
+- 分流 `season_uniforms.hlsl` 的 syntax-structure missing semicolon 和 function call argument count mismatch 小尾巴。
+
+准入与边界：
+
+- 先确认该区域是否仍是 P19/P21 已标记的真实 source / syntax cascade。
+- 如果源码本身不完整或不符合当前 parser 前提，优先归 source owner，不用 LSP patch 掩盖。
+- 如果存在可复现 parser boundary 缺口，入口必须收敛到 shared parser boundary / callsite parser，不在具体 message 上 suppress。
+
+验收：
+
+- review 文档明确 admitted / not admitted。
+- 如实现，新增 focused parser/callsite fixture 和 sentinel。
+- audit 中对应 tail 不再由 parser cascade 污染其他类别。
+
+### P24G: post-P24 validation expansion
+
+目标：
+
+- 在 P24A-F admitted items 完成后，扩大真实 workspace 覆盖范围，确认没有把剩余问题局部修散。
+
+建议验证：
+
+- 5-unit smoke audit。
+- 50-unit trend audit。
+- 必要时 100-unit batch audit，尤其当 duplicate/include/macro 类缺口进入实现。
+- P24 收尾时至少评估是否需要 full real audit；若不跑，必须说明原因和剩余风险。
+- 任何改变 diagnostics / request hot path 的子阶段都跑 `npm run test:client:perf`。
+
+### P24 子阶段通用关闭标准
+
+- 必须先有 owner review 或 focused fixture，不能直接改业务逻辑猜测修复。
+- 若改变公开 diagnostics 行为，最终记录具体变化范围、风险和真实 audit 影响。
+- 若改共享架构、测试策略、资源或命令，同步当前事实文档。
+- 每个子阶段关闭前更新本执行计划，记录根因、实际改动、为何符合架构、实际验证和文档更新情况。
+
 ## 后续里程碑通用附加门禁
 
 - P18 以及后续任何会改变 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路的里程碑，都必须把性能合规作为关闭条件。
@@ -3344,6 +3582,8 @@ P19 验证与关闭标准：
 21. Phase 20: focused LSP tail。
 22. Phase 21: control-flow / diagnostics policy review。
 23. Phase 22: focused control-flow diagnostics tail。
+24. Phase 23: post-tail control-flow diagnostics closure。
+25. Phase 24: remaining diagnostics closure umbrella。
 
 Phase 2、Phase 3、Phase 4、Phase 7、Phase 10、Phase 11、Phase 12、Phase 14、Phase 15 和 Phase 16 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约、builtin 类型规则共享入口、macro / parser 参数边界、macro-like expression typing、active-branch 宏上下文契约与共享预处理宏推导核心层、多行 parser continuation 和 statement-like macro local 语义；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。Phase 14 不能用 diagnostics-local 特判替代真实宏状态机、真实配置确认或共享快照契约；P14L 的 compiler context 收口必须先区分 preset 漂移、compiler 固定上下文和用户显式配置语义，再决定是否改变公开宏合并契约。Phase 17 仍包含 call / type policy 与真实编译器行为确认重点。
 

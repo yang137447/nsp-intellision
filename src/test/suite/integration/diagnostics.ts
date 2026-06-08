@@ -2470,6 +2470,35 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'x = x + 42.0;'), 'Unreachable code.'), locatedMessages);
 	});
 
+	itWithDiagnosticsMode('balanced', 'models P23 focused control-flow diagnostics closure', async () => {
+		const document = await openFixture('module_diagnostics_p23_control_flow_closure.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Potential missing return on some paths.') &&
+					messages.includes('Unreachable code.')
+				);
+			},
+			'P23 control-flow closure diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		const locatedMessages = diagnostics
+			.map((diag) => `${diag.range.start.line + 1}: ${diag.message} :: ${document.lineAt(diag.range.start.line).text.trim()}`)
+			.join('\n');
+		assert.ok(messages.includes('Potential missing return on some paths.'), locatedMessages);
+		assert.ok(messages.includes('Unreachable code.'), locatedMessages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'P23ConditionalEarlyReturnThenFinalReturn'), 'Potential missing return on some paths.'), locatedMessages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'P23SameLineConditionalEarlyReturnThenFinalReturn'), 'Potential missing return on some paths.'), locatedMessages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'x = x + 1.0;\n    return x;'), 'Unreachable code.'), locatedMessages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'P23SplitElseReturnCompletes'), 'Potential missing return on some paths.'), locatedMessages);
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'P23PartialReturnSentinel'), 'Potential missing return on some paths.'), locatedMessages);
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'x = x + 42.0;'), 'Unreachable code.'), locatedMessages);
+	});
+
 	itWithDiagnosticsMode('full', 'publishes diagnostics for comparison operator type mismatches', async () => {
 		const document = await openFixture('module_diagnostics_type_mismatch_compare.nsf');
 

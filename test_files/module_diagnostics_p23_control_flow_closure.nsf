@@ -1,0 +1,39 @@
+float P23ConditionalEarlyReturnThenFinalReturn(float x)
+{
+    if (x > 0.0) return 1.0;
+    return 2.0;
+}
+
+float P23SameLineConditionalEarlyReturnThenFinalReturn(float x)
+{
+    if (x > 0.0) return 1.0; return 2.0;
+}
+
+float P23UnbracedIfTriviaReturnSibling(float x)
+{
+    if (x > 0.0)
+        // The return is still the controlled statement.
+
+        return 1.0;
+    x = x + 1.0;
+    return x;
+}
+
+float P23SplitElseReturnCompletes(float x)
+{
+    if (x > 0.0)
+        return 1.0;
+    else
+        return 2.0;
+}
+
+float P23PartialReturnSentinel(float x)
+{
+    if (x > 0.0) return 1.0;
+}
+
+float P23UnreachableSentinel(float x)
+{
+    return x;
+    x = x + 42.0;
+}

@@ -123,8 +123,8 @@ void collectReturnAndTypeDiagnostics(
   std::unordered_set<std::string> globalSymbols;
   std::unordered_set<std::string> globalFunctionSignatures;
   std::unordered_map<std::string, bool> resolvedSymbolCache;
-  std::unordered_map<int, int> lastIfLineByDepth;
-  std::unordered_map<int, bool> lastIfHadElseByDepth;
+  std::unordered_map<int, int> pendingUnbracedBranchLineByDepth;
+  std::unordered_map<int, bool> pendingUnbracedBranchIsElseByDepth;
   bool conditionalReturnSeen = false;
   bool unconditionalReturnSeen = false;
   bool inUiMetaBlock = false;
@@ -941,6 +941,49 @@ void collectReturnAndTypeDiagnostics(
         return FlowBlockKind::Other;
       };
 
+  auto isUnbracedBranchControlHeaderLine =
+      [](const std::vector<LexToken> &lineTokens) {
+        bool sawLeadingBranchControl = false;
+        for (const auto &token : lineTokens) {
+          if (token.kind == LexToken::Kind::Identifier) {
+            if (!sawLeadingBranchControl) {
+              if (token.text != "if" && token.text != "else")
+                return false;
+              sawLeadingBranchControl = true;
+              continue;
+            }
+            continue;
+          }
+          if (token.kind != LexToken::Kind::Punct)
+            continue;
+          if (token.text == "{" || token.text == ";")
+            return false;
+        }
+        return sawLeadingBranchControl;
+      };
+
+  auto isUnbracedElseControlHeaderLine =
+      [](const std::vector<LexToken> &lineTokens) {
+        for (const auto &token : lineTokens) {
+          if (token.kind != LexToken::Kind::Identifier)
+            continue;
+          return token.text == "else";
+        }
+        return false;
+      };
+
+  auto lineStartsWithOpenBrace = [](const std::vector<LexToken> &lineTokens) {
+    for (const auto &token : lineTokens) {
+      if (token.kind == LexToken::Kind::Punct && token.text == "{")
+        return true;
+      if (token.kind == LexToken::Kind::Identifier)
+        return false;
+      if (token.kind == LexToken::Kind::Punct && token.text != "}")
+        return false;
+    }
+    return false;
+  };
+
   auto scanForBraces = [&](const std::string &line) {
     for (size_t i = 0; i < line.size(); i++) {
       char ch = line[i];
@@ -1016,8 +1059,8 @@ void collectReturnAndTypeDiagnostics(
           sawTopLevelReturn = false;
           sawPotentialMissingReturn = false;
           sawPotentialUnreachable = false;
-          lastIfLineByDepth.clear();
-          lastIfHadElseByDepth.clear();
+          pendingUnbracedBranchLineByDepth.clear();
+          pendingUnbracedBranchIsElseByDepth.clear();
           conditionalReturnSeen = false;
           unconditionalReturnSeen = false;
           pendingControlOpenBlockKind = FlowBlockKind::Other;
@@ -1104,8 +1147,8 @@ void collectReturnAndTypeDiagnostics(
             unreachableDepth = 0;
             flowBlockKinds.clear();
             pendingControlOpenBlockKind = FlowBlockKind::Other;
-            lastIfLineByDepth.clear();
-            lastIfHadElseByDepth.clear();
+            pendingUnbracedBranchLineByDepth.clear();
+            pendingUnbracedBranchIsElseByDepth.clear();
           }
         } else if (typeBlockBraceDepth > 0) {
           typeBlockBraceDepth--;
@@ -1415,6 +1458,25 @@ void collectReturnAndTypeDiagnostics(
 
     if (inFunction) {
       rebuildVisibleLocals(currentSig);
+      bool currentLineControlledByPendingUnbracedBranch = false;
+      bool currentLineControlledByPendingUnbracedElse = false;
+      bool consumePendingUnbracedBranch = false;
+      if (!tokens.empty()) {
+        auto pendingBranchIt =
+            pendingUnbracedBranchLineByDepth.find(functionBraceDepth);
+        if (pendingBranchIt != pendingUnbracedBranchLineByDepth.end() &&
+            pendingBranchIt->second < lineIndex) {
+          consumePendingUnbracedBranch = true;
+          currentLineControlledByPendingUnbracedBranch =
+              !lineStartsWithOpenBrace(tokens);
+          auto pendingElseIt =
+              pendingUnbracedBranchIsElseByDepth.find(functionBraceDepth);
+          currentLineControlledByPendingUnbracedElse =
+              currentLineControlledByPendingUnbracedBranch &&
+              pendingElseIt != pendingUnbracedBranchIsElseByDepth.end() &&
+              pendingElseIt->second;
+        }
+      }
       bool macroLocalsChanged = false;
       const auto macroLocalDeclarations =
           collectStatementLikeMacroLocalDeclarations(preprocessorView,
@@ -1450,24 +1512,6 @@ void collectReturnAndTypeDiagnostics(
           pendingMultilineLocalLine = -1;
           pendingMultilineLocalStart = -1;
           pendingMultilineLocalEnd = -1;
-        }
-      }
-
-      if (!tokens.empty()) {
-        size_t firstIdentifier = tokens.size();
-        for (size_t ti = 0; ti < tokens.size(); ti++) {
-          if (tokens[ti].kind == LexToken::Kind::Identifier) {
-            firstIdentifier = ti;
-            break;
-          }
-        }
-        if (firstIdentifier < tokens.size()) {
-          if (tokens[firstIdentifier].text == "if") {
-            lastIfLineByDepth[functionBraceDepth] = lineIndex;
-            lastIfHadElseByDepth[functionBraceDepth] = false;
-          } else if (tokens[firstIdentifier].text == "else") {
-            lastIfHadElseByDepth[functionBraceDepth] = true;
-          }
         }
       }
 
@@ -1788,6 +1832,12 @@ void collectReturnAndTypeDiagnostics(
         bool sameLineIfBeforeReturn = false;
         bool sameLineElseBeforeReturn = false;
         for (size_t ti = 0; ti < i; ti++) {
+          if (tokens[ti].kind == LexToken::Kind::Punct &&
+              tokens[ti].text == ";") {
+            sameLineIfBeforeReturn = false;
+            sameLineElseBeforeReturn = false;
+            continue;
+          }
           if (tokens[ti].kind != LexToken::Kind::Identifier)
             continue;
           if (tokens[ti].text == "if")
@@ -1795,21 +1845,13 @@ void collectReturnAndTypeDiagnostics(
           else if (tokens[ti].text == "else")
             sameLineElseBeforeReturn = true;
         }
-        bool controlledByPreviousIfLine = false;
-        auto lastIfIt = lastIfLineByDepth.find(functionBraceDepth);
-        if (lastIfIt != lastIfLineByDepth.end() &&
-            lastIfIt->second == lineIndex - 1) {
-          bool previousIfHadElse = false;
-          auto elseIt = lastIfHadElseByDepth.find(functionBraceDepth);
-          if (elseIt != lastIfHadElseByDepth.end())
-            previousIfHadElse = elseIt->second;
-          controlledByPreviousIfLine = !previousIfHadElse;
-        }
         const bool branchLocalReturn =
             sameLineIfBeforeReturn || sameLineElseBeforeReturn ||
-            controlledByPreviousIfLine;
+            currentLineControlledByPendingUnbracedBranch;
         const bool branchReturnCompletesIfElse =
-            branchLocalReturn && sameLineElseBeforeReturn &&
+            branchLocalReturn &&
+            (sameLineElseBeforeReturn ||
+             currentLineControlledByPendingUnbracedElse) &&
             !sameLineIfBeforeReturn;
         sawReturn = true;
         if (functionBraceDepth == 1) {
@@ -2752,6 +2794,16 @@ void collectReturnAndTypeDiagnostics(
             static_cast<int>(tokens[i].start),
             static_cast<int>(tokens[i].end), 2,
             "Undefined identifier: " + word + ".");
+      }
+
+      if (consumePendingUnbracedBranch) {
+        pendingUnbracedBranchLineByDepth.erase(functionBraceDepth);
+        pendingUnbracedBranchIsElseByDepth.erase(functionBraceDepth);
+      }
+      if (isUnbracedBranchControlHeaderLine(tokens)) {
+        pendingUnbracedBranchLineByDepth[functionBraceDepth] = lineIndex;
+        pendingUnbracedBranchIsElseByDepth[functionBraceDepth] =
+            isUnbracedElseControlHeaderLine(tokens);
       }
     }
 
