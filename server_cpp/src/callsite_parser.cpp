@@ -236,8 +236,11 @@ bool isLikelyTypeConstructorCallName(const std::string &name) {
 
 static bool extractMemberBaseIdentifierBeforeDot(const std::string &text,
                                                  size_t dotPos,
-                                                 std::string &baseOut) {
+                                                 std::string &baseOut,
+                                                 bool *usesIndexingOut) {
   baseOut.clear();
+  if (usesIndexingOut)
+    *usesIndexingOut = false;
   if (dotPos == 0 || dotPos > text.size())
     return false;
 
@@ -247,9 +250,11 @@ static bool extractMemberBaseIdentifierBeforeDot(const std::string &text,
   if (cur == 0)
     return false;
 
-  std::function<bool(size_t, size_t, std::string &)> parseBackward =
-      [&](size_t startBound, size_t endExclusive, std::string &out) -> bool {
+  std::function<bool(size_t, size_t, std::string &, bool &)> parseBackward =
+      [&](size_t startBound, size_t endExclusive, std::string &out,
+          bool &indexedOut) -> bool {
     out.clear();
+    indexedOut = false;
     if (endExclusive <= startBound)
       return false;
 
@@ -266,6 +271,7 @@ static bool extractMemberBaseIdentifierBeforeDot(const std::string &text,
       if (start == end)
         return false;
       out = text.substr(start, end - start);
+      indexedOut = false;
       return true;
     }
 
@@ -282,7 +288,11 @@ static bool extractMemberBaseIdentifierBeforeDot(const std::string &text,
         if (ch == '[') {
           depth--;
           if (depth == 0) {
-            return parseBackward(startBound, i, out);
+            bool childIndexed = false;
+            if (!parseBackward(startBound, i, out, childIndexed))
+              return false;
+            indexedOut = true;
+            return true;
           }
         }
       }
@@ -302,9 +312,17 @@ static bool extractMemberBaseIdentifierBeforeDot(const std::string &text,
         if (ch == '(') {
           depth--;
           if (depth == 0) {
-            if (parseBackward(i + 1, end - 1, out))
+            bool innerIndexed = false;
+            if (parseBackward(i + 1, end - 1, out, innerIndexed)) {
+              indexedOut = innerIndexed;
               return true;
-            return parseBackward(startBound, i, out);
+            }
+            bool beforeIndexed = false;
+            if (parseBackward(startBound, i, out, beforeIndexed)) {
+              indexedOut = beforeIndexed;
+              return true;
+            }
+            return false;
           }
         }
       }
@@ -313,13 +331,22 @@ static bool extractMemberBaseIdentifierBeforeDot(const std::string &text,
     return false;
   };
 
-  return parseBackward(0, cur, baseOut);
+  bool usesIndexing = false;
+  if (!parseBackward(0, cur, baseOut, usesIndexing))
+    return false;
+  if (usesIndexingOut)
+    *usesIndexingOut = usesIndexing;
+  return true;
 }
 
 bool extractMemberAccessAtOffset(const std::string &text, size_t cursorOffset,
-                                 std::string &baseOut, std::string &memberOut) {
+                                 std::string &baseOut,
+                                 std::string &memberOut,
+                                 bool *baseUsesIndexingOut) {
   baseOut.clear();
   memberOut.clear();
+  if (baseUsesIndexingOut)
+    *baseUsesIndexingOut = false;
   if (text.empty())
     return false;
   if (cursorOffset > text.size())
@@ -410,7 +437,8 @@ bool extractMemberAccessAtOffset(const std::string &text, size_t cursorOffset,
   if (dotPos == std::string::npos)
     return false;
 
-  if (!extractMemberBaseIdentifierBeforeDot(text, dotPos, baseOut))
+  if (!extractMemberBaseIdentifierBeforeDot(text, dotPos, baseOut,
+                                            baseUsesIndexingOut))
     return false;
 
   std::string memberName;
@@ -454,7 +482,8 @@ bool parseMemberCallAtOffset(const std::string &text, size_t cursorOffset,
   if (dotScan == 0 || text[dotScan - 1] != '.')
     return false;
 
-  if (!extractMemberBaseIdentifierBeforeDot(text, dotScan - 1, baseOut))
+  if (!extractMemberBaseIdentifierBeforeDot(text, dotScan - 1, baseOut,
+                                            nullptr))
     return false;
   memberOut = member;
   return !baseOut.empty() && !memberOut.empty();

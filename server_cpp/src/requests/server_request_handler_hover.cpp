@@ -1653,8 +1653,11 @@ bool request_hover_handlers::handleHoverRequest(
 
   std::string base;
   std::string member;
-  if (extractMemberAccessAtOffset(doc->text, cursorOffset, base, member)) {
+  bool baseUsesIndexing = false;
+  if (extractMemberAccessAtOffset(doc->text, cursorOffset, base, member,
+                                  &baseUsesIndexing)) {
     MemberAccessBaseTypeOptions baseOptions;
+    baseOptions.baseExpressionUsesIndexing = baseUsesIndexing;
     MemberAccessBaseTypeResult baseResolution =
         resolveMemberAccessBaseType(uri, *doc, base, cursorOffset, ctx,
                                     baseOptions);

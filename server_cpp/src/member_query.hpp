@@ -11,9 +11,12 @@
 struct ServerRequestContext;
 
 // Resolves the type of a member-access base expression such as `value` in
-// `value.member`.
+// `value.member`. When the parsed base expression consumed an array index,
+// callers should set `baseExpressionUsesIndexing` so declaration-side `T[]`
+// types are exposed to member consumers as element type `T`.
 struct MemberAccessBaseTypeOptions {
   bool includeWorkspaceIndexFallback = false;
+  bool baseExpressionUsesIndexing = false;
 };
 
 struct MemberAccessBaseTypeResult {

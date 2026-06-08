@@ -3189,6 +3189,127 @@ P19 验证与关闭标准：
 - 是否补齐 focused fixture 或稳定 real audit sample：是，新增 focused fixture，并完成 5-unit smoke 与 50-unit trend。
 - 是否重新跑了对应验证并记录结果：是，见上方验证结果。
 
+## Phase 21 (P21): Control-flow / Diagnostics Policy Review
+
+状态：已执行 control-flow / policy 分流；详见 `docs/human-ai/2026-06-08-diagnostics-p21-control-flow-policy-review.md`。
+
+目标：
+
+- 只复核 post-P20 final 50-unit audit 中 `Unreachable code.` 和 `Potential missing return on some paths.` 的代表样本。
+- 区分明确 LSP control-flow 缺口、preprocessor active-branch 发布边界、真实源码 / syntax cascade 和仍需 policy 决策的项。
+- 输出下一实现阶段的 focused admission list，不在 review 阶段修改产品代码。
+
+### Phase 21 执行记录
+
+状态：已完成文档型 review；未修改产品代码、测试 helper、audit classifier 或报告脚本。
+
+实现内容：
+
+- 新增 `docs/human-ai/2026-06-08-diagnostics-p21-control-flow-policy-review.md`，基于 `phase-20-focused-lsp-tail-trend-50-final` audit 和代表源码上下文沉淀 owner table。
+- 明确 `InShadowMapRange` 与 `CubeUV2OctahedronUV` 的 missing-return 是 LSP control-flow false positive：`if/else` 两臂均 return，但当前控制流把 `else` 标成 unreachable，并误报函数可能缺 return。
+- 明确无大括号 `if (...) return ...;` 后续普通语句被误标 unreachable，是条件 return 泄漏到 sibling statement 的 LSP 缺口。
+- 明确 runtime `if/else` 中某一分支 return 不应让 sibling branch 代码 unreachable。
+- 明确 `#if/#else` 内的 unreachable 样本需要进入 active-branch gating sentinel；inactive branch 不应发布 semantic unreachable。
+- 明确 `season_uniforms.hlsl` 的 unreachable 样本暂不进入下一实现阶段，因为 P19 已确认该区域存在真实 syntax/source 问题，需先由 source owner 修复后复跑。
+
+验证结果：
+
+- P21 为文档型 review，未运行 `npm run compile`、`cmake --build .\server_cpp\build` 或 real diagnostics audit。
+- 关闭前运行 `git diff --check`。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P21 review 文档；未改变运行时路径 / 命名规则。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否；下一实现阶段必须新增 focused fixture。
+- 文档是否已同步：已更新本执行计划并新增 P21 review 文档；当前事实文档无需更新，因为没有改变命令、资源、架构、公开行为、editor 壳层、对象方法契约或开发流程。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：P21 不新增 fixture；稳定 real audit sample 使用 post-P20 final 50-unit report。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果。
+
+## Phase 22 (P22): Focused Control-flow Diagnostics Tail
+
+状态：已执行 focused control-flow diagnostics tail。
+
+目标：
+
+- 只治理 P21 已确认属于 LSP control-flow / active-branch 发布边界的小尾巴。
+- 修复 `if/else` 双臂 return、无大括号条件 return sibling、runtime branch merge 和 inactive `#if/#else` semantic unreachable 发布问题。
+
+准入条件：
+
+- 每个改动必须先有 focused fixture，覆盖合法 no-diagnostic case 和非法 sentinel。
+- 入口应收敛在 semantic diagnostics control-flow / block-flow helper 或 diagnostics prerequisites active branch gating，不在具体 message 上做 suppress。
+- 若发现当前 block-flow helper 无法局部修正，需要先说明架构成本与风险，再进入实现。
+
+非目标：
+
+- 不处理 P19/P21 已标记为 source / syntax-cascade / config / policy 的组。
+- 不全局关闭 `Unreachable code` 或 `Potential missing return`。
+- 不新增 allowlist、fallback、compat layer 或项目名特判。
+
+验证与关闭标准：
+
+- 至少运行 `cmake --build .\server_cpp\build`。
+- 若修改 TypeScript 测试或 client/audit 入口，运行 `npm run compile`。
+- 运行 diagnostics focused repo 测试；如果触达 diagnostics 公开行为，补跑 `npm run test:client:repo` 或对应 diagnostics filter。
+- 运行 5-unit smoke audit 和 50-unit trend audit；若影响真实 workspace 主路径或需要证明 batch 稳定性，再补跑 100-unit batch audit。
+- 按后续里程碑通用附加门禁补跑 `npm run test:client:perf`。
+- 文档同步必须记录根因、实际改动、共享入口、验证结果、公开行为变化和剩余不处理项。
+
+### Phase 22 执行记录
+
+根因：
+
+- 既有 semantic block-flow 只用单个 `unreachableActive` / depth 状态表达 `return` 后不可达，无法区分顺序执行 block 与 `if/else`、loop、switch 这类 branch-local block；`return` 在 then branch 中设置的不可达状态会泄漏到 sibling `else` 或后续可达语句。
+- 无大括号 `if (...) return ...;` 被当作函数主体顺序 return，导致下一条 sibling statement 被误标 unreachable，并过早累计 potential missing-return 状态。
+- semantic unreachable 只看 active line mask，未同时消费 `PreprocessorView` branch merge active index；inactive branch probe 保留的 branch metadata 会让 inactive `#if/#else` 分支仍可能收到用户可见 semantic unreachable。
+
+实现内容：
+
+- `server_cpp/src/diagnostics/diagnostics_semantic.cpp` 增加轻量 `FlowBlockKind` stack，按 `{}` 来源区分 function / branch / loop-or-switch / other；branch / loop / switch block 关闭时清理该 block 内 return 产生的不可达状态，避免污染 sibling branch。
+- block-flow 识别跨行 control header（例如 `if (...)` 下一行单独 `{`），并把同一行或上一行无大括号 `if/else return` 标为 branch-local return；完整 `else return` 会回收已暂记的 potential missing-return 状态。
+- semantic active gating 现在同时消费 `PreprocessorView::lineActive` 和 `branchMerges` active branch index；inactive branch metadata 仍可供 all-branch consumer 使用，但 semantic unreachable 不再发布到 inactive `#if/#else` 行。
+- 新增 focused fixture `test_files/module_diagnostics_p22_control_flow_tail.nsf`，覆盖 `if/else` 双臂 return、braced / unbraced 条件 return、runtime branch merge、active/inactive preprocessor branch，以及 partial-return / unconditional-unreachable sentinel。
+- 新增 integration 断言 `models P22 focused control-flow diagnostics tail`，锁定合法 case 不再有 false `Unreachable code.` / `Potential missing return on some paths.`，非法 sentinel 仍发布。
+
+公开行为变化：
+
+- 合法 `if/else` 双臂 return、无大括号条件 return 后的 sibling statement、runtime `if/else` sibling branch 和 inactive `#if/#else` 分支不再产生对应 control-flow false positive。
+- 真正顺序执行的 `return` 后语句仍发布 `Unreachable code.`；只有部分路径 return 的函数仍发布 `Potential missing return on some paths.`。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`95 passing / 1 pending`。
+- `npm run test:client:repo` 首次因工具 5 分钟 timeout 未得到结论；加长预算重跑后暴露 3 个 `Interactive Runtime / Signature Help` member hover/completion 断言失败。focused 复现确认根因不是 P22 diagnostics，而是 hover / member completion 的 member access base 解析只把 `Texture2D[]` declarator array 当作数组类型传给对象方法查询，未携带 `((gTexArr[0]))` / `WRAP_TEX(gTexArr[0])` 这类 indexed base 表达式已经访问元素的事实；signature help 走另一条类型路径所以未失败。已在 `callsite_parser.*` / `member_query.*` / `interactive_semantic_runtime.*` 共享边界修复 indexed base `T[] -> T` 归一，并把相关断言改为 `waitForCompletionLabels(...)` / `waitForHoverText(...)` 等待目标 server 结果。`$env:NSF_TEST_FILE_FILTER='interactive-runtime'; npm run test:client:repo` 通过，`56 passing`；最终 `npm run test:client:repo` 全量通过。
+- 5-unit real diagnostics audit 通过，输出 `real-workspace-diagnostics-audit.phase-22-control-flow-tail-smoke-5.{json,md}`；units scanned `5`，diagnostics total `219`，waitTimeouts / truncated / timedOut / heavyRulesSkipped / fileErrors 均为 `0`。
+- 50-unit real diagnostics audit 通过，输出 `real-workspace-diagnostics-audit.phase-22-control-flow-tail-trend-50.{json,md}`；units scanned `50`，diagnostics total `1804`，waitTimeouts / truncated / timedOut / heavyRulesSkipped / fileErrors 均为 `0`。相对 P20 final 50-unit report，`Unreachable code.` 从 `525` 降到 `50`，`Potential missing return on some paths.` 从 `100` 降到 `50`。
+- `npm run test:client:perf` 通过，`26 passing / 3 pending`；运行中 VS Code extension host 出现 unresponsive/responsive 事件，但最终 perf 门禁通过，报告未显示 diagnostics timeout / stale / heavyRulesSkipped 增加。
+
+当前状态：
+
+- 当前没有已知未解决失败用例；focused diagnostics、focused interactive-runtime 和 full repo integration 均已通过。
+- P22 剩余不关闭项不是测试失败，而是 real diagnostics audit 中剩余 control-flow 类计数的后续分流范围；这些剩余项需要在下一轮 review 中继续区分真实源码、syntax cascade、policy 或新的 LSP 缺口。
+- 本阶段未运行 100-unit batch audit 或 full real audit；如后续要扩大真实 workspace 覆盖面，应作为新阶段验证范围单独执行和记录。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P22 focused fixture；未改变运行时路径 / 命名规则。
+- 架构或单一事实来源是否变化：是，semantic block-flow diagnostics 明确消费 branch-local flow stack 和 `PreprocessorView` active branch merge 信息；已同步 `docs/architecture.md`。
+- 测试策略是否变化：是，新增 focused integration fixture 作为 P22 回归；执行计划已记录。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/type-method-interface-contract.md` 和本执行计划；README、AGENTS、resources、testing、client editor、development 均无对应事实变化。
+- 是否改变公开 diagnostics 行为：是，P21 admitted 的 control-flow false positives 不再发布；非法 sentinel 仍发布。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：是，新增 focused fixture，并完成 5-unit smoke 与 50-unit trend。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果；full repo 长链路已通过。
+
 ## 后续里程碑通用附加门禁
 
 - P18 以及后续任何会改变 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路的里程碑，都必须把性能合规作为关闭条件。
@@ -3221,6 +3342,8 @@ P19 验证与关闭标准：
 19. Phase 18: 小型 type / builtin tail 收尾。
 20. Phase 19: source / config diagnostics review。
 21. Phase 20: focused LSP tail。
+22. Phase 21: control-flow / diagnostics policy review。
+23. Phase 22: focused control-flow diagnostics tail。
 
 Phase 2、Phase 3、Phase 4、Phase 7、Phase 10、Phase 11、Phase 12、Phase 14、Phase 15 和 Phase 16 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约、builtin 类型规则共享入口、macro / parser 参数边界、macro-like expression typing、active-branch 宏上下文契约与共享预处理宏推导核心层、多行 parser continuation 和 statement-like macro local 语义；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。Phase 14 不能用 diagnostics-local 特判替代真实宏状态机、真实配置确认或共享快照契约；P14L 的 compiler context 收口必须先区分 preset 漂移、compiler 固定上下文和用户显式配置语义，再决定是否改变公开宏合并契约。Phase 17 仍包含 call / type policy 与真实编译器行为确认重点。
 

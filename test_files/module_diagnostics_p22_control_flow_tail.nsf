@@ -1,0 +1,67 @@
+float P22UnbracedIfElseReturn(float x)
+{
+    if (x > 0.0) return 1.0;
+    else return 2.0;
+}
+
+float P22BracedIfElseReturn(float x)
+{
+    if (x > 0.0)
+    {
+        return 1.0;
+    }
+    else
+    {
+        return 2.0;
+    }
+}
+
+float P22UnbracedConditionalSibling(float x)
+{
+    if (x > 0.0)
+        return 1.0;
+    x = x + 1.0;
+    return x;
+}
+
+float P22RuntimeBranchMerge(bool flag, float x)
+{
+    if (flag)
+    {
+        return 1.0;
+    }
+    else
+    {
+        x = x + 1.0;
+    }
+    return x;
+}
+
+#define P22_ACTIVE_BRANCH 1
+
+float P22InactiveBranchGating(float x)
+{
+    if (x > 0.0)
+    {
+        return 1.0;
+#if P22_ACTIVE_BRANCH
+        x = x + 2.0;
+#else
+        x = x + 100.0;
+#endif
+    }
+    return x;
+}
+
+float P22PartialReturnSentinel(float x)
+{
+    if (x > 0.0)
+        return 1.0;
+    x = x + 1.0;
+}
+
+float P22UnreachableSentinel(float x)
+{
+    return x;
+    x = x + 42.0;
+}

@@ -2408,11 +2408,13 @@ int main(int argc, char **argv) {
                 positionToOffsetUtf16(doc.text, line, character);
             std::string base;
             std::string member;
+            bool baseUsesIndexing = false;
             const bool detected = extractMemberAccessAtOffset(
-                doc.text, cursorOffset, base, member);
+                doc.text, cursorOffset, base, member, &baseUsesIndexing);
             result.o["memberAccessDetected"] = makeBool(detected);
             result.o["base"] = makeString(base);
             result.o["member"] = makeString(member);
+            result.o["baseUsesIndexing"] = makeBool(baseUsesIndexing);
             if (detected) {
               ServerRequestContext debugCtx = makeRuntimeRequestContext();
               PreprocessorIncludeContext includeContext;
@@ -2457,6 +2459,7 @@ int main(int argc, char **argv) {
               }
               MemberAccessBaseTypeOptions options;
               options.includeWorkspaceIndexFallback = true;
+              options.baseExpressionUsesIndexing = baseUsesIndexing;
               MemberAccessBaseTypeResult resolved = resolveMemberAccessBaseType(
                   uri, doc, base, cursorOffset, debugCtx, options);
               result.o["resolved"] = makeBool(resolved.resolved);

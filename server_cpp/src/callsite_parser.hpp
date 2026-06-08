@@ -33,9 +33,15 @@ bool detectCallLikeCalleeAtOffset(const std::string &text, size_t cursorOffset,
 
 bool isLikelyTypeConstructorCallName(const std::string &name);
 
+// Extracts the nearest member access around `cursorOffset`. `baseOut` is the
+// symbol used for type lookup; when the syntactic base consumed `[]`, such as
+// `items[0].field` or a parenthesized/macro-wrapped variant, the optional
+// `baseUsesIndexingOut` flag lets member consumers expose declaration-side
+// `T[]` as element type `T`.
 bool extractMemberAccessAtOffset(const std::string &text, size_t cursorOffset,
                                  std::string &baseOut,
-                                 std::string &memberOut);
+                                 std::string &memberOut,
+                                 bool *baseUsesIndexingOut = nullptr);
 
 bool parseMemberCallAtOffset(const std::string &text, size_t cursorOffset,
                              std::string &baseOut, std::string &memberOut,

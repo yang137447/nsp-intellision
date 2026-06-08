@@ -90,6 +90,7 @@ void collectReturnAndTypeDiagnostics(
   bool sawTopLevelReturn = false;
   bool sawPotentialMissingReturn = false;
   bool sawPotentialUnreachable = false;
+  enum class FlowBlockKind { Function, Branch, LoopOrSwitch, Other };
   struct LocalDeclEntry {
     std::string type;
     PreprocBranchSig sig;
@@ -122,8 +123,8 @@ void collectReturnAndTypeDiagnostics(
   std::unordered_set<std::string> globalSymbols;
   std::unordered_set<std::string> globalFunctionSignatures;
   std::unordered_map<std::string, bool> resolvedSymbolCache;
-  int lastIfLineAtDepth1 = -100000;
-  bool lastIfHadElseAtDepth1 = false;
+  std::unordered_map<int, int> lastIfLineByDepth;
+  std::unordered_map<int, bool> lastIfHadElseByDepth;
   bool conditionalReturnSeen = false;
   bool unconditionalReturnSeen = false;
   bool inUiMetaBlock = false;
@@ -867,8 +868,78 @@ void collectReturnAndTypeDiagnostics(
     }
   };
 
+  std::unordered_map<int, int> activeBranchIndexById;
+  for (const auto &merge : preprocessorView.branchMerges) {
+    if (merge.activeBranchIndex >= 0)
+      activeBranchIndexById[merge.branchId] = merge.activeBranchIndex;
+  }
+
+  auto isSemanticActiveLine = [&](int line, const PreprocBranchSig &sig) {
+    if (line < static_cast<int>(preprocessorView.lineActive.size()) &&
+        !preprocessorView.lineActive[line]) {
+      return false;
+    }
+    for (const auto &entry : sig) {
+      auto it = activeBranchIndexById.find(entry.first);
+      if (it != activeBranchIndexById.end() && entry.second != it->second)
+        return false;
+    }
+    return true;
+  };
+
   bool unreachableActive = false;
   int unreachableDepth = 0;
+  std::vector<FlowBlockKind> flowBlockKinds;
+  std::vector<FlowBlockKind> nextOpenBraceKinds;
+  size_t nextOpenBraceKindIndex = 0;
+  FlowBlockKind pendingControlOpenBlockKind = FlowBlockKind::Other;
+
+  auto consumeNextOpenBraceKind = [&]() {
+    if (nextOpenBraceKindIndex < nextOpenBraceKinds.size())
+      return nextOpenBraceKinds[nextOpenBraceKindIndex++];
+    return FlowBlockKind::Other;
+  };
+
+  auto buildOpenBraceKindsForLine =
+      [](const std::vector<LexToken> &lineTokens) {
+        std::vector<FlowBlockKind> kinds;
+        FlowBlockKind pendingKind = FlowBlockKind::Other;
+        for (const auto &token : lineTokens) {
+          if (token.kind == LexToken::Kind::Identifier) {
+            if (token.text == "if" || token.text == "else") {
+              pendingKind = FlowBlockKind::Branch;
+            } else if (token.text == "for" || token.text == "while" ||
+                       token.text == "switch" || token.text == "do") {
+              pendingKind = FlowBlockKind::LoopOrSwitch;
+            }
+            continue;
+          }
+          if (token.kind != LexToken::Kind::Punct)
+            continue;
+          if (token.text == "{") {
+            kinds.push_back(pendingKind);
+            pendingKind = FlowBlockKind::Other;
+          } else if (token.text == ";") {
+            pendingKind = FlowBlockKind::Other;
+          }
+        }
+        return kinds;
+      };
+
+  auto leadingControlKindForLine =
+      [](const std::vector<LexToken> &lineTokens) {
+        for (const auto &token : lineTokens) {
+          if (token.kind != LexToken::Kind::Identifier)
+            continue;
+          if (token.text == "if" || token.text == "else")
+            return FlowBlockKind::Branch;
+          if (token.text == "for" || token.text == "while" ||
+              token.text == "switch" || token.text == "do")
+            return FlowBlockKind::LoopOrSwitch;
+          break;
+        }
+        return FlowBlockKind::Other;
+      };
 
   auto scanForBraces = [&](const std::string &line) {
     for (size_t i = 0; i < line.size(); i++) {
@@ -900,7 +971,9 @@ void collectReturnAndTypeDiagnostics(
       }
       if (ch == '{') {
         if (inFunction) {
+          const FlowBlockKind blockKind = consumeNextOpenBraceKind();
           functionBraceDepth++;
+          flowBlockKinds.push_back(blockKind);
           for (size_t pendingIndex = 0; pendingIndex < pendingForScopes.size();
                pendingIndex++) {
             if (pendingForScopes[pendingIndex].parentDepth ==
@@ -943,10 +1016,13 @@ void collectReturnAndTypeDiagnostics(
           sawTopLevelReturn = false;
           sawPotentialMissingReturn = false;
           sawPotentialUnreachable = false;
-          lastIfLineAtDepth1 = -100000;
-          lastIfHadElseAtDepth1 = false;
+          lastIfLineByDepth.clear();
+          lastIfHadElseByDepth.clear();
           conditionalReturnSeen = false;
           unconditionalReturnSeen = false;
+          pendingControlOpenBlockKind = FlowBlockKind::Other;
+          flowBlockKinds.clear();
+          flowBlockKinds.push_back(FlowBlockKind::Function);
           resetLocalScopes();
           localsVisibleTypes.clear();
           localsVisibleNames.clear();
@@ -970,6 +1046,15 @@ void collectReturnAndTypeDiagnostics(
       }
       if (ch == '}') {
         if (inFunction) {
+          const FlowBlockKind closingKind =
+              flowBlockKinds.empty() ? FlowBlockKind::Other
+                                     : flowBlockKinds.back();
+          if ((closingKind == FlowBlockKind::Branch ||
+               closingKind == FlowBlockKind::LoopOrSwitch) &&
+              unreachableActive && unreachableDepth >= functionBraceDepth) {
+            unreachableActive = false;
+            unreachableDepth = 0;
+          }
           if (functionBraceDepth == 1 && !pendingMultilineLocalName.empty() &&
               pendingMultilineLocalDepth == 1 &&
               pendingMultilineLocalLine >= 0 &&
@@ -983,6 +1068,8 @@ void collectReturnAndTypeDiagnostics(
             exitTopLocalScope();
           functionBraceDepth =
               functionBraceDepth > 0 ? functionBraceDepth - 1 : 0;
+          if (!flowBlockKinds.empty())
+            flowBlockKinds.pop_back();
           closeForScopesReturnedToDepth(functionBraceDepth);
           if (functionBraceDepth == 0) {
             if (normalizeTypeToken(functionReturnType) != "void" &&
@@ -1015,6 +1102,10 @@ void collectReturnAndTypeDiagnostics(
             pendingMultilineLocalEnd = -1;
             unreachableActive = false;
             unreachableDepth = 0;
+            flowBlockKinds.clear();
+            pendingControlOpenBlockKind = FlowBlockKind::Other;
+            lastIfLineByDepth.clear();
+            lastIfHadElseByDepth.clear();
           }
         } else if (typeBlockBraceDepth > 0) {
           typeBlockBraceDepth--;
@@ -1102,9 +1193,19 @@ void collectReturnAndTypeDiagnostics(
       if (token.start < mask.size() && mask[token.start])
         tokens.push_back(token);
     }
+    nextOpenBraceKinds = buildOpenBraceKindsForLine(tokens);
+    if (!nextOpenBraceKinds.empty() &&
+        nextOpenBraceKinds.front() == FlowBlockKind::Other &&
+        pendingControlOpenBlockKind != FlowBlockKind::Other) {
+      nextOpenBraceKinds.front() = pendingControlOpenBlockKind;
+    }
+    nextOpenBraceKindIndex = 0;
 
-    if (lineIndex < static_cast<int>(preprocessorView.lineActive.size()) &&
-        !preprocessorView.lineActive[lineIndex]) {
+    const PreprocBranchSig &currentSig =
+        (lineIndex < static_cast<int>(preprocessorView.branchSigs.size())
+             ? preprocessorView.branchSigs[lineIndex]
+             : emptySig);
+    if (!isSemanticActiveLine(lineIndex, currentSig)) {
       lineIndex++;
       continue;
     }
@@ -1115,10 +1216,6 @@ void collectReturnAndTypeDiagnostics(
       continue;
     }
 
-    const PreprocBranchSig &currentSig =
-        (lineIndex < static_cast<int>(preprocessorView.branchSigs.size())
-             ? preprocessorView.branchSigs[lineIndex]
-             : emptySig);
     bool lineReportedMissingSemicolon = false;
     bool pendingUiVarStartedThisLine = false;
     auto emitCurrentLineMissingSemicolon = [&](int startByte, int endByte) {
@@ -1356,13 +1453,20 @@ void collectReturnAndTypeDiagnostics(
         }
       }
 
-      if (functionBraceDepth == 1) {
-        if (!tokens.empty() && tokens[0].kind == LexToken::Kind::Identifier) {
-          if (tokens[0].text == "if") {
-            lastIfLineAtDepth1 = lineIndex;
-            lastIfHadElseAtDepth1 = false;
-          } else if (tokens[0].text == "else") {
-            lastIfHadElseAtDepth1 = true;
+      if (!tokens.empty()) {
+        size_t firstIdentifier = tokens.size();
+        for (size_t ti = 0; ti < tokens.size(); ti++) {
+          if (tokens[ti].kind == LexToken::Kind::Identifier) {
+            firstIdentifier = ti;
+            break;
+          }
+        }
+        if (firstIdentifier < tokens.size()) {
+          if (tokens[firstIdentifier].text == "if") {
+            lastIfLineByDepth[functionBraceDepth] = lineIndex;
+            lastIfHadElseByDepth[functionBraceDepth] = false;
+          } else if (tokens[firstIdentifier].text == "else") {
+            lastIfHadElseByDepth[functionBraceDepth] = true;
           }
         }
       }
@@ -1681,13 +1785,43 @@ void collectReturnAndTypeDiagnostics(
         if (tokens[i].kind != LexToken::Kind::Identifier ||
             tokens[i].text != "return")
           continue;
+        bool sameLineIfBeforeReturn = false;
+        bool sameLineElseBeforeReturn = false;
+        for (size_t ti = 0; ti < i; ti++) {
+          if (tokens[ti].kind != LexToken::Kind::Identifier)
+            continue;
+          if (tokens[ti].text == "if")
+            sameLineIfBeforeReturn = true;
+          else if (tokens[ti].text == "else")
+            sameLineElseBeforeReturn = true;
+        }
+        bool controlledByPreviousIfLine = false;
+        auto lastIfIt = lastIfLineByDepth.find(functionBraceDepth);
+        if (lastIfIt != lastIfLineByDepth.end() &&
+            lastIfIt->second == lineIndex - 1) {
+          bool previousIfHadElse = false;
+          auto elseIt = lastIfHadElseByDepth.find(functionBraceDepth);
+          if (elseIt != lastIfHadElseByDepth.end())
+            previousIfHadElse = elseIt->second;
+          controlledByPreviousIfLine = !previousIfHadElse;
+        }
+        const bool branchLocalReturn =
+            sameLineIfBeforeReturn || sameLineElseBeforeReturn ||
+            controlledByPreviousIfLine;
+        const bool branchReturnCompletesIfElse =
+            branchLocalReturn && sameLineElseBeforeReturn &&
+            !sameLineIfBeforeReturn;
         sawReturn = true;
         if (functionBraceDepth == 1) {
-          if (lastIfLineAtDepth1 == lineIndex - 1 && !lastIfHadElseAtDepth1) {
+          if (branchLocalReturn) {
             conditionalReturnSeen = true;
+            if (branchReturnCompletesIfElse)
+              unconditionalReturnSeen = true;
           } else {
             unconditionalReturnSeen = true;
           }
+          if (unconditionalReturnSeen)
+            sawPotentialMissingReturn = false;
           sawTopLevelReturn = true;
         }
         bool hasValue = true;
@@ -1720,8 +1854,10 @@ void collectReturnAndTypeDiagnostics(
             emitCurrentLineMissingSemicolon(
                 static_cast<int>(tokens[i].start),
                 static_cast<int>(tokens[i].end));
-          unreachableActive = true;
-          unreachableDepth = functionBraceDepth;
+          if (!branchLocalReturn || branchReturnCompletesIfElse) {
+            unreachableActive = true;
+            unreachableDepth = functionBraceDepth;
+          }
           continue;
         }
 
@@ -1757,8 +1893,10 @@ void collectReturnAndTypeDiagnostics(
         if (!hasSemi && shouldReportMissingSemicolonOnLine(lineIndex))
           emitCurrentLineMissingSemicolon(static_cast<int>(tokens[i].start),
                                           static_cast<int>(tokens[i].end));
-        unreachableActive = true;
-        unreachableDepth = functionBraceDepth;
+        if (!branchLocalReturn || branchReturnCompletesIfElse) {
+          unreachableActive = true;
+          unreachableDepth = functionBraceDepth;
+        }
       }
 
       for (size_t i = 0; i + 2 < tokens.size(); i++) {
@@ -2621,6 +2759,8 @@ void collectReturnAndTypeDiagnostics(
         sawReturn) {
       if (conditionalReturnSeen && !unconditionalReturnSeen) {
         sawPotentialMissingReturn = true;
+      } else if (unconditionalReturnSeen) {
+        sawPotentialMissingReturn = false;
       }
     }
 
@@ -2660,6 +2800,9 @@ void collectReturnAndTypeDiagnostics(
     }
 
     scanForBraces(lineText);
+    pendingControlOpenBlockKind =
+        nextOpenBraceKinds.empty() ? leadingControlKindForLine(tokens)
+                                   : FlowBlockKind::Other;
     if (inFunction && !pendingForScopes.empty() && !tokens.empty()) {
       for (auto it = pendingForScopes.begin(); it != pendingForScopes.end();) {
         if (it->createdLine < lineIndex) {

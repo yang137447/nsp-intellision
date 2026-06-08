@@ -1456,6 +1456,17 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
     size_t cursorOffset, const ServerRequestContext &ctx,
     const MemberAccessBaseTypeOptions &options) {
   MemberAccessBaseTypeResult result;
+  auto normalizeIndexedArrayBaseType = [&]() {
+    if (!options.baseExpressionUsesIndexing)
+      return;
+    constexpr const char *arraySuffix = "[]";
+    constexpr size_t arraySuffixLength = 2;
+    if (result.typeName.size() >= arraySuffixLength &&
+        result.typeName.compare(result.typeName.size() - arraySuffixLength,
+                                arraySuffixLength, arraySuffix) == 0) {
+      result.typeName.resize(result.typeName.size() - arraySuffixLength);
+    }
+  };
   DocumentRuntime runtime;
   const bool hasRuntime = documentOwnerGetRuntime(uri, runtime);
   DeclCandidate decl;
@@ -1465,6 +1476,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       findTypeOfIdentifierInDeclarationLineShared(decl.lineText, base,
                                                   result.typeName) &&
       !result.typeName.empty()) {
+    normalizeIndexedArrayBaseType();
     result.resolutionPath = "nearby_decl";
     result.resolved = true;
     recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1490,6 +1502,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
                                      publishedType, publishedIsParam) &&
         !publishedType.empty()) {
       result.typeName = publishedType;
+      normalizeIndexedArrayBaseType();
       result.resolutionPath = "published_current_snapshot";
       result.resolved = true;
       recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1506,6 +1519,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
                                      lastGoodIsParam) &&
         !publishedType.empty()) {
       result.typeName = publishedType;
+      normalizeIndexedArrayBaseType();
       result.resolutionPath = "published_last_good_snapshot";
       result.resolved = true;
       recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1522,6 +1536,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
                                      deferredIsParam) &&
         !publishedType.empty()) {
       result.typeName = publishedType;
+      normalizeIndexedArrayBaseType();
       result.resolutionPath = "published_deferred_snapshot";
       result.resolved = true;
       recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1535,6 +1550,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
                                       publishedType) &&
         !publishedType.empty()) {
       result.typeName = publishedType;
+      normalizeIndexedArrayBaseType();
       result.resolutionPath = "shared_visible_shard";
       result.resolved = true;
       recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1553,6 +1569,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       findTypeOfIdentifierInDeclarationLineShared(decl.lineText, base,
                                                   result.typeName) &&
       !result.typeName.empty()) {
+    normalizeIndexedArrayBaseType();
     result.resolutionPath = "cached_active_lines_decl";
     result.resolved = true;
     recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1572,6 +1589,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       findTypeOfIdentifierInDeclarationLineShared(decl.lineText, base,
                                                   result.typeName) &&
       !result.typeName.empty()) {
+    normalizeIndexedArrayBaseType();
     result.resolutionPath = "include_aware_decl";
     result.resolved = true;
     recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1587,6 +1605,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
       findTypeOfIdentifierInDeclarationLineShared(decl.lineText, base,
                                                   result.typeName) &&
       !result.typeName.empty()) {
+    normalizeIndexedArrayBaseType();
     result.resolutionPath = "raw_decl";
     result.resolved = true;
     recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1601,6 +1620,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
   TypeEvalResult typeEval = interactiveResolveHoverTypeAtDeclaration(
       uri, doc, base, cursorOffset, ctx, isParam);
   result.typeName = typeEval.type;
+  normalizeIndexedArrayBaseType();
   if (!result.typeName.empty())
     result.resolutionPath = "interactive_hover_type";
   result.resolved = !result.typeName.empty();
@@ -1631,6 +1651,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
         result.typeName.empty()) {
       continue;
     }
+    normalizeIndexedArrayBaseType();
     result.resolutionPath = "active_include_decl";
     result.resolved = true;
     recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1661,6 +1682,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
           result.typeName.empty()) {
         continue;
       }
+      normalizeIndexedArrayBaseType();
       result.resolutionPath = "include_closure_decl";
       result.resolved = true;
       recordInteractiveMemberBaseResolutionDebug(uri, base,
@@ -1674,6 +1696,7 @@ MemberAccessBaseTypeResult interactiveResolveMemberAccessBaseType(
 
   if (options.includeWorkspaceIndexFallback) {
     workspaceSummaryRuntimeGetSymbolType(base, result.typeName);
+    normalizeIndexedArrayBaseType();
     result.resolved = !result.typeName.empty();
     if (result.resolved) {
       result.resolutionPath = "workspace_symbol_type";

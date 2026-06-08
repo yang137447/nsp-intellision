@@ -2441,6 +2441,35 @@ export function registerDiagnosticsTests(): void {
 		assert.ok(messages.includes('Potential missing return on some paths.'));
 	});
 
+	itWithDiagnosticsMode('balanced', 'models P22 focused control-flow diagnostics tail', async () => {
+		const document = await openFixture('module_diagnostics_p22_control_flow_tail.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Potential missing return on some paths.') &&
+					messages.includes('Unreachable code.')
+				);
+			},
+			'P22 control-flow tail diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		const locatedMessages = diagnostics
+			.map((diag) => `${diag.range.start.line + 1}: ${diag.message} :: ${document.lineAt(diag.range.start.line).text.trim()}`)
+			.join('\n');
+		assert.ok(messages.includes('Potential missing return on some paths.'), locatedMessages);
+		assert.ok(messages.includes('Unreachable code.'), locatedMessages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'else return 2.0;'), 'Unreachable code.'), locatedMessages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'x = x + 1.0;\n    return x;'), 'Unreachable code.'), locatedMessages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'x = x + 1.0;\n    }\n    return x;'), 'Unreachable code.'), locatedMessages);
+		assert.ok(!locatedMessages.includes('x = x + 100.0;'), locatedMessages);
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'x = x + 2.0;'), 'Unreachable code.'), locatedMessages);
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'x = x + 42.0;'), 'Unreachable code.'), locatedMessages);
+	});
+
 	itWithDiagnosticsMode('full', 'publishes diagnostics for comparison operator type mismatches', async () => {
 		const document = await openFixture('module_diagnostics_type_mismatch_compare.nsf');
 

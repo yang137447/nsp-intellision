@@ -2,12 +2,13 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 
 import {
-	getCompletionItems,
 	hoverToText,
 	openFixture,
 	positionOf,
 	repoDescribe,
-	waitFor
+	waitFor,
+	waitForCompletionLabels,
+	waitForHoverText
 } from '../test_helpers';
 
 export function registerInteractiveRuntimeSignatureTests(): void {
@@ -383,14 +384,10 @@ export function registerInteractiveRuntimeSignatureTests(): void {
 	it('shows hover info for complex member-call method sites', async () => {
 		const document = await openFixture('module_signature_help_member_call_complex.nsf');
 		const hoverPosition = positionOf(document, '((gTexArr[0])).Sample', 1, '((gTexArr[0])).'.length + 1);
-		const hovers = await waitFor(
-			() =>
-				vscode.commands.executeCommand<vscode.Hover[]>(
-					'vscode.executeHoverProvider',
-					document.uri,
-					hoverPosition
-				),
-			(value) => Array.isArray(value) && value.length > 0,
+		const hovers = await waitForHoverText(
+			document,
+			hoverPosition,
+			(text) => text.includes('(HLSL built-in method)') && text.includes('Sample('),
 			'hover for complex member call method'
 		);
 		const hoverText = hoverToText(hovers);
@@ -403,28 +400,20 @@ export function registerInteractiveRuntimeSignatureTests(): void {
 		const completionPosition = positionOf(document, '((gTexArr[0])).Sample', 1, '((gTexArr[0])).'.length);
 		const hoverPosition = positionOf(document, '((gTexArr[0])).Sample', 1, '((gTexArr[0])).'.length + 1);
 
-		const completionResult = await waitFor(
-			() =>
-				vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
-					'vscode.executeCompletionItemProvider',
-					document.uri,
-					completionPosition
-				),
-			(value) => getCompletionItems(value).length > 0,
+		const completionItems = await waitForCompletionLabels(
+			document,
+			completionPosition,
+			['Sample'],
 			'aligned member completion'
 		);
-		const hovers = await waitFor(
-			() =>
-				vscode.commands.executeCommand<vscode.Hover[]>(
-					'vscode.executeHoverProvider',
-					document.uri,
-					hoverPosition
-				),
-			(value) => Array.isArray(value) && value.length > 0,
+		const hovers = await waitForHoverText(
+			document,
+			hoverPosition,
+			(text) => text.includes('Sample('),
 			'aligned member hover'
 		);
 
-		const labels = new Set(getCompletionItems(completionResult).map((item) => item.label.toString()));
+		const labels = new Set(completionItems.map((item) => item.label.toString()));
 		const hoverText = hoverToText(hovers);
 		assert.ok(labels.has('Sample'));
 		assert.ok(hoverText.includes('Sample('));
@@ -434,31 +423,23 @@ export function registerInteractiveRuntimeSignatureTests(): void {
 		const document = await openFixture('module_signature_help_member_call_complex.nsf');
 
 		const firstPosition = positionOf(document, '((gTexArr[0])).Sample', 1, '((gTexArr[0])).'.length);
-		const firstResult = await waitFor(
-			() =>
-				vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
-					'vscode.executeCompletionItemProvider',
-					document.uri,
-					firstPosition
-				),
-			(value) => getCompletionItems(value).length > 0,
+		const firstItems = await waitForCompletionLabels(
+			document,
+			firstPosition,
+			['Sample'],
 			'completion for multi-parenthesized member base'
 		);
-		const firstLabels = new Set(getCompletionItems(firstResult).map((item) => item.label.toString()));
+		const firstLabels = new Set(firstItems.map((item) => item.label.toString()));
 		assert.ok(firstLabels.has('Sample'));
 
 		const secondPosition = positionOf(document, 'WRAP_TEX(gTexArr[0]).Sample', 1, 'WRAP_TEX(gTexArr[0]).'.length);
-		const secondResult = await waitFor(
-			() =>
-				vscode.commands.executeCommand<vscode.CompletionList | vscode.CompletionItem[]>(
-					'vscode.executeCompletionItemProvider',
-					document.uri,
-					secondPosition
-				),
-			(value) => getCompletionItems(value).length > 0,
+		const secondItems = await waitForCompletionLabels(
+			document,
+			secondPosition,
+			['Sample'],
 			'completion for macro-wrapped member base'
 		);
-		const secondLabels = new Set(getCompletionItems(secondResult).map((item) => item.label.toString()));
+		const secondLabels = new Set(secondItems.map((item) => item.label.toString()));
 		assert.ok(secondLabels.has('Sample'));
 	});
 

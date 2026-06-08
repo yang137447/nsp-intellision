@@ -115,6 +115,7 @@ consumer 包括 hover、signature help、member completion、inlay hints 和 dia
 - 对象方法可用性与参数形状判定必须共享同一套规则。
 - 新增对象方法语义时，先下沉到共享层，再由各 consumer 消费。
 - consumer 只需要参数形状时，不得直接解释 `coordDim` / `isArray`。
+- member access base 如果来自 `T values[N]` 的 indexed 表达式（包括 parenthesized / macro-wrapped 形态），hover、member completion、signature help 和 diagnostics 应按元素类型 `T` 查询对象方法；未 indexed 的 `T[]` declarator array 仍应保持数组类型，不能为了补全方法而静默降级。
 - 合法但有风险的对象方法参数隐式转换应作为 `type_relation.*` warning 发布；找不到合法转换序列时才发布对象方法 type mismatch。
 
 ## 参数标签契约

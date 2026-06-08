@@ -411,8 +411,10 @@ bool request_completion_handlers::handleCompletionRequest(
     size_t cursorOffset = positionToOffsetUtf16(doc->text, line, character);
     std::string base;
     std::string member;
+    bool baseUsesIndexing = false;
     bool memberAccessDetected =
-        extractMemberAccessAtOffset(doc->text, cursorOffset, base, member);
+        extractMemberAccessAtOffset(doc->text, cursorOffset, base, member,
+                                    &baseUsesIndexing);
     if (!memberAccessDetected) {
       const std::string lineText = getLineAt(doc->text, line);
       for (const int candidateChar : {character, character + 1,
@@ -432,6 +434,7 @@ bool request_completion_handlers::handleCompletionRequest(
       completionDebug.path = "member_access_detected";
       MemberAccessBaseTypeOptions baseOptions;
       baseOptions.includeWorkspaceIndexFallback = true;
+      baseOptions.baseExpressionUsesIndexing = baseUsesIndexing;
       const auto memberBaseResolveStartedAt = std::chrono::steady_clock::now();
       MemberAccessBaseTypeResult baseResolution =
           resolveMemberAccessBaseType(uri, *doc, base, cursorOffset, ctx,
