@@ -862,6 +862,39 @@ static bool findBaseTypeBeforeToken(const std::vector<LexToken> &tokens,
   return false;
 }
 
+static std::string appendDeclaratorArraySuffix(
+    const std::string &baseType, const std::vector<LexToken> &tokens,
+    const TokenRange &range, size_t declaratorIndex) {
+  std::string type = baseType;
+  size_t idx = declaratorIndex + 1;
+  while (idx < range.end) {
+    const auto &open = tokens[idx];
+    if (open.kind != LexToken::Kind::Punct || open.text != "[")
+      break;
+    int depth = 0;
+    size_t closeIndex = idx;
+    for (; closeIndex < range.end; closeIndex++) {
+      const auto &tok = tokens[closeIndex];
+      if (tok.kind != LexToken::Kind::Punct)
+        continue;
+      if (tok.text == "[") {
+        depth++;
+        continue;
+      }
+      if (tok.text == "]") {
+        depth--;
+        if (depth == 0)
+          break;
+      }
+    }
+    if (closeIndex >= range.end || tokens[closeIndex].text != "]")
+      break;
+    type += "[]";
+    idx = closeIndex + 1;
+  }
+  return type;
+}
+
 static std::string extractTrailingIdentifierBeforePunct(
     const std::vector<LexToken> &tokens, const std::string &punct) {
   if (tokens.empty())
@@ -922,13 +955,17 @@ parseDeclarationsInLine(const std::string &line) {
     }
 
     parsed.push_back(ParsedDeclarationInfo{
-        baseType, firstDecl->text, firstDecl->start, firstDecl->end});
+        appendDeclaratorArraySuffix(baseType, tokens, segments[0],
+                                    firstDeclIndex),
+        firstDecl->text, firstDecl->start, firstDecl->end});
     for (size_t i = 1; i < segments.size(); i++) {
       const LexToken *decl = findDeclaratorTokenInRange(tokens, segments[i], false);
       if (!decl)
         continue;
-      parsed.push_back(ParsedDeclarationInfo{baseType, decl->text, decl->start,
-                                             decl->end});
+      const size_t declIndex = static_cast<size_t>(decl - &tokens[0]);
+      parsed.push_back(ParsedDeclarationInfo{
+          appendDeclaratorArraySuffix(baseType, tokens, segments[i], declIndex),
+          decl->text, decl->start, decl->end});
     }
   }
   return parsed;

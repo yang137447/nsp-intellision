@@ -435,38 +435,16 @@ appendStructMembersFromLines(const std::string &uri, const std::string &text,
         tokens.front().text == "#")
       continue;
 
-    size_t typeIndex = std::string::npos;
-    for (size_t i = 0; i < tokens.size(); i++) {
-      if (tokens[i].kind != LexToken::Kind::Identifier)
+    const auto declarations =
+        extractDeclarationsInLineShared(applyCodeMaskToLine(lineText, mask));
+    for (const auto &decl : declarations) {
+      if (decl.name.empty() || decl.type.empty())
         continue;
-      if (isQualifierToken(tokens[i].text))
-        continue;
-      typeIndex = i;
-      break;
-    }
-    if (typeIndex == std::string::npos)
-      continue;
-    const std::string memberType = tokens[typeIndex].text;
-    if (memberType.empty())
-      continue;
-
-    for (size_t i = typeIndex + 1; i < tokens.size(); i++) {
-      if (tokens[i].kind == LexToken::Kind::Punct) {
-        if (tokens[i].text == ":" || tokens[i].text == ";" ||
-            tokens[i].text == "=")
-          break;
-        continue;
-      }
-      if (tokens[i].kind != LexToken::Kind::Identifier)
-        continue;
-      const std::string memberName = tokens[i].text;
-      if (memberName.empty())
-        continue;
-      if (!seenNames.insert(memberName).second)
+      if (!seenNames.insert(decl.name).second)
         continue;
       IndexedStructMember m;
-      m.name = memberName;
-      m.type = memberType;
+      m.name = decl.name;
+      m.type = decl.type;
       membersOut.push_back(std::move(m));
     }
   }
@@ -580,38 +558,16 @@ extractStructMembers(const std::string &uri, const std::string &text,
       continue;
     }
 
-    size_t typeIndex = std::string::npos;
-    for (size_t i = 0; i < tokens.size(); i++) {
-      if (tokens[i].kind != LexToken::Kind::Identifier)
+    const auto declarations =
+        extractDeclarationsInLineShared(applyCodeMaskToLine(lineText, mask));
+    for (const auto &decl : declarations) {
+      if (decl.name.empty() || decl.type.empty())
         continue;
-      if (isQualifierToken(tokens[i].text))
-        continue;
-      typeIndex = i;
-      break;
-    }
-    if (typeIndex == std::string::npos)
-      continue;
-    const std::string memberType = tokens[typeIndex].text;
-    if (memberType.empty())
-      continue;
-
-    for (size_t i = typeIndex + 1; i < tokens.size(); i++) {
-      if (tokens[i].kind == LexToken::Kind::Punct) {
-        if (tokens[i].text == ":" || tokens[i].text == ";" ||
-            tokens[i].text == "=")
-          break;
-        continue;
-      }
-      if (tokens[i].kind != LexToken::Kind::Identifier)
-        continue;
-      const std::string memberName = tokens[i].text;
-      if (memberName.empty())
-        continue;
-      if (!seenNames.insert(memberName).second)
+      if (!seenNames.insert(decl.name).second)
         continue;
       IndexedStructMember m;
-      m.name = memberName;
-      m.type = memberType;
+      m.name = decl.name;
+      m.type = decl.type;
       membersOrdered.push_back(std::move(m));
     }
   }

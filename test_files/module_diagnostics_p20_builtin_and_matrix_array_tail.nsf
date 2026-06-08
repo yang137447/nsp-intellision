@@ -1,0 +1,36 @@
+struct P20MatrixArrayHolder
+{
+    float4x4 inverse_trans[6];
+    float4 plain_rows[6];
+};
+
+float3 P20AcceptMatrix(float2 local_uv, float2 atlas_uv, float4x4 inv_trans, out float depth)
+{
+    depth = inv_trans[0][0] + local_uv.x + atlas_uv.y;
+    return inv_trans[3].xyz;
+}
+
+float3 P20AcceptFloat4(float4 row)
+{
+    return row.xyz;
+}
+
+void P20BuiltinTail(float x, float3 v, Texture2D tex)
+{
+    bool scalarNan = isnan(x);
+    bool3 vectorNan = isnan(v);
+    float scalarTrunc = trunc(x);
+    float3 vectorTrunc = trunc(v);
+
+    bool invalidNan = isnan(tex);
+    float invalidTrunc = trunc(tex);
+}
+
+float3 P20MatrixArrayIndexing(P20MatrixArrayHolder holder, int faceIndex)
+{
+    float depth = 0.0;
+    float3 okMatrix = P20AcceptMatrix(float2(0.0, 1.0), float2(1.0, 0.0), holder.inverse_trans[faceIndex], depth);
+    float3 okRow = P20AcceptFloat4(holder.inverse_trans[faceIndex][0]);
+    float3 invalidMatrix = P20AcceptMatrix(float2(0.0, 1.0), float2(1.0, 0.0), holder.plain_rows[faceIndex], depth);
+    return okMatrix + okRow + invalidMatrix;
+}

@@ -52,7 +52,8 @@ const std::unordered_set<std::string> &builtinFallbackNames() {
       "log10",        "round",        "radians",      "degrees",
       "ddx",          "ddy",          "ddx_coarse",   "ddy_coarse",
       "ddx_fine",     "ddy_fine",     "fwidth",       "all",
-      "any",          "transpose",    "sincos",
+      "any",          "transpose",    "sincos",       "isnan",
+      "trunc",
   };
   return kNames;
 }
@@ -74,7 +75,7 @@ const std::unordered_set<std::string> &builtinTypeCheckedFallbackNames() {
       "radians",     "degrees",     "ddx",         "ddy",
       "ddx_coarse",  "ddy_coarse",  "ddx_fine",    "ddy_fine",
       "fwidth",      "all",         "any",         "transpose",
-      "sincos",
+      "sincos",      "isnan",       "trunc",
   };
   return kNames;
 }

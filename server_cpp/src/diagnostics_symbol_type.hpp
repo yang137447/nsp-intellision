@@ -21,7 +21,10 @@ struct SymbolTypeCache {
 
 // Diagnostics-local symbol/struct type helpers.
 // Responsibilities: discover struct declarations/member types and resolve
-// visible symbol types from current text or workspace summary caches.
+// visible symbol types from current text or workspace summary caches. Returned
+// declaration types preserve declarator array suffixes (`T[]`) when the shared
+// declaration parser can see them, letting expression typing consume array and
+// matrix indexing in the correct order.
 bool hasStructDeclarationInText(const std::string &text,
                                 const std::string &structName);
 

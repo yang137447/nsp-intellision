@@ -3041,7 +3041,7 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 
 ## Phase 19 (P19): Source / Config Diagnostics Review
 
-状态：已确认新增；待执行。
+状态：已执行 source / config / policy 分流；详见 `docs/human-ai/2026-06-08-diagnostics-p19-source-config-review.md`。
 
 目标：
 
@@ -3089,9 +3089,38 @@ P19 验证与关闭标准：
 - 若 P19 过程中修改测试 helper、audit classifier 或报告脚本，至少运行 `npm run compile` 和相关 real diagnostics audit。
 - 关闭时必须更新文档，记录 source/config owner 分流结果、P20 准入清单和不进入 P20 的原因。
 
+### Phase 19 执行记录
+
+状态：已完成文档型 review；未修改产品代码、测试 helper、audit classifier 或报告脚本。
+
+实现内容：
+
+- 新增 `docs/human-ai/2026-06-08-diagnostics-p19-source-config-review.md`，基于 post-P18 100-unit audit 和代表源码上下文沉淀 owner table。
+- 明确 `Duplicate local declaration`、`GetVisibility` 参数 mismatch、`half4 = half3` assignment、重复全局 `Init`、`season_uniforms.hlsl` 缺分号和 `SampleTexArryPkgNormalBias` 参数个数 mismatch 不进入 P20，分别交 source / config / policy owner 复核。
+- 明确 `Unreachable code` 和 `Potential missing return` 需要单独 control-flow / diagnostics policy 阶段确认，暂不作为 P20 focused tail。
+- P20 准入清单限定为 `isnan(float)`、`trunc(float)` builtin typing，以及 `float4x4 inverse_trans[6]` indexed field 被误推为 `float4` 的共享 expression/member type 缺口。
+
+验证结果：
+
+- `git diff --check` 通过；仅有 Windows 工作区 CRLF 转换提示。
+- 未运行 `npm run compile`、`cmake --build .\server_cpp\build` 或 real diagnostics audit，因为 P19 只新增/更新 `docs/human-ai` 文档，未触达产品代码、测试入口、资源、公开 diagnostics 行为或 audit 脚本。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P19 review 文档；未改变运行时路径 / 命名规则。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否。
+- 文档是否已同步：已更新本执行计划并新增 P19 review 文档；当前事实文档无需更新，因为没有改变命令、资源、架构、公开行为、editor 壳层、对象方法契约或开发流程。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：P19 不新增 fixture；稳定 real audit sample 使用 post-P18 100-unit report。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果。
+
 ## Phase 20 (P20): Focused LSP Tail
 
-状态：已确认新增；待 P19 owner 分流后执行。
+状态：已执行 focused LSP tail；已补齐 `isnan` / `trunc` builtin typing 和 struct matrix array field indexing。
 
 目标：
 
@@ -3119,6 +3148,46 @@ P19 验证与关闭标准：
 - 运行 5-unit smoke audit 和 50-unit trend audit；若 P20 影响真实 workspace 主路径或需要证明 batch 稳定性，再补跑 100-unit batch audit。
 - 若修改 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路，按后续里程碑通用附加门禁补跑 `npm run test:client:perf`；涉及真实输入 / replay 覆盖面时补跑 long-running real replay。
 - 文档同步必须记录根因、实际改动、共享入口、验证结果、公开行为变化和剩余不处理项。
+
+### Phase 20 执行记录
+
+根因：
+
+- `isnan` / `trunc` 属于 common HLSL intrinsic，但未进入 `diagnostics_expression_type.*` 的 type-checked fallback 和 shared builtin resolver，导致合法浮点调用被标成 indeterminate。
+- declaration parser、diagnostics symbol type 和 workspace struct extraction 只保留了 member base type，未把 declarator array suffix 传播到共享类型链；`float4x4 inverse_trans[6]` 经 member access 后变成 `float4x4`，再被第一次 `[]` 当作 matrix row indexing，误推为 `float4`。
+
+实现内容：
+
+- `server_cpp/src/hlsl_builtin_docs.cpp` 将 `isnan` / `trunc` 纳入 fallback names 和 type-checked fallback names。
+- `server_cpp/src/diagnostics/diagnostics_expression_type.cpp` 增加 `trunc` 同型浮点返回、`isnan` 浮点输入转同 shape `bool` 返回，并把已知 object/struct 参数作为明确 mismatch，而不是 indeterminate。
+- `server_cpp/src/server_parse.*` 让 `ParsedDeclarationInfo.type` 保留 declarator array suffix 为 `T[]`。
+- `server_cpp/src/diagnostics/diagnostics_symbol_type.*` 和 `server_cpp/src/workspace/workspace_index_extract.cpp` 统一消费 shared declaration parser，移除 struct member / symbol type 的局部 token-only 解析路径。
+- `server_cpp/src/text_utils.*` 新增 mask 应用 helper，保证 diagnostics / workspace index 调用 shared declaration parser 前仍先屏蔽 comment/string 非代码区域。
+- `applyIndexAccessType` 先消费 `T[]` array suffix，再执行 matrix row / vector element indexing；`float4x4[]` 一次索引后保持 `float4x4`，`float4x4` 一次索引仍返回 row vector。
+- 新增 `test_files/module_diagnostics_p20_builtin_and_matrix_array_tail.nsf` 和 integration test `models P20 builtin and matrix-array expression tails`，覆盖合法 builtin、非法 object sentinel、matrix array field 正例与 plain row array 反例。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`94 passing / 1 pending`。
+- 5-unit real diagnostics audit 通过；最终复跑 label `phase-20-focused-lsp-tail-smoke-5-final`，units scanned `5`，diagnostics total `297`，waitTimeouts / truncated / timedOut / heavyRulesSkipped / fileErrors 均为 `0`。
+- 50-unit real diagnostics audit 首次以 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=1800000` 运行到 25/50 时 Mocha timeout，未发现产品断言失败；改用 `3600000` 后通过，并在最终代码上复跑 label `phase-20-focused-lsp-tail-trend-50-final`，units scanned `50`，diagnostics total `2229`，waitTimeouts / truncated / timedOut / heavyRulesSkipped / fileErrors 均为 `0`。
+- 50-unit trend 中 P19 admitted 的 `isnan` / `trunc` indeterminate 以及 `UVToWorld` matrix-array false mismatch 已不再出现；剩余 top groups 仍为 P19 分流的 source / config / policy / control-flow groups。
+- `npm run test:client:perf` 最终复跑通过，`26 passing / 3 pending`；26 份报告写入 `out/test/perf-reports/*.json`。本次 perf 输出未出现 VS Code extension host unresponsive/stall 事件；报告 raw wall-clock 最大样本为 `78.33ms`（`m0-idle-deferred-baseline`），server/client 分层 summary 无 diagnostics timeout，latest-only / queue / interactive runtime metrics 均在现有门禁内。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P20 focused fixture；未改变运行时路径 / 命名规则。
+- 架构或单一事实来源是否变化：是，declaration array suffix 进入 shared declaration parser / workspace summary / diagnostics expression type 链路；已同步 `docs/architecture.md`。
+- 测试策略是否变化：是，新增 focused integration fixture 作为 P20 回归；执行计划已记录。
+- 文档是否已同步：已更新 `docs/architecture.md` 和本执行计划；README、AGENTS、resources、testing、client editor、type-method、development 均无对应事实变化。
+- 是否改变公开 diagnostics 行为：是，合法 `isnan` / `trunc` 和 struct matrix array indexed field 不再发布误报；非法 object sentinel 仍发布 mismatch。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：是，新增 focused fixture，并完成 5-unit smoke 与 50-unit trend。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果。
 
 ## 后续里程碑通用附加门禁
 

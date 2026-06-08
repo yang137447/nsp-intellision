@@ -23,7 +23,7 @@ enum class BuiltinElemKind {
 };
 
 struct BuiltinTypeInfo {
-  enum class ShapeKind { Unknown, Scalar, Vector, Matrix };
+  enum class ShapeKind { Unknown, Scalar, Vector, Matrix, Object };
   ShapeKind shape = ShapeKind::Unknown;
   BuiltinElemKind elem = BuiltinElemKind::Unknown;
   int dim = 0;
@@ -56,8 +56,9 @@ struct NumericLiteralParseResult {
 // Builtin modeling covers common scalar/vector/matrix intrinsics in one shared
 // path; unsupported or unavailable argument types should surface as
 // indeterminate diagnostics instead of feature-local fallback guesses. The
-// expression model also recognizes project 64-bit integer scalar aliases and
-// keeps bitwise shift/or results in that shared type path.
+// expression model also recognizes project 64-bit integer scalar aliases,
+// preserves declaration array suffixes through indexing, and keeps bitwise
+// shift/or results in that shared type path.
 // `mul(matrix, vector)` also models the confirmed project shadercompiler
 // lowering where a matrix with more columns than the vector dimension is
 // accepted and returns a vector with the matrix row count; the reverse

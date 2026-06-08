@@ -11,6 +11,11 @@ struct Occurrence {
 std::string getLineAt(const std::string &text, int line);
 std::string extractWordAt(const std::string &lineText, int character);
 std::vector<Occurrence> findOccurrences(const std::string &text, const std::string &word);
+// Return a line-length-preserving copy where non-code bytes from a caller
+// supplied comment/string mask are replaced with spaces. Callers own mask
+// construction and block-comment state; this helper only applies the mask.
+std::string applyCodeMaskToLine(const std::string &lineText,
+                                const std::vector<char> &mask);
 
 int utf16ToByteOffsetInLine(const std::string &lineText, int utf16Character);
 int byteOffsetInLineToUtf16(const std::string &lineText, int byteOffset);

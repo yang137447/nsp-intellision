@@ -136,6 +136,11 @@ BuiltinTypeInfo parseBuiltinTypeInfo(std::string type) {
     out.cols = cols;
     return out;
   }
+  TypeDesc objectDesc = parseTypeDesc(type);
+  if (objectDesc.kind == TypeDescKind::Object && !objectDesc.base.empty()) {
+    out.shape = BuiltinTypeInfo::ShapeKind::Object;
+    return out;
+  }
   return out;
 }
 
@@ -183,6 +188,11 @@ static bool isBuiltinNumericElem(BuiltinElemKind k) {
          k == BuiltinElemKind::Double;
 }
 
+static bool isBuiltinFloatingElem(BuiltinElemKind k) {
+  return k == BuiltinElemKind::Half || k == BuiltinElemKind::Float ||
+         k == BuiltinElemKind::Double;
+}
+
 static bool isBuiltinUnarySameType(const std::string &name) {
   return name == "normalize" || name == "saturate" || name == "abs" ||
          name == "sin" || name == "cos" || name == "tan" || name == "asin" ||
@@ -205,11 +215,12 @@ resolveBuiltinCall(const std::string &name,
   if (args.empty())
     return r;
   for (const auto &a : args) {
-    if (a.shape == BuiltinTypeInfo::ShapeKind::Unknown ||
-        a.elem == BuiltinElemKind::Unknown) {
+    if (a.shape == BuiltinTypeInfo::ShapeKind::Unknown) {
       r.indeterminate = true;
       return r;
     }
+    if (a.elem == BuiltinElemKind::Unknown)
+      return r;
   }
 
   auto exactShapeEq = [&](const BuiltinTypeInfo &a,
@@ -355,6 +366,27 @@ resolveBuiltinCall(const std::string &name,
       r.ret.elem = BuiltinElemKind::Int;
     else if (builtinName == "asuint")
       r.ret.elem = BuiltinElemKind::UInt;
+    return r;
+  }
+
+  if (builtinName == "trunc") {
+    if (args.size() != 1)
+      return r;
+    if (!isBuiltinFloatingElem(args[0].elem))
+      return r;
+    r.ok = true;
+    r.ret = args[0];
+    return r;
+  }
+
+  if (builtinName == "isnan") {
+    if (args.size() != 1)
+      return r;
+    if (!isBuiltinFloatingElem(args[0].elem))
+      return r;
+    r.ok = true;
+    r.ret = args[0];
+    r.ret.elem = BuiltinElemKind::Bool;
     return r;
   }
 
@@ -1701,18 +1733,6 @@ std::string applyIndexAccessType(const std::string &baseType) {
   if (normalized.empty())
     return normalized;
 
-  std::string matrixScalar;
-  int rows = 0;
-  int cols = 0;
-  if (isMatrixType(normalized, matrixScalar, rows, cols)) {
-    return makeVectorOrScalarType(matrixScalar, cols);
-  }
-
-  int vecDim = 0;
-  if (isVectorType(normalized, vecDim)) {
-    return normalized.substr(0, normalized.size() - 1);
-  }
-
   if (!normalized.empty() && normalized.back() == ']') {
     int depth = 0;
     for (size_t pos = normalized.size(); pos-- > 0;) {
@@ -1727,6 +1747,18 @@ std::string applyIndexAccessType(const std::string &baseType) {
           return normalizeTypeToken(normalized.substr(0, pos));
       }
     }
+  }
+
+  std::string matrixScalar;
+  int rows = 0;
+  int cols = 0;
+  if (isMatrixType(normalized, matrixScalar, rows, cols)) {
+    return makeVectorOrScalarType(matrixScalar, cols);
+  }
+
+  int vecDim = 0;
+  if (isVectorType(normalized, vecDim)) {
+    return normalized.substr(0, normalized.size() - 1);
   }
 
   return normalized;

@@ -2503,6 +2503,34 @@ export function registerDiagnosticsTests(): void {
 		);
 	});
 
+	itWithDiagnosticsMode('balanced', 'models P20 builtin and matrix-array expression tails', async () => {
+		const document = await openFixture('module_diagnostics_p20_builtin_and_matrix_array_tail.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => {
+				const messages = diagnosticMessages(value);
+				return (
+					messages.includes('Builtin call type mismatch: isnan.') &&
+					messages.includes('Builtin call type mismatch: trunc.') &&
+					messages.includes('Function call argument mismatch: P20AcceptMatrix.')
+				);
+			},
+			'P20 builtin and matrix-array tail diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		for (const name of ['isnan', 'trunc']) {
+			assert.ok(!messages.includes(`Indeterminate builtin call: type rules not implemented. Name: ${name}.`), messages);
+			assert.ok(!messages.includes(`Indeterminate builtin call: arg types unavailable. Name: ${name}.`), messages);
+		}
+		assert.ok(messages.includes('Builtin call type mismatch: isnan.'), messages);
+		assert.ok(messages.includes('Builtin call type mismatch: trunc.'), messages);
+		assert.ok(messages.includes('Function call argument mismatch: P20AcceptMatrix.'), messages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'holder.inverse_trans[faceIndex], depth'), 'Function call argument mismatch: P20AcceptMatrix.'), messages);
+		assert.ok(!hasDiagnosticOnLine(diagnostics, lineOf(document, 'P20AcceptFloat4(holder.inverse_trans'), 'Function call argument mismatch: P20AcceptFloat4.'), messages);
+	});
+
 	it('supports HLSL attributes like [unroll] without false diagnostics', async () => {
 		const document = await openFixture('module_diagnostics_hlsl_attributes.nsf');
 

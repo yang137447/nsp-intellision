@@ -5,6 +5,9 @@
 #include <vector>
 
 struct ParsedDeclarationInfo {
+  // Consumer-ready declaration type. Declarator array suffixes are preserved
+  // on the type, e.g. `float4x4 m[6]` is reported as `float4x4[]`, so shared
+  // expression typing can distinguish array indexing from matrix row indexing.
   std::string type;
   std::string name;
   size_t start = 0;

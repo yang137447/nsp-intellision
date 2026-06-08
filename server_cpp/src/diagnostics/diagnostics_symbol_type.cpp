@@ -109,36 +109,12 @@ static bool parseStructMembersFromText(
     if (!inStruct || braceDepth != 1)
       continue;
 
-    size_t typeIndex = std::string::npos;
-    for (size_t i = 0; i < tokens.size(); i++) {
-      if (tokens[i].kind != LexToken::Kind::Identifier)
-        continue;
-      if (isQualifierToken(tokens[i].text))
-        continue;
-      typeIndex = i;
-      break;
+    const auto declarations =
+        extractDeclarationsInLineShared(applyCodeMaskToLine(lineText, mask));
+    for (const auto &decl : declarations) {
+      if (!decl.name.empty() && !decl.type.empty())
+        membersOut.emplace(decl.name, decl.type);
     }
-    if (typeIndex == std::string::npos)
-      continue;
-    if (typeIndex + 1 >= tokens.size())
-      continue;
-    if (tokens[typeIndex + 1].kind != LexToken::Kind::Identifier)
-      continue;
-    std::string memberName = tokens[typeIndex + 1].text;
-    size_t stop = tokens.size();
-    for (size_t i = typeIndex + 2; i < tokens.size(); i++) {
-      if (tokens[i].kind == LexToken::Kind::Punct &&
-          (tokens[i].text == ":" || tokens[i].text == ";" ||
-           tokens[i].text == "["))
-        break;
-      if (tokens[i].kind == LexToken::Kind::Punct && tokens[i].text == ";") {
-        stop = i;
-        break;
-      }
-    }
-    std::string memberType = tokens[typeIndex].text;
-    if (!memberName.empty() && !memberType.empty())
-      membersOut.emplace(memberName, memberType);
   }
   return !membersOut.empty();
 }
@@ -175,40 +151,12 @@ bool hasStructDeclarationInText(const std::string &text,
   return false;
 }
 
-static std::string
-parseSymbolTypeFromLineTokens(const std::vector<LexToken> &tokens,
-                              const std::string &symbol) {
-  for (size_t i = 0; i < tokens.size(); i++) {
-    if (tokens[i].kind != LexToken::Kind::Identifier ||
-        tokens[i].text != symbol)
-      continue;
-    if (i > 0) {
-      const auto &prev = tokens[i - 1];
-      if (prev.kind == LexToken::Kind::Punct &&
-          (prev.text == "." || prev.text == "->" || prev.text == "::"))
-        continue;
-    }
-    bool hasAssignBefore = false;
-    for (size_t j = 0; j < i; j++) {
-      if (tokens[j].kind == LexToken::Kind::Punct && tokens[j].text == "=") {
-        hasAssignBefore = true;
-        break;
-      }
-    }
-    if (hasAssignBefore)
-      continue;
-    if (i == 0)
-      continue;
-    const auto &typeToken = tokens[i - 1];
-    if (typeToken.kind != LexToken::Kind::Identifier)
-      continue;
-    if (isQualifierToken(typeToken.text))
-      continue;
-    if (typeToken.text == "return" || typeToken.text == "if" ||
-        typeToken.text == "for" || typeToken.text == "while" ||
-        typeToken.text == "switch")
-      continue;
-    return typeToken.text;
+static std::string parseSymbolTypeFromLine(const std::string &lineText,
+                                           const std::string &symbol) {
+  const auto declarations = extractDeclarationsInLineShared(lineText);
+  for (const auto &decl : declarations) {
+    if (decl.name == symbol)
+      return decl.type;
   }
   return "";
 }
@@ -224,14 +172,8 @@ std::string resolveSymbolTypeInText(const std::string &text,
     inBlockComment = maskBlock;
     if (isPreprocessorDirectiveLine(lineText, mask))
       continue;
-    const auto rawTokens = lexLineTokens(lineText);
-    std::vector<LexToken> tokens;
-    tokens.reserve(rawTokens.size());
-    for (const auto &token : rawTokens) {
-      if (token.start < mask.size() && mask[token.start])
-        tokens.push_back(token);
-    }
-    const std::string type = parseSymbolTypeFromLineTokens(tokens, symbol);
+    const std::string type =
+        parseSymbolTypeFromLine(applyCodeMaskToLine(lineText, mask), symbol);
     if (!type.empty())
       return type;
   }

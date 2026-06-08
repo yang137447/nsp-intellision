@@ -1,9 +1,23 @@
 #include "text_utils.hpp"
+#include <algorithm>
 #include <cctype>
 #include <sstream>
 
 static bool isWordChar(char c) {
   return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+}
+
+std::string applyCodeMaskToLine(const std::string &lineText,
+                                const std::vector<char> &mask) {
+  std::string code = lineText;
+  const size_t limit = std::min(code.size(), mask.size());
+  for (size_t i = 0; i < limit; i++) {
+    if (!mask[i])
+      code[i] = ' ';
+  }
+  for (size_t i = limit; i < code.size(); i++)
+    code[i] = ' ';
+  return code;
 }
 
 static uint32_t decodeUtf8CodePoint(const std::string &text, size_t &i) {
