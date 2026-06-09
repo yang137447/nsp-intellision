@@ -3506,6 +3506,53 @@ owner review：
 - 每个 admitted LSP 缺口都有 focused fixture 和 sentinel。
 - 5-unit / 50-unit audit 证明 admitted group 下降，且真实 duplicate sentinel 仍发布。
 
+### P24B 执行记录
+
+状态：已完成 duplicate local / global declaration owner review；本子阶段不进入 LSP implementation。
+
+review 文档：
+
+- `docs/human-ai/2026-06-09-diagnostics-p24b-duplicate-declaration-review.md`
+
+owner review：
+
+| Group | Count in P24A trend-50 | Owner | Admitted for LSP implementation | 结论 |
+| --- | ---: | --- | --- | --- |
+| `Duplicate local declaration: <symbol>.` | 1290 | Material-family config / policy owner | No | 代表样本全部来自 `shaderlib/surface_functions.hlsl` 的 `ChangeBaseColorSystem`，集中在 `COLOR_CHANGE_MODE == COLOR_CHANGE_PICKER / MULTIPLE / GRADIENT / CHANNEL_COLOR_CHANGE*` 多个意图互斥分支。当前 50-unit audit 中 `COLOR_CHANGE_MODE` 已由 `#art` default-zero 提供，右值 enum-like 常量仍属于 material-family 冲突值，在缺少真实 parameter include / generated config / active unit profile / workspace config 时按 legacy undefined-zero / conservative `0` 进入。多个分支同时 active 是当前有效宏输入的结果；LSP 不能猜这些冲突常量的非零项目语义，也不能用 duplicate suppress 掩盖。 |
+| `Duplicate global declaration: Init.` | 43 | Source owner | No | `shaderlib/shading_models.hlsl:31` 与 `:53` 存在两个同签名 `void Init(FGBufferData, inout PixelData, inout BxDFContext, half3, half3, half3)` 全局定义；重复定义本身没有被互斥外层 `#if` 包住，只有函数体内部语句带条件编译。当前证据不指向 include closure 重复访问、branch signature 误判、macro-generated declaration 或 parser recovery 缺口。 |
+
+admitted list：
+
+- None。P24B 仅形成 owner 清单；不新增 focused fixture，不修改 diagnostics 规则。
+
+不处理项：
+
+- 不全局关闭 duplicate declaration。
+- 不按 symbol / file 增加 allowlist 或 suppress。
+- 不新增 branch-signature heuristic，把 `COLOR_CHANGE_MODE == ...` 枚举分支在右值都为 `0` 时强行视为互斥。
+- 不为 material-family 冲突 enum-like 常量新增全局默认值；真实值仍应来自 parameter include、generated config、active unit profile、`nsf.preprocessorMacros` 或 `nsf.defines`。
+
+验证结果：
+
+- 解析 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-24a-modf-builtin-trend-50.json`，确认 P24B 两个目标 group 当前分别为 `1290` 和 `43`。
+- 抽样检查 `C:\Software\WorkTemp\G66ShaderDevelop\shader-source\shaderlib\surface_functions.hlsl:522-708`，确认 duplicate local 位于多个 `COLOR_CHANGE_MODE` 分支中的局部声明。
+- 抽样检查 `C:\Software\WorkTemp\G66ShaderDevelop\shader-source\shaderlib\shading_models.hlsl:31-53`，确认 duplicate global `Init` 为源码内两个同签名全局函数定义。
+- 核对 P24A trend-50 macro evidence：`undefinedMacroDiagnosticCount=0`，`COLOR_CHANGE_MODE` / `EMISSIVE_MODE` / `FOLIAGE_MODE` 均为 `art-default-zero=50`；P24B 剩余 duplicate local 不是 undefined macro 发布缺口。
+- 未运行 build / repo integration / 5-unit / 50-unit audit，因为本阶段只做 review 文档沉淀，未改变产品代码或公开 diagnostics 行为。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P24B review 文档；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否；P24B 无 admitted implementation，因此不新增 fixture。
+- 文档是否已同步：已更新本执行计划并新增 `docs/human-ai/2026-06-09-diagnostics-p24b-duplicate-declaration-review.md`；当前事实文档无需更新。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 owner review 文档和 P24A trend-50 real audit sample 引用；无 admitted LSP 缺口，不新增 focused fixture。
+- 是否重新跑了对应验证并记录结果：已记录 evidence inspection；未跑构建或测试，原因是无代码 / 行为变更。
+
 ### P24C: `GetVisibility` function call argument mismatch
 
 目标：
@@ -3522,6 +3569,52 @@ owner review：
 
 - focused fixture 覆盖合法 `GetVisibility` 样本和非法 sentinel。
 - 50-unit trend 中 admitted mismatch group 消失或被明确迁移为真实源码 / policy 类别。
+
+### P24C 执行记录
+
+状态：已完成 `GetVisibility` function call argument mismatch owner review；本子阶段不进入 LSP implementation。
+
+review 文档：
+
+- `docs/human-ai/2026-06-09-diagnostics-p24c-getvisibility-review.md`
+
+owner review：
+
+| Group | Count in P24A trend-50 | Owner | Admitted for LSP implementation | 结论 |
+| --- | ---: | --- | --- | --- |
+| `Function call argument mismatch: GetVisibility. Expected: (float, float3). Got: (float, float2).` | 178 | Source / shadercompiler dead-code policy owner | No | 代表样本全部来自 `shaderlib/shadow.hlsl` 的 3 个 helper call site：`:1050`、`:1071`、`:1091`。真实可见签名是 `half GetVisibility(float y,float3 uvs)`，调用实参确实是 `float2`；未发现 `float2` overload 或 macro-generated signature。当前生成出的 `tmp_code_origin.hlsl` / `shadercompiler\tmp_code_dx11.hlsl` 保留的是 `GetHeightMapShadow(...)` 中传 `float3 uvs` 的有效路径，未保留这些 helper 中的 `float2` 调用，说明真实编译通过更像是 unused/dead-code 输出策略，而不是 LSP 签名发现、参数表达式类型或共享 type policy 缺口。 |
+
+admitted list：
+
+- None。P24C 仅形成 owner 清单；不新增 focused fixture，不修改 diagnostics 规则。
+
+不处理项：
+
+- 不按 `GetVisibility`、文件或行号增加 allowlist / suppress。
+- 不新增全局 `float2 -> float3` user-function argument compatibility；这会隐藏真实 call mismatch。
+- 不在本阶段新增 call-graph / shadercompiler dead-code based diagnostics suppress；这是更大的公开 diagnostics policy 变化，需要单独架构决策。
+- 不新增 macro-generated signature fallback；当前源签名发现是正确的。
+
+验证结果：
+
+- 解析 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-24a-modf-builtin-trend-50.json`，确认 P24C 目标 group 为 `178` 条，集中在 `shadow.hlsl:1050` / `:1071` / `:1091`，覆盖 50 个 active unit。
+- 抽样检查 `C:\Software\WorkTemp\G66ShaderDevelop\shader-source\shaderlib\shadow.hlsl:969-1132`，确认 `GetVisibility(float, float3)` 签名和 3 个 `float2` 调用点。
+- 搜索 `shader-source`，未发现 `GetVisibility(float, float2)` overload 或外部调用这些 helper 的独立源证据。
+- 抽样检查 `C:\Software\WorkTemp\G66ShaderDevelop\tmp_code_origin.hlsl:2226-2254` 与 `C:\Software\WorkTemp\G66ShaderDevelop\shadercompiler\tmp_code_dx11.hlsl:2606-2634`，确认生成输出保留的是 `GetHeightMapShadow(...)` 中传 `float3 uvs` 的路径，未保留 P24C 报告的 helper `float2` 调用。
+- 未运行 build / repo integration / 5-unit / 50-unit audit，因为本阶段只做 review 文档沉淀，未改变产品代码或公开 diagnostics 行为。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P24C review 文档；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否；P24C 无 admitted implementation，因此不新增 fixture。
+- 文档是否已同步：已更新本执行计划并新增 `docs/human-ai/2026-06-09-diagnostics-p24c-getvisibility-review.md`；当前事实文档无需更新。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 owner review 文档和 P24A trend-50 real audit sample 引用；无 admitted LSP 缺口，不新增 focused fixture。
+- 是否重新跑了对应验证并记录结果：已记录 evidence inspection；未跑构建或测试，原因是无代码 / 行为变更。
 
 ### P24D: `grass_max_offset` unresolved / undefined identifier
 
@@ -3541,6 +3634,53 @@ owner review：
 - 若进入实现，focused fixture 必须覆盖合法来源注入和真实 undefined sentinel。
 - 50-unit trend 中相关 undefined group 下降，且其他 undefined diagnostics 不被吞掉。
 
+### P24D 执行记录
+
+状态：已完成 `grass_max_offset` undefined identifier owner review；本子阶段不进入 LSP implementation。
+
+review 文档：
+
+- `docs/human-ai/2026-06-09-diagnostics-p24d-grass-max-offset-review.md`
+
+owner review：
+
+| Group | Count in P24A trend-50 | Owner | Admitted for LSP implementation | 结论 |
+| --- | ---: | --- | --- | --- |
+| `Undefined identifier: <symbol>.` | 49 | Mixed tail | No | P24A trend-50 的 undefined group 总计 49 条，其中 `grass_max_offset` 是 P24D 代表样本，实际唯一诊断为 5 条，集中在 5 个 animated grass active unit 的 `shaderlib/foliage_anim_functions.hlsl:579`；其余 44 条来自 `shaderlib/season_uniforms.hlsl` 的 `coverage_uv` / `blend_mask` / `bottom_layer_color`，归 P24F tail。 |
+| `Undefined identifier: grass_max_offset.` | 5 | Source / shadercompiler dead-code policy owner | No | `grass_max_offset` 只在 `FoliageAnim_IntersectGrass(...)` 中出现一次，未发现 uniform、`#define`、`#art`、include、active unit profile、generated config 或 shadercompiler 输出来源。同文件相邻参数均以已声明的 `u_*_max_offset` 形式存在，例如 `u_grass_branch_max_offset`、`u_grass_leaf_max_offset`、`u_base_max_offset`、`u_branch_max_offset` 和 `u_leaf_max_offset`。`tmp_code_origin.hlsl` / `shadercompiler\tmp_code_dx11.hlsl` 未包含 `grass_max_offset` 或 `FoliageAnim_IntersectGrass`，因此真实编译通过更像是 unused / dead-code 输出策略，而不是 LSP 输入链路缺口。 |
+
+admitted list：
+
+- None。P24D 仅形成 owner 清单；不新增 focused fixture，不修改 diagnostics 规则。
+
+不处理项：
+
+- 不为 `grass_max_offset` 猜默认值或新增 `nsf.preprocessorMacros` / profile / resource entry。
+- 不按 symbol、文件或行号增加 allowlist / suppress。
+- 不新增 undefined-identifier unused helper suppress；这是更大的公开 diagnostics policy 变化，需要单独架构决策。
+- 不把 P24F 的 `season_uniforms.hlsl` undefined tail 并入 P24D 处理。
+
+验证结果：
+
+- 解析 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-24a-modf-builtin-trend-50.json`，确认 undefined identifier group 总计 49 条：`grass_max_offset=5`、`coverage_uv=11`、`blend_mask=11`、`bottom_layer_color=22`。
+- 抽样检查 `C:\Software\WorkTemp\G66ShaderDevelop\shader-source\shaderlib\foliage_anim_functions.hlsl:153-592`，确认 `grass_max_offset` 无声明且相邻 max offset 参数均为已声明 `u_*` uniform 形态。
+- 搜索真实 workspace source、shadercompiler output、JSON / CSV / config-like 文件和 shadercompiler 目录，未发现 `grass_max_offset` 的外部声明、宏、profile 或 generated config 来源。
+- 检查 `tmp_code_origin.hlsl` 与 `shadercompiler\tmp_code_dx11.hlsl`，未发现 `grass_max_offset` 或 `FoliageAnim_IntersectGrass`。
+- 未运行 build / repo integration / 5-unit / 50-unit audit，因为本阶段只做 review 文档沉淀，未改变产品代码或公开 diagnostics 行为。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P24D review 文档；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否；P24D 无 admitted implementation，因此不新增 fixture。
+- 文档是否已同步：已更新本执行计划并新增 `docs/human-ai/2026-06-09-diagnostics-p24d-grass-max-offset-review.md`；当前事实文档无需更新。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 owner review 文档和 P24A trend-50 real audit sample 引用；无 admitted LSP 缺口，不新增 focused fixture。
+- 是否重新跑了对应验证并记录结果：已记录 evidence inspection；未跑构建或测试，原因是无代码 / 行为变更。
+
 ### P24E: `indirect_lighting.hlsl` assignment mismatch
 
 目标：
@@ -3557,6 +3697,52 @@ owner review：
 
 - focused fixture 覆盖代表 assignment 和 mismatch sentinel。
 - 50-unit trend 中 admitted sample 消失或迁移为明确 conversion-risk / source-review 类别。
+
+### P24E 执行记录
+
+状态：已完成 `indirect_lighting.hlsl` assignment mismatch owner review；本子阶段不进入 LSP implementation。
+
+review 文档：
+
+- `docs/human-ai/2026-06-09-diagnostics-p24e-indirect-lighting-assignment-review.md`
+
+owner review：
+
+| Group | Count in P24A trend-50 | Owner | Admitted for LSP implementation | 结论 |
+| --- | ---: | --- | --- | --- |
+| `Assignment type mismatch: half4 = half3.` | 50 | Source / shadercompiler dead-code policy owner | No | 代表样本全部来自 `shaderlib/indirect_lighting.hlsl:11`：`half4 env_diffuse = square.x * half3(cube_data[normal_idx.x]) + ...`。右侧三项均为 `half3`，完整 RHS 类型为 `half3`，后续 `return half4(env_diffuse.xyz, 1.0h)` 也说明局部变量实际按三通道使用。P17 / P19 已确认标准 HLSL 不支持 vector grow assignment，当前 LSP 类型判断不是 parser span、数组索引、constructor 或 macro-like alias 推断缺口。当前 generated outputs 未发现 `CalcEnvCubeBasis` / `cube_data` 目标 helper，已生成的其他 `env_diffuse` 路径使用 `half3 env_diffuse`，更像源码 owner 或 dead-code 编译输出策略问题。 |
+
+admitted list：
+
+- None。P24E 仅形成 owner 清单；不新增 focused fixture，不修改 diagnostics 规则。
+
+不处理项：
+
+- 不新增 `half3 -> half4` 隐式扩维 conversion；目标 shape 更大仍为 mismatch。
+- 不按 `indirect_lighting.hlsl`、`env_diffuse`、行号或 message 增加 allowlist / suppress。
+- 不把 assignment mismatch 全局降级为 warning；找不到官方 conversion sequence 时继续发布 mismatch error。
+- 不新增 dead-code based diagnostics suppress；这是更大的公开 diagnostics policy 变化，需要单独架构决策。
+
+验证结果：
+
+- 解析 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-24a-modf-builtin-trend-50.json`，确认 P24E 目标 group 为 `50` 条，全部为 `Assignment type mismatch: half4 = half3.`，代表样本集中在 `shaderlib/indirect_lighting.hlsl:11`。
+- 抽样检查 `C:\Software\WorkTemp\G66ShaderDevelop\shader-source\shaderlib\indirect_lighting.hlsl:5-16`，确认 RHS 完整表达式为 `half3`，后续只读取 `env_diffuse.xyz`。
+- 复核 P17 / P19 既有 review 结论，确认 `half4 = half3` 已被归为 source / type policy review，且 P17 已有 focused sentinel 保证 LSP 保持 mismatch。
+- 检查 `tmp_code_origin.hlsl` 与 `shadercompiler\tmp_code_dx11.hlsl` 等 generated outputs，未发现 `CalcEnvCubeBasis` 或 `cube_data` 目标 helper；其他 `env_diffuse` 生成路径使用 `half3 env_diffuse`。
+- 未运行 build / repo integration / 5-unit / 50-unit audit，因为本阶段只做 review 文档沉淀，未改变产品代码或公开 diagnostics 行为。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P24E review 文档；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否；P24E 无 admitted implementation，因此不新增 fixture。
+- 文档是否已同步：已更新本执行计划并新增 `docs/human-ai/2026-06-09-diagnostics-p24e-indirect-lighting-assignment-review.md`；当前事实文档无需更新。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 owner review 文档和 P24A trend-50 real audit sample 引用；无 admitted LSP 缺口，不新增 focused fixture。
+- 是否重新跑了对应验证并记录结果：已记录 evidence inspection；未跑构建或测试，原因是无代码 / 行为变更。
 
 ### P24F: `season_uniforms.hlsl` syntax / call-count tail
 
@@ -3576,6 +3762,56 @@ owner review：
 - 如实现，新增 focused parser/callsite fixture 和 sentinel。
 - audit 中对应 tail 不再由 parser cascade 污染其他类别。
 
+### P24F 执行记录
+
+状态：已完成 `season_uniforms.hlsl` syntax / call-count / undefined tail owner review；本子阶段不进入 LSP implementation。
+
+review 文档：
+
+- `docs/human-ai/2026-06-09-diagnostics-p24f-season-uniforms-review.md`
+
+owner review：
+
+| Group | Count in P24A trend-50 | Owner | Admitted for LSP implementation | 结论 |
+| --- | ---: | --- | --- | --- |
+| `Missing semicolon.` | 11 | Source owner | No | 剩余样本全部落在 `shaderlib/season_uniforms.hlsl:1021`：`height_bias.r = height_offset.r`，下一行继续 `height_bias.g = height_offset.g + mask.r;`。P15A 已把 parser false-positive missing semicolon 收敛到该真实 source-shaped remainder；P24F 不应为真实未终止语句新增 parser suppress 或特殊 recovery。 |
+| `Function call argument count mismatch: SampleTexArryPkgNormalBias.` | 11 | Source / API usage owner | No | `season_uniforms.hlsl:323` 定义 5 参数 `(Texture2DArray tex, sampler sam, float2 uv, float id, float bias)`；`:1032` 调用传 4 参数，并把 `coverage_uv` / `array_id+1` 合入 `float3(...)`。source / generated output 搜索未发现 4 参数 overload 或替换约定，LSP 当前按真实签名报告 mismatch。 |
+| `Undefined identifier: bottom_layer_color.` | 22 | Source owner | No | `bottom_layer_color` 只在 `season_uniforms.hlsl:1024` / `:1033` 两处被使用，未找到 declaration、macro、include source、profile input、generated config 或 shadercompiler output 来源。P24F 不猜全局变量或 macro 默认。 |
+| `Undefined identifier: coverage_uv.` / `blend_mask.` | 22 | Source / syntax-cascade owner | No | 二者在 `GetSeasonColorV2(...)` 中较早位置有局部声明，但同一区域存在未清洁源码 / policy 证据：`if season_factors.x > 0.0h` 缺少括号，`if UP_FACING_MASK` 不是预处理指令且未发现 `UP_FACING_MASK` 声明。P19 已将该 undefined tail 归 source / syntax-policy，P21 也要求同文件 control-flow cascade 等源码修复后再复跑；P24F 不按 symbol / file / line suppress。 |
+
+admitted list：
+
+- None。P24F 仅形成 owner 清单；不新增 focused fixture，不修改 diagnostics 规则。
+
+不处理项：
+
+- 不新增 file-specific、symbol-specific、line-specific 或 message-specific diagnostics suppress。
+- 不新增 guessed declaration、macro preset、profile macro、resource entry、fallback overload 或 compatibility shim。
+- 不在没有 clean-code focused fixture 的情况下为 `height_bias.r = height_offset.r` 增加 parser recovery 特判。
+- 不把 `(float3 uvAndId, bias)` 当作 `(float2 uv, id, bias)` 的隐式调用约定；除非源码/API owner 提供真实 overload 或共享契约。
+- 不对已知 source syntax / project policy 不清洁区域里的 undefined identifier 做公开 diagnostics policy 降噪。
+
+验证结果：
+
+- 解析 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-24a-modf-builtin-trend-50.json`，确认 `shaderlib/season_uniforms.hlsl` 共 66 条 diagnostics，分布为 `bottom_layer_color=22`、`coverage_uv=11`、`blend_mask=11`、`Missing semicolon=11`、`SampleTexArryPkgNormalBias` argument-count mismatch `11`，覆盖 11 个 active unit。
+- 抽样检查 `C:\Software\WorkTemp\G66ShaderDevelop\shader-source\shaderlib\season_uniforms.hlsl:260-295`、`:315-330`、`:940-1045`，确认 `#art` / local helper / problematic callsite 与缺分号上下文。
+- 搜索真实 workspace source 与 `shadercompiler` 目录，未发现 `bottom_layer_color` 外部来源、4 参数 `SampleTexArryPkgNormalBias` overload、或 generated output 中的对应替换约定。
+- 复核 P19 / P21 review 结论，确认 `season_uniforms.hlsl` 的 undefined、syntax、call-count 和 control-flow cascade 仍应先交 source / API / syntax-policy owner。
+- 未运行 build / repo integration / 5-unit / 50-unit audit，因为本阶段只做 review 文档沉淀，未改变产品代码或公开 diagnostics 行为。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P24F review 文档；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否；P24F 无 admitted implementation，因此不新增 fixture。
+- 文档是否已同步：已更新本执行计划并新增 `docs/human-ai/2026-06-09-diagnostics-p24f-season-uniforms-review.md`；当前事实文档无需更新。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 owner review 文档和 P24A trend-50 real audit sample 引用；无 admitted LSP 缺口，不新增 focused fixture。
+- 是否重新跑了对应验证并记录结果：已记录 evidence inspection；未跑构建或测试，原因是无代码 / 行为变更。
+
 ### P24G: post-P24 validation expansion
 
 目标：
@@ -3589,6 +3825,44 @@ owner review：
 - 必要时 100-unit batch audit，尤其当 duplicate/include/macro 类缺口进入实现。
 - P24 收尾时至少评估是否需要 full real audit；若不跑，必须说明原因和剩余风险。
 - 任何改变 diagnostics / request hot path 的子阶段都跑 `npm run test:client:perf`。
+
+### P24G 执行记录
+
+状态：已完成 post-P24 validation expansion；本子阶段不进入 LSP implementation。
+
+根因与范围判断：
+
+- P24A 是本 umbrella 内唯一 admitted LSP implementation，已在 P24A 关闭时完成 focused fixture、repo diagnostics integration、5-unit smoke 和 50-unit trend audit。
+- P24B-F 均为 owner review，admitted list 为 None，未修改产品代码、共享架构、资源、测试入口或公开 diagnostics 行为。
+- P24G 因此以真实 workspace 复跑验证为主，目标是确认 P24A-F 收尾后统计面没有继续漂移，且剩余 groups 仍保持 P24B-F review 中的 source / policy / owner 分类。
+
+实际执行：
+
+- 复跑 5-unit smoke audit，输出 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-24g-post-p24-smoke-5.{json,md}`。
+- 复跑 50-unit trend audit，输出 `out/test/diagnostics-audit/real-workspace-diagnostics-audit.phase-24g-post-p24-trend-50.{json,md}`。
+- 未运行 100-unit batch audit：P24B-F 没有 duplicate/include/macro 类 admitted implementation，P24G 50-unit 与 P24A 50-unit 关键统计完全一致，继续扩大到 100-unit 对本子阶段“验证无漂移”的新增信息有限。
+- 未运行 full real audit：P24 umbrella 尚未引入 P24B-F 代码修复或公开 diagnostics policy 变更，full audit 成本较高；剩余风险是 50-unit 之外仍可能存在未 review 的 source / policy tail，需要后续 phase 或 owner review 按新样本继续分流。
+- 未运行 `npm run test:client:perf`：P24G 没有改变 diagnostics / request hot path；P24A 的实现阶段已记录对应验证，本阶段只做 audit 扩展和文档沉淀。
+
+验证结果：
+
+- 5-unit smoke audit 通过，`1 passing`，输出 `phase-24g-post-p24-smoke-5`；`diagnostics=199`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，相对 phase-00 baseline `diagnosticsTotal` 从 `4947` 降到 `199`。运行中出现一次 VS Code extension host unresponsive/responsive 事件，但测试最终通过，未作为产品路径回归处理。
+- 50-unit trend audit 通过，`1 passing`，输出 `phase-24g-post-p24-trend-50`；`diagnostics=1604`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，相对 phase-00 baseline `diagnosticsTotal` 从 `43341` 降到 `1604`。
+- P24G 50-unit 与 P24A 50-unit 关键统计一致：`diagnostics=1604`、`filesWithDiagnostics=8`、`likely-plugin-limitation=49`、`needs-manual-review=1555`、`semantic-source-rule=1333`、`call-type-analysis=161`、`expression-type-analysis=50`、`undefined-identifier=49`、`syntax-structure=11`。
+- 剩余 top groups 与 P24B-F review 对齐：duplicate local / global、`GetVisibility` argument mismatch、`grass_max_offset` / `season_uniforms.hlsl` undefined tail、`indirect_lighting.hlsl` `half4 = half3` assignment mismatch、`season_uniforms.hlsl` missing semicolon / call-count tail 仍属于 owner / source / policy 分流，不是 admitted LSP 缺口。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P24G 阶段 audit 报告；无运行时路径 / 命名规则变化。
+- 架构或单一事实来源是否变化：否。
+- 测试策略是否变化：否；P24G 使用既有 real diagnostics audit 验证入口和阶段 label 机制。
+- 文档是否已同步：已更新本执行计划；当前事实文档无需更新，因为未改变命令、架构、资源、测试入口或公开行为。
+- 是否改变公开 diagnostics 行为：否。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：已补齐 `phase-24g-post-p24-smoke-5` 和 `phase-24g-post-p24-trend-50` 稳定 real audit sample；无 admitted LSP 缺口，不新增 focused fixture。
+- 是否重新跑了对应验证并记录结果：已记录 5-unit smoke 和 50-unit trend audit；未跑 100-unit / full / perf 的原因和剩余风险已在本记录说明。
 
 ### P24 子阶段通用关闭标准
 
