@@ -108,7 +108,7 @@
 - `hlsl_ast.*`: 顶层 HLSL AST 骨架、include、function、struct/cbuffer/typedef、全局声明和 inline include 元数据
 - `semantic_snapshot.*`: 共享语义快照构建入口，产出函数、overload、参数、lexical local scope / 局部变量、statement-like macro 声明局部变量、struct 字段、全局类型等语义；local 查询必须同时满足 declaration offset 和 half-open lexical scope range，不能只按 brace depth 近似可见性
 - `macro_statement_locals.*`: statement-like macro local 共享提取入口；只识别 active object-like macro 独占语句行，并从 replacement 中抽取可被共享 declaration parser 识别的局部变量声明，供 `expanded_source.*`、`semantic_snapshot.*` 和 diagnostics lexical scope 消费。它不是通用宏展开 API，不处理 function-like macro 参数、表达式内宏或控制流宏。
-- `call_query.*`、`callsite_parser.*`、`symbol_query.*`、`member_query.*`、`declaration_query.*`: 请求间共享查询 helper；member access base 解析会把 parenthesized / macro-wrapped indexed base 的 `[]` 使用传给 `member_query.*`，使 hover / completion 等对象方法 consumer 在 `T[]` declarator array 元素访问后消费元素类型 `T`
+- `call_query.*`、`callsite_parser.*`、`symbol_query.*`、`member_query.*`、`declaration_query.*`: 请求间共享查询 helper；member access base 解析会把 parenthesized / macro-wrapped indexed base 的 `[]` 使用传给 `member_query.*`，使 hover / completion / definition 等 member consumer 在 `T[]` declarator array 元素访问后消费元素类型 `T`；struct field definition 也通过 `member_query.*` 统一定位字段声明，包含结构体体内 inline include 提供的字段，避免 definition 将 `base.member` 右侧成员回退为裸 workspace symbol
 
 ### 能力与资源
 

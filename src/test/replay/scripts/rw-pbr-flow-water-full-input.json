@@ -613,6 +613,431 @@
         "captureRuntimeDebug": true,
         "captureInteractiveDebug": true
       }
+    },
+    {
+      "kind": "waitForInternalStatus",
+      "label": "wait after full input before definition checks",
+      "payload": {
+        "mode": "quiescent",
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on local WaterFxUv call",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "WaterFxUv(diffuse_uv",
+        "occurrence": 1,
+        "characterOffset": 3
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition local WaterFxUv function after full input",
+      "payload": {
+        "expectedUriSubstrings": ["pbr_flow_water_nodes.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "pbr_flow_water_nodes.hlsl",
+            "targetText": "WaterFxUv",
+            "lineTextSubstring": "float2 WaterFxUv"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on include BumpOffsetUV call",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "BumpOffsetUV(MaterialParameters",
+        "occurrence": 1,
+        "characterOffset": 3
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition include BumpOffsetUV function after full input",
+      "payload": {
+        "expectedUriSubstrings": ["surface_functions_shared.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "surface_functions_shared.hlsl",
+            "targetText": "BumpOffsetUV",
+            "lineTextSubstring": "float2 BumpOffsetUV"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on workspace GetLightMultiplier call",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "GetLightMultiplier(dir_light_color",
+        "occurrence": 1,
+        "characterOffset": 3
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition workspace GetLightMultiplier function after full input",
+      "payload": {
+        "expectedUriSubstrings": ["lighting_functions.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "lighting_functions.hlsl",
+            "targetText": "GetLightMultiplier",
+            "lineTextSubstring": "half3 GetLightMultiplier"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on texture SampleColorTextureSW call",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "SampleColorTextureSW(Tex0",
+        "occurrence": 1,
+        "characterOffset": 3
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition texture SampleColorTextureSW function after full input",
+      "payload": {
+        "expectedUriSubstrings": ["texture.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "texture.hlsl",
+            "targetText": "SampleColorTextureSW",
+            "lineTextSubstring": "half4 SampleColorTextureSW"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on MaterialInputs opacity member",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "MaterialInputs.opacity = saturate",
+        "occurrence": 1,
+        "characterOffset": 17
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition MaterialInputs opacity field after full input",
+      "payload": {
+        "expectedUriSubstrings": ["material_structs.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "material_structs.hlsl",
+            "targetText": "opacity",
+            "lineTextSubstring": "half opacity;"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on MaterialParameters uv1 member",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "MaterialParameters.uv1 = input",
+        "occurrence": 1,
+        "characterOffset": 20
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition MaterialParameters uv1 field after full input",
+      "payload": {
+        "expectedUriSubstrings": ["material_structs.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "material_structs.hlsl",
+            "targetText": "uv1",
+            "lineTextSubstring": "float2 uv1"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on PS input texcoord1 member",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "input.texcoord1.xy",
+        "occurrence": 1,
+        "characterOffset": 8
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition PS input texcoord1 field after full input",
+      "payload": {
+        "expectedUriSubstrings": ["ps_input_extend.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "ps_input_extend.hlsl",
+            "targetText": "texcoord1",
+            "lineTextSubstring": "float4 texcoord1"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on USE_MAIN_ROTATION_UV macro",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/nodes/pbr_flow_water_nodes.hlsl",
+        "anchorText": "USE_MAIN_ROTATION_UV",
+        "occurrence": 1,
+        "characterOffset": 5
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition USE_MAIN_ROTATION_UV macro after full input",
+      "payload": {
+        "expectedUriSubstrings": ["pbr_flow_water_parameters.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "pbr_flow_water_parameters.hlsl",
+            "targetText": "USE_MAIN_ROTATION_UV",
+            "lineTextSubstring": "#define USE_MAIN_ROTATION_UV"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on surface_functions_shared include path",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/pbr_flow_water.nsf",
+        "anchorText": "surface_functions_shared.hlsl",
+        "occurrence": 1,
+        "characterOffset": 5
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition include path after full input",
+      "payload": {
+        "expectedUriSubstrings": ["surface_functions_shared.hlsl"],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 2500
+      }
+    },
+    {
+      "kind": "openDocument",
+      "label": "open uber_fx_common definition regression document",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": "basecolor.rgb *= batch.emissivecolor.rgb;",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 300
+    },
+    {
+      "kind": "setActiveUnit",
+      "label": "pin uber_fx_common active unit for definition checks",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": "basecolor.rgb *= batch.emissivecolor.rgb;",
+        "occurrence": 1,
+        "characterOffset": 0
+      },
+      "afterActionPauseMs": 300
+    },
+    {
+      "kind": "waitForInternalStatus",
+      "label": "wait for uber_fx_common active-unit workspace to settle",
+      "payload": {
+        "mode": "idle",
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on batch emissivecolor member",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": "batch.emissivecolor",
+        "occurrence": 1,
+        "characterOffset": 9
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition batch emissivecolor field regression",
+      "payload": {
+        "expectedUriSubstrings": ["uber_fx_common_batch.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "uber_fx_common_batch.hlsl",
+            "targetText": "emissivecolor",
+            "lineTextSubstring": "float4 emissivecolor;"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 1500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on MaterialInputs base_color member",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": "MaterialInputs.base_color = basecolor.rgb;",
+        "occurrence": 1,
+        "characterOffset": 18
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition MaterialInputs base_color field regression",
+      "payload": {
+        "expectedUriSubstrings": ["material_structs.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "material_structs.hlsl",
+            "targetText": "base_color",
+            "lineTextSubstring": "half3 base_color"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 1500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on LoadBatchParamsPs include function",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": "LoadBatchParamsPs(input, batch)",
+        "occurrence": 1,
+        "characterOffset": 3
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition LoadBatchParamsPs include function regression",
+      "payload": {
+        "expectedUriSubstrings": ["uber_fx_common_batch.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "uber_fx_common_batch.hlsl",
+            "targetText": "LoadBatchParamsPs",
+            "lineTextSubstring": "inline void LoadBatchParamsPs"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 1500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on Pixelate include function",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": "Pixelate(diffuseUV",
+        "occurrence": 1,
+        "characterOffset": 3
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition Pixelate include function regression",
+      "payload": {
+        "expectedUriSubstrings": ["function.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "function.hlsl",
+            "targetText": "Pixelate",
+            "lineTextSubstring": "float2 Pixelate"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 1500
+      }
+    },
+    {
+      "kind": "placeCursor",
+      "label": "place cursor on USE_EMISSIVE_CONTROL macro",
+      "target": {
+        "workspaceFolderSuffix": "shader-source",
+        "relativePath": "sfx/uber_fx_common.nsf",
+        "anchorText": "USE_EMISSIVE_CONTROL",
+        "occurrence": 1,
+        "characterOffset": 5
+      }
+    },
+    {
+      "kind": "captureDefinition",
+      "label": "definition USE_EMISSIVE_CONTROL macro regression",
+      "payload": {
+        "expectedUriSubstrings": ["uber_fx_common_input.hlsl"],
+        "expectedLocationMatches": [
+          {
+            "uriSubstring": "uber_fx_common_input.hlsl",
+            "targetText": "USE_EMISSIVE_CONTROL",
+            "lineTextSubstring": "#define USE_EMISSIVE_CONTROL"
+          }
+        ],
+        "minLocations": 1,
+        "maxLocations": 4,
+        "maxDurationMs": 1500
+      }
     }
   ],
   "cleanup": { "restoreTouchedDocuments": true }

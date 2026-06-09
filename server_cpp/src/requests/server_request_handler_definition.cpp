@@ -5,6 +5,7 @@
 #include "interactive_semantic_runtime.hpp"
 #include "lsp_helpers.hpp"
 #include "lsp_io.hpp"
+#include "member_query.hpp"
 #include "server_parse.hpp"
 #include "server_request_handler_common.hpp"
 #include "symbol_query.hpp"
@@ -99,6 +100,39 @@ bool request_definition_handlers::handleDefinitionRequest(
             activeMacro.location.start, activeMacro.location.end));
       }
       writeDefinitionResponse(locations);
+      return true;
+    }
+  }
+  {
+    std::string base;
+    std::string member;
+    bool baseUsesIndexing = false;
+    if (extractMemberAccessAtOffset(doc->text, cursorOffset, base, member,
+                                    &baseUsesIndexing) &&
+        !member.empty() && word == member) {
+      MemberAccessBaseTypeOptions baseOptions;
+      baseOptions.includeWorkspaceIndexFallback = true;
+      baseOptions.baseExpressionUsesIndexing = baseUsesIndexing;
+      MemberAccessBaseTypeResult baseResolution =
+          resolveMemberAccessBaseType(uri, *doc, base, cursorOffset, ctx,
+                                      baseOptions);
+      if (baseResolution.resolved && !baseResolution.typeName.empty()) {
+        MemberDefinitionInfo memberDefinition;
+        if (resolveMemberDefinitionLocation(uri, baseResolution.typeName,
+                                            member, ctx, memberDefinition)) {
+          Json locations = makeArray();
+          locations.a.push_back(makeLocationRange(
+              memberDefinition.location.uri, memberDefinition.location.line,
+              memberDefinition.location.start, memberDefinition.location.end));
+          writeDefinitionResponse(locations);
+          return true;
+        }
+      }
+
+      // A member access target is not a bare workspace symbol. If no field
+      // declaration is known, avoid falling through to unrelated same-name
+      // globals or locals.
+      writeDefinitionResponse(makeArray());
       return true;
     }
   }

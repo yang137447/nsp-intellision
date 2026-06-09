@@ -164,6 +164,90 @@ export function registerDefinitionProviderTests(): void {
 		assert.strictEqual(range.start.line, positionOf(document, symbol, 1, 0).line);
 	});
 
+	it('resolves struct member definitions without falling back to same-name globals', async () => {
+		const document = await openFixture('module_definition_struct_member.nsf');
+		const memberPosition = positionOf(document, 'member_color', 3, 2);
+		const definitionLocations = await waitFor(
+			() =>
+				vscode.commands.executeCommand<ProviderLocation[]>(
+					'vscode.executeDefinitionProvider',
+					document.uri,
+					memberPosition
+				),
+			(value) => Array.isArray(value) && value.length > 0,
+			'struct member definition results'
+		);
+
+		assert.strictEqual(toFsPath(definitionLocations[0]), document.uri.fsPath);
+		const range = toRange(definitionLocations[0]);
+		assert.strictEqual(document.getText(range), 'member_color');
+		assert.strictEqual(range.start.line, positionOf(document, 'member_color', 1, 0).line);
+		assert.notStrictEqual(range.start.line, positionOf(document, 'member_color', 2, 0).line);
+	});
+
+	it('resolves included struct member definitions through workspace summary', async () => {
+		await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+			await waitForIndexingIdle('indexing idle for included struct member definition');
+			const document = await openFixture('module_definition_struct_member_include.nsf');
+			const memberPosition = positionOf(document, 'included_member_color', 2, 2);
+			const definitionLocations = await waitFor(
+				() =>
+					vscode.commands.executeCommand<ProviderLocation[]>(
+						'vscode.executeDefinitionProvider',
+						document.uri,
+						memberPosition
+					),
+				(value) =>
+					Array.isArray(value) &&
+					value.some((location) =>
+						toFsPath(location).endsWith('module_definition_struct_member_include_provider.hlsl')
+					),
+				'included struct member definition results'
+			);
+
+			const providerLocation = definitionLocations.find((location) =>
+				toFsPath(location).endsWith('module_definition_struct_member_include_provider.hlsl')
+			);
+			assert.ok(providerLocation);
+			const providerDocument = await vscode.workspace.openTextDocument(toFsPath(providerLocation));
+			assert.strictEqual(providerDocument.getText(toRange(providerLocation)), 'included_member_color');
+			assert.strictEqual(path.basename(toFsPath(providerLocation)), 'module_definition_struct_member_include_provider.hlsl');
+		});
+	});
+
+	it('resolves inline-include struct member definitions without falling back to same-name globals', async () => {
+		await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+			await waitForIndexingIdle('indexing idle for inline-include struct member definition');
+			const document = await openFixture('module_definition_struct_member_inline_include.nsf');
+			const memberPosition = positionOf(document, 'inline_member_color', 2, 2);
+			const definitionLocations = await waitFor(
+				() =>
+					vscode.commands.executeCommand<ProviderLocation[]>(
+						'vscode.executeDefinitionProvider',
+						document.uri,
+						memberPosition
+					),
+				(value) =>
+					Array.isArray(value) &&
+					value.some((location) =>
+						toFsPath(location).endsWith('module_definition_struct_member_inline_include_fields.hlsl')
+					),
+				'inline-include struct member definition results'
+			);
+
+			const includeLocation = definitionLocations.find((location) =>
+				toFsPath(location).endsWith('module_definition_struct_member_inline_include_fields.hlsl')
+			);
+			assert.ok(includeLocation);
+			const includeDocument = await vscode.workspace.openTextDocument(toFsPath(includeLocation));
+			assert.strictEqual(includeDocument.getText(toRange(includeLocation)), 'inline_member_color');
+			assert.strictEqual(
+				path.basename(toFsPath(includeLocation)),
+				'module_definition_struct_member_inline_include_fields.hlsl'
+			);
+		});
+	});
+
 	it('returns multiple definition targets for include symbols when no active unit is selected', async () => {
 		const configuration = vscode.workspace.getConfiguration('nsf');
 		const inspectedRoots = configuration.inspect<string[]>('intellisionPath');

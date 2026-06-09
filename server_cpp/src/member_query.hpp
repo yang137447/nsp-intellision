@@ -46,6 +46,25 @@ bool resolveMemberHoverInfo(const std::string &uri,
                             ServerRequestContext &ctx,
                             MemberHoverInfo &out);
 
+// Definition payload for one resolved struct field/member.
+//
+// The returned location points to the field declaration itself, not the owner
+// struct header. Inline includes inside a struct body are resolved to the real
+// included field declaration when the field is provided by the include. This is
+// the shared member-access target used by definition requests after the caller
+// has resolved the base expression type.
+struct MemberDefinitionInfo {
+  std::string memberType;
+  DefinitionLocation location;
+  bool found = false;
+};
+
+bool resolveMemberDefinitionLocation(const std::string &uri,
+                                     const std::string &ownerType,
+                                     const std::string &memberName,
+                                     ServerRequestContext &ctx,
+                                     MemberDefinitionInfo &out);
+
 // Shared workspace-summary fallback payload for struct hover.
 //
 // This query centralizes the request-layer fallback that assembles field names,

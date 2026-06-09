@@ -1,0 +1,9 @@
+#include "module_definition_struct_member_include_provider.hlsl"
+
+float3 included_member_color = float3(0.0, 0.0, 0.0);
+
+float4 IncludedDefinitionMemberEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    IncludedDefinitionMemberStruct value = (IncludedDefinitionMemberStruct)0;
+    return float4(value.included_member_color + included_member_color, 1.0);
+}

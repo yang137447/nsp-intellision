@@ -3,7 +3,13 @@ import * as vscode from 'vscode';
 import { detectReplayAnomalies } from './real_workspace_replay_analyzer';
 import { resolveReplaySamplingDelays, sampleReplayWindow } from './real_workspace_replay_sampler';
 import { resolveReplayAnchor } from './real_workspace_replay_targets';
-import type { ReplaySampleSnapshot, ReplayScript, ReplayStep, ReplayTypingProbe } from './real_workspace_replay_types';
+import type {
+    ReplayLocationExpectation,
+    ReplaySampleSnapshot,
+    ReplayScript,
+    ReplayStep,
+    ReplayTypingProbe
+} from './real_workspace_replay_types';
 import {
     countWorkspaceEdits,
     deleteLeftForTests,
@@ -77,30 +83,116 @@ function hoverContentsToStrings(hovers: vscode.Hover[] | undefined, maxContents:
 }
 
 function locationUriString(value: unknown): string {
+    return locationUri(value)?.toString() ?? '';
+}
+
+function locationUri(value: unknown): vscode.Uri | undefined {
     const directUri = (value as { uri?: unknown } | undefined)?.uri;
     if (directUri instanceof vscode.Uri) {
-        return directUri.toString();
+        return directUri;
     }
     const targetUri = (value as { targetUri?: unknown } | undefined)?.targetUri;
     if (targetUri instanceof vscode.Uri) {
-        return targetUri.toString();
+        return targetUri;
     }
-    return '';
+    return undefined;
+}
+
+function locationRange(value: unknown): vscode.Range | undefined {
+    const range = (value as { targetSelectionRange?: unknown } | undefined)?.targetSelectionRange ??
+        (value as { range?: unknown } | undefined)?.range ??
+        (value as { targetRange?: unknown } | undefined)?.targetRange;
+    if (range instanceof vscode.Range) {
+        return range;
+    }
+    return undefined;
 }
 
 function locationRangeString(value: unknown): string {
-    const range = (value as { range?: unknown } | undefined)?.range ??
-        (value as { targetRange?: unknown } | undefined)?.targetRange;
-    if (range instanceof vscode.Range) {
-        return `${range.start.line + 1}:${range.start.character + 1}`;
+    const range = locationRange(value);
+    if (!range) {
+        return '';
     }
-    return '';
+    return `${range.start.line + 1}:${range.start.character + 1}`;
 }
 
 function locationToString(value: unknown): string {
     const uri = locationUriString(value);
     const range = locationRangeString(value);
     return range.length > 0 ? `${uri}#${range}` : uri;
+}
+
+async function locationToDetail(value: unknown): Promise<LocationCaptureDetail | undefined> {
+    const uri = locationUri(value);
+    if (!uri) {
+        return undefined;
+    }
+    const range = locationRange(value);
+    const detail: LocationCaptureDetail = {
+        uri: uri.toString(),
+        fsPath: uri.scheme === 'file' ? uri.fsPath : undefined,
+        range: range
+            ? {
+                  startLine: range.start.line,
+                  startCharacter: range.start.character,
+                  endLine: range.end.line,
+                  endCharacter: range.end.character
+              }
+            : undefined
+    };
+    if (range) {
+        try {
+            const document = await vscode.workspace.openTextDocument(uri);
+            detail.targetText = document.getText(range);
+            detail.lineText = getLineText(document, range.start.line);
+        } catch {
+            // Keep URI/range details even if the target file cannot be opened.
+        }
+    }
+    return detail;
+}
+
+async function locationDetails(values: unknown[] | undefined, maxLocations: number): Promise<LocationCaptureDetail[]> {
+    const details: LocationCaptureDetail[] = [];
+    for (const value of values ?? []) {
+        const detail = await locationToDetail(value);
+        if (detail) {
+            details.push(detail);
+        }
+        if (details.length >= maxLocations) {
+            break;
+        }
+    }
+    return details;
+}
+
+function locationExpectationKey(expectation: ReplayLocationExpectation, index: number): string {
+    const parts = [
+        expectation.uriSubstring ? `uri=${expectation.uriSubstring}` : '',
+        expectation.targetText ? `text=${expectation.targetText}` : '',
+        expectation.lineTextSubstring ? `line=${expectation.lineTextSubstring}` : ''
+    ].filter((part) => part.length > 0);
+    return parts.length > 0 ? parts.join('|') : `expectation-${index + 1}`;
+}
+
+function locationDetailMatchesExpectation(
+    detail: LocationCaptureDetail,
+    expectation: ReplayLocationExpectation
+): boolean {
+    if (
+        expectation.uriSubstring &&
+        !detail.uri.toLowerCase().includes(expectation.uriSubstring.toLowerCase()) &&
+        !detail.fsPath?.toLowerCase().includes(expectation.uriSubstring.toLowerCase())
+    ) {
+        return false;
+    }
+    if (expectation.targetText && detail.targetText !== expectation.targetText) {
+        return false;
+    }
+    if (expectation.lineTextSubstring && !detail.lineText?.includes(expectation.lineTextSubstring)) {
+        return false;
+    }
+    return true;
 }
 
 function flattenDocumentSymbolNames(
@@ -246,16 +338,38 @@ type LocationCaptureReport = {
     durationMs: number;
     locationCount: number;
     topLocations: string[];
+    topLocationDetails: LocationCaptureDetail[];
     expectedUriSubstrings?: string[];
     expectedMatched?: Record<string, boolean>;
+    expectedTargetTexts?: string[];
+    expectedTargetTextMatched?: Record<string, boolean>;
+    expectedLineTextSubstrings?: string[];
+    expectedLineTextMatched?: Record<string, boolean>;
+    expectedLocationMatches?: ReplayLocationExpectation[];
+    expectedLocationMatched?: Record<string, boolean>;
     minLocations?: number;
     maxLocations?: number;
+    maxDurationMs?: number;
     withinExpectedMin?: boolean;
     withinExpectedMax?: boolean;
+    withinExpectedDuration?: boolean;
     line?: number;
     character?: number;
     lineText?: string;
     error?: string;
+};
+
+type LocationCaptureDetail = {
+    uri: string;
+    fsPath?: string;
+    range?: {
+        startLine: number;
+        startCharacter: number;
+        endLine: number;
+        endCharacter: number;
+    };
+    targetText?: string;
+    lineText?: string;
 };
 
 type DocumentSymbolCaptureReport = {
@@ -1592,8 +1706,27 @@ async function captureLocationsAtEditor(
     const expectedUriSubstrings = Array.isArray(payload?.expectedUriSubstrings)
         ? payload.expectedUriSubstrings.filter((entry): entry is string => typeof entry === 'string')
         : undefined;
+    const expectedTargetTexts = Array.isArray(payload?.expectedTargetTexts)
+        ? payload.expectedTargetTexts.filter((entry): entry is string => typeof entry === 'string')
+        : undefined;
+    const expectedLineTextSubstrings = Array.isArray(payload?.expectedLineTextSubstrings)
+        ? payload.expectedLineTextSubstrings.filter((entry): entry is string => typeof entry === 'string')
+        : undefined;
+    const expectedLocationMatches = Array.isArray(payload?.expectedLocationMatches)
+        ? payload.expectedLocationMatches.filter((entry): entry is ReplayLocationExpectation => {
+              if (!entry || typeof entry !== 'object') {
+                  return false;
+              }
+              return (
+                  typeof entry.uriSubstring === 'string' ||
+                  typeof entry.targetText === 'string' ||
+                  typeof entry.lineTextSubstring === 'string'
+              );
+          })
+        : undefined;
     const minLocations = typeof payload?.minLocations === 'number' ? Math.max(0, payload.minLocations) : undefined;
     const maxLocations = typeof payload?.maxLocations === 'number' ? Math.max(0, payload.maxLocations) : undefined;
+    const maxDurationMs = typeof payload?.maxDurationMs === 'number' ? Math.max(0, payload.maxDurationMs) : undefined;
     const maxTopLocations = Math.max(1, Math.min(200, maxLocations ?? 50));
 
     const startedAt = Date.now();
@@ -1608,8 +1741,10 @@ async function captureLocationsAtEditor(
     } catch (captureError) {
         error = captureError instanceof Error ? captureError.message : String(captureError);
     }
+    const durationMs = Date.now() - startedAt;
     const allLocations = Array.isArray(locations) ? locations.map(locationToString).filter((item) => item.length > 0) : [];
     const topLocations = allLocations.slice(0, maxTopLocations);
+    const topLocationDetails = await locationDetails(locations, maxTopLocations);
     const expectedMatched = expectedUriSubstrings
         ? Object.fromEntries(
               expectedUriSubstrings.map((needle) => [
@@ -1618,17 +1753,50 @@ async function captureLocationsAtEditor(
               ])
           )
         : undefined;
+    const expectedTargetTextMatched = expectedTargetTexts
+        ? Object.fromEntries(
+              expectedTargetTexts.map((needle) => [
+                  needle,
+                  topLocationDetails.some((detail) => detail.targetText === needle)
+              ])
+          )
+        : undefined;
+    const expectedLineTextMatched = expectedLineTextSubstrings
+        ? Object.fromEntries(
+              expectedLineTextSubstrings.map((needle) => [
+                  needle,
+                  topLocationDetails.some((detail) => detail.lineText?.includes(needle) === true)
+              ])
+          )
+        : undefined;
+    const expectedLocationMatched = expectedLocationMatches
+        ? Object.fromEntries(
+              expectedLocationMatches.map((expectation, index) => [
+                  locationExpectationKey(expectation, index),
+                  topLocationDetails.some((detail) => locationDetailMatchesExpectation(detail, expectation))
+              ])
+          )
+        : undefined;
 
     return {
-        durationMs: Date.now() - startedAt,
+        durationMs,
         locationCount: allLocations.length,
         topLocations,
+        topLocationDetails,
         expectedUriSubstrings,
         expectedMatched,
+        expectedTargetTexts,
+        expectedTargetTextMatched,
+        expectedLineTextSubstrings,
+        expectedLineTextMatched,
+        expectedLocationMatches,
+        expectedLocationMatched,
         minLocations,
         maxLocations,
+        maxDurationMs,
         withinExpectedMin: minLocations === undefined ? undefined : allLocations.length >= minLocations,
         withinExpectedMax: maxLocations === undefined ? undefined : allLocations.length <= maxLocations,
+        withinExpectedDuration: maxDurationMs === undefined ? undefined : durationMs <= maxDurationMs,
         line: position.line,
         character: position.character,
         lineText,
@@ -2098,11 +2266,23 @@ function collectTopLevelCaptureAnomalies(report: ReplayStepReport): string[] {
     for (const missing of expectedMissing(report.definitionCapture?.expectedMatched)) {
         anomalies.push(`definition-expected-missing:${label}:${missing}`);
     }
+    for (const missing of expectedMissing(report.definitionCapture?.expectedTargetTextMatched)) {
+        anomalies.push(`definition-target-text-missing:${label}:${missing}`);
+    }
+    for (const missing of expectedMissing(report.definitionCapture?.expectedLineTextMatched)) {
+        anomalies.push(`definition-line-text-missing:${label}:${missing}`);
+    }
+    for (const missing of expectedMissing(report.definitionCapture?.expectedLocationMatched)) {
+        anomalies.push(`definition-location-match-missing:${label}:${missing}`);
+    }
     if (report.definitionCapture?.withinExpectedMin === false) {
         anomalies.push(`definition-count-below-min:${label}`);
     }
     if (report.definitionCapture?.withinExpectedMax === false) {
         anomalies.push(`definition-count-above-max:${label}`);
+    }
+    if (report.definitionCapture?.withinExpectedDuration === false) {
+        anomalies.push(`definition-duration-above-max:${label}`);
     }
     if (report.definitionCapture?.error) {
         anomalies.push(`definition-capture-error:${label}`);
@@ -2110,11 +2290,23 @@ function collectTopLevelCaptureAnomalies(report: ReplayStepReport): string[] {
     for (const missing of expectedMissing(report.referencesCapture?.expectedMatched)) {
         anomalies.push(`references-expected-missing:${label}:${missing}`);
     }
+    for (const missing of expectedMissing(report.referencesCapture?.expectedTargetTextMatched)) {
+        anomalies.push(`references-target-text-missing:${label}:${missing}`);
+    }
+    for (const missing of expectedMissing(report.referencesCapture?.expectedLineTextMatched)) {
+        anomalies.push(`references-line-text-missing:${label}:${missing}`);
+    }
+    for (const missing of expectedMissing(report.referencesCapture?.expectedLocationMatched)) {
+        anomalies.push(`references-location-match-missing:${label}:${missing}`);
+    }
     if (report.referencesCapture?.withinExpectedMin === false) {
         anomalies.push(`references-count-below-min:${label}`);
     }
     if (report.referencesCapture?.withinExpectedMax === false) {
         anomalies.push(`references-count-above-max:${label}`);
+    }
+    if (report.referencesCapture?.withinExpectedDuration === false) {
+        anomalies.push(`references-duration-above-max:${label}`);
     }
     if (report.referencesCapture?.error) {
         anomalies.push(`references-capture-error:${label}`);

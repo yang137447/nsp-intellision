@@ -1,7 +1,10 @@
 #include "member_query.hpp"
 
+#include "expanded_source.hpp"
 #include "hover_docs.hpp"
 #include "hover_markdown.hpp"
+#include "hlsl_ast.hpp"
+#include "include_resolver.hpp"
 #include "interactive_semantic_runtime.hpp"
 #include "semantic_snapshot.hpp"
 #include "server_parse.hpp"
@@ -9,9 +12,11 @@
 #include "text_utils.hpp"
 #include "type_desc.hpp"
 #include "type_model.hpp"
+#include "uri_utils.hpp"
 #include "workspace_summary_runtime.hpp"
 
 #include <sstream>
+#include <unordered_set>
 #include <utility>
 
 bool findDeclaredIdentifierInDeclarationLine(const std::string &line,
@@ -75,9 +80,11 @@ bool findStructMemberDeclarationAtOrAfterLine(const std::string &text,
                                               int startLine,
                                               const std::string &memberName,
                                               int &lineOut,
-                                              int &minCharacterOut) {
+                                              int &startCharacterOut,
+                                              int &endCharacterOut) {
   lineOut = -1;
-  minCharacterOut = 0;
+  startCharacterOut = 0;
+  endCharacterOut = 0;
   if (memberName.empty()) {
     return false;
   }
@@ -100,8 +107,10 @@ bool findStructMemberDeclarationAtOrAfterLine(const std::string &text,
       size_t pos = 0;
       if (findDeclaredIdentifierInDeclarationLine(line, memberName, pos)) {
         lineOut = lineIndex;
-        int endByte = static_cast<int>(pos + memberName.size());
-        minCharacterOut = byteOffsetInLineToUtf16(line, endByte);
+        const int startByte = static_cast<int>(pos);
+        const int endByte = static_cast<int>(pos + memberName.size());
+        startCharacterOut = byteOffsetInLineToUtf16(line, startByte);
+        endCharacterOut = byteOffsetInLineToUtf16(line, endByte);
         return true;
       }
     }
@@ -110,8 +119,10 @@ bool findStructMemberDeclarationAtOrAfterLine(const std::string &text,
       size_t pos = 0;
       if (findDeclaredIdentifierInDeclarationLine(line, memberName, pos)) {
         lineOut = lineIndex;
-        int endByte = static_cast<int>(pos + memberName.size());
-        minCharacterOut = byteOffsetInLineToUtf16(line, endByte);
+        const int startByte = static_cast<int>(pos);
+        const int endByte = static_cast<int>(pos + memberName.size());
+        startCharacterOut = byteOffsetInLineToUtf16(line, startByte);
+        endCharacterOut = byteOffsetInLineToUtf16(line, endByte);
         return true;
       }
     }
@@ -169,6 +180,170 @@ bool findStructMemberDeclarationAtOrAfterLine(const std::string &text,
   return false;
 }
 
+bool fillMemberDefinitionFromDocument(const std::string &docUri,
+                                      const std::string &docText,
+                                      const std::string &ownerType,
+                                      const std::string &memberName,
+                                      const std::string &memberType,
+                                      int startLine,
+                                      MemberDefinitionInfo &out) {
+  int memberLine = -1;
+  int memberStartChar = 0;
+  int memberEndChar = 0;
+  if (!findStructMemberDeclarationAtOrAfterLine(
+          docText, startLine >= 0 ? startLine : 0, memberName, memberLine,
+          memberStartChar, memberEndChar)) {
+    return false;
+  }
+
+  out.memberType = memberType;
+  out.location.uri = docUri;
+  out.location.line = memberLine;
+  out.location.start = memberStartChar;
+  out.location.end = memberEndChar;
+  out.found = !ownerType.empty() && !memberType.empty();
+  return out.found;
+}
+
+bool tryResolveMemberDefinitionFromDocument(const std::string &docUri,
+                                            const std::string &ownerType,
+                                            const std::string &memberName,
+                                            ServerRequestContext &ctx,
+                                            MemberDefinitionInfo &out) {
+  std::string docText;
+  if (!ctx.readDocumentText(docUri, docText))
+    return false;
+
+  uint64_t docEpoch = 0;
+  if (const Document *doc = ctx.findDocument(docUri))
+    docEpoch = doc->epoch;
+
+  SemanticSnapshotFieldQueryResult fieldInfo;
+  if (!querySemanticSnapshotStructField(
+          docUri, docText, docEpoch, ctx.workspaceFolders, ctx.includePaths,
+          ctx.shaderExtensions, ctx.preprocessorDefines, ownerType, memberName,
+          fieldInfo)) {
+    return false;
+  }
+
+  return fillMemberDefinitionFromDocument(
+      docUri, docText, ownerType, memberName, fieldInfo.type, fieldInfo.line,
+      out);
+}
+
+bool tryResolveMemberDefinitionFromInlineIncludeFile(
+    const std::string &includeUri, const std::string &includeText,
+    const std::string &ownerType, const std::string &memberName,
+    const std::string &memberType, ServerRequestContext &ctx, int depth,
+    std::unordered_set<std::string> &visitedUris, MemberDefinitionInfo &out) {
+  if (depth <= 0 || includeUri.empty() || memberName.empty() ||
+      !visitedUris.insert(includeUri).second) {
+    return false;
+  }
+
+  const ExpandedSource expandedSource =
+      buildLinePreservingExpandedSource(includeText, ctx.preprocessorDefines);
+  const HlslAstDocument ast = buildHlslAstDocument(expandedSource);
+  std::vector<char> globalConsumed(ast.globalVariables.size(), 0);
+
+  for (const auto &decl : ast.topLevelDecls) {
+    if (decl.kind == HlslTopLevelDeclKind::GlobalVariable) {
+      const HlslAstGlobalVariableDecl *matchedGlobal = nullptr;
+      size_t matchedIndex = 0;
+      for (size_t index = 0; index < ast.globalVariables.size(); index++) {
+        if (globalConsumed[index])
+          continue;
+        const auto &candidate = ast.globalVariables[index];
+        if (candidate.line != decl.line || candidate.name != decl.name)
+          continue;
+        matchedGlobal = &candidate;
+        matchedIndex = index;
+        break;
+      }
+      if (!matchedGlobal)
+        continue;
+      globalConsumed[matchedIndex] = 1;
+      if (matchedGlobal->name == memberName) {
+        const std::string resolvedType =
+            memberType.empty() ? matchedGlobal->type : memberType;
+        return fillMemberDefinitionFromDocument(
+            includeUri, includeText, ownerType, memberName, resolvedType,
+            matchedGlobal->line, out);
+      }
+      continue;
+    }
+
+    if (decl.kind != HlslTopLevelDeclKind::Include || decl.name.empty())
+      continue;
+
+    const auto candidates =
+        resolveIncludeCandidates(includeUri, decl.name, ctx.workspaceFolders,
+                                 ctx.includePaths, ctx.shaderExtensions);
+    for (const auto &candidate : candidates) {
+      const std::string candidateUri = pathToUri(candidate);
+      std::string candidateText;
+      if (!ctx.readDocumentText(candidateUri, candidateText))
+        continue;
+      if (tryResolveMemberDefinitionFromInlineIncludeFile(
+              candidateUri, candidateText, ownerType, memberName, memberType,
+              ctx, depth - 1, visitedUris, out)) {
+        return true;
+      }
+      break;
+    }
+  }
+
+  return false;
+}
+
+bool tryResolveMemberDefinitionFromStructInlineIncludes(
+    const std::string &structUri, const std::string &structText,
+    const std::string &ownerType, const std::string &memberName,
+    const std::string &memberType, ServerRequestContext &ctx,
+    MemberDefinitionInfo &out) {
+  const ExpandedSource expandedSource =
+      buildLinePreservingExpandedSource(structText, ctx.preprocessorDefines);
+  const HlslAstDocument ast = buildHlslAstDocument(expandedSource);
+
+  const HlslAstStructDecl *targetStruct = nullptr;
+  for (const auto &decl : ast.structs) {
+    if (decl.name == ownerType) {
+      targetStruct = &decl;
+      break;
+    }
+  }
+  if (!targetStruct || targetStruct->inlineIncludes.empty()) {
+    return false;
+  }
+
+  std::unordered_set<std::string> seenIncludePaths;
+  for (const auto &inlineInclude : targetStruct->inlineIncludes) {
+    if (inlineInclude.path.empty() ||
+        !seenIncludePaths.insert(inlineInclude.path).second) {
+      continue;
+    }
+    const auto candidates =
+        resolveIncludeCandidates(structUri, inlineInclude.path,
+                                 ctx.workspaceFolders, ctx.includePaths,
+                                 ctx.shaderExtensions);
+    for (const auto &candidate : candidates) {
+      const std::string candidateUri = pathToUri(candidate);
+      std::string candidateText;
+      if (!ctx.readDocumentText(candidateUri, candidateText))
+        continue;
+      std::unordered_set<std::string> visitedUris;
+      if (tryResolveMemberDefinitionFromInlineIncludeFile(
+              candidateUri, candidateText, ownerType, memberName, memberType,
+              ctx, 12, visitedUris, out)) {
+        return true;
+      }
+      break;
+    }
+  }
+
+  return false;
+}
+
 bool tryResolveMemberHoverInfoFromDocument(const std::string &docUri,
                                            const std::string &ownerType,
                                            const std::string &memberName,
@@ -196,14 +371,17 @@ bool tryResolveMemberHoverInfoFromDocument(const std::string &docUri,
   out.hasStructLocation = true;
 
   int memberLine = -1;
-  int memberMinChar = 0;
+  int memberStartChar = 0;
+  int memberEndChar = 0;
   if (findStructMemberDeclarationAtOrAfterLine(
           docText, fieldInfo.line >= 0 ? fieldInfo.line : 0, memberName,
-          memberLine, memberMinChar)) {
+          memberLine, memberStartChar, memberEndChar)) {
     out.ownerStructLocation.line = memberLine;
+    out.ownerStructLocation.start = memberStartChar;
+    out.ownerStructLocation.end = memberEndChar;
     out.memberLeadingDoc = extractLeadingDocumentationAtLine(docText, memberLine);
     out.memberInlineDoc =
-        extractTrailingInlineCommentAtLine(docText, memberLine, memberMinChar);
+        extractTrailingInlineCommentAtLine(docText, memberLine, memberEndChar);
   }
 
   out.found = !out.memberType.empty();
@@ -259,20 +437,69 @@ bool resolveMemberHoverInfo(const std::string &uri,
     std::string structText;
     if (ctx.readDocumentText(out.ownerStructLocation.uri, structText)) {
       int memberLine = -1;
-      int memberMinChar = 0;
+      int memberStartChar = 0;
+      int memberEndChar = 0;
       if (findStructMemberDeclarationAtOrAfterLine(
               structText, out.ownerStructLocation.line, memberName, memberLine,
-              memberMinChar)) {
+              memberStartChar, memberEndChar)) {
+        out.ownerStructLocation.line = memberLine;
+        out.ownerStructLocation.start = memberStartChar;
+        out.ownerStructLocation.end = memberEndChar;
         out.memberLeadingDoc =
             extractLeadingDocumentationAtLine(structText, memberLine);
         out.memberInlineDoc = extractTrailingInlineCommentAtLine(
-            structText, memberLine, memberMinChar);
+            structText, memberLine, memberEndChar);
       }
     }
   }
 
   out.found = !out.memberType.empty();
   return out.found;
+}
+
+bool resolveMemberDefinitionLocation(const std::string &uri,
+                                     const std::string &ownerType,
+                                     const std::string &memberName,
+                                     ServerRequestContext &ctx,
+                                     MemberDefinitionInfo &out) {
+  out = MemberDefinitionInfo{};
+  if (ownerType.empty() || memberName.empty()) {
+    return false;
+  }
+
+  if (tryResolveMemberDefinitionFromDocument(uri, ownerType, memberName, ctx,
+                                             out)) {
+    return true;
+  }
+
+  std::string memberType;
+  if (!workspaceSummaryRuntimeGetStructMemberType(ownerType, memberName,
+                                                  memberType) ||
+      memberType.empty()) {
+    return false;
+  }
+
+  DefinitionLocation ownerStructLocation;
+  if (!workspaceSummaryRuntimeFindStructDefinition(ownerType,
+                                                   ownerStructLocation) ||
+      ownerStructLocation.uri.empty()) {
+    return false;
+  }
+
+  std::string structText;
+  if (!ctx.readDocumentText(ownerStructLocation.uri, structText)) {
+    return false;
+  }
+
+  if (fillMemberDefinitionFromDocument(
+      ownerStructLocation.uri, structText, ownerType, memberName, memberType,
+      ownerStructLocation.line, out)) {
+    return true;
+  }
+
+  return tryResolveMemberDefinitionFromStructInlineIncludes(
+      ownerStructLocation.uri, structText, ownerType, memberName, memberType,
+      ctx, out);
 }
 
 bool resolveStructHoverFallbackInfo(const std::string &ownerType,

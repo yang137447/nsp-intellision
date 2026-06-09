@@ -1,0 +1,13 @@
+struct DefinitionMemberStruct
+{
+    float4 member_color;
+    float roughness;
+};
+
+float4 member_color = float4(0.0, 0.0, 0.0, 1.0);
+
+float4 DefinitionMemberEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    DefinitionMemberStruct value = (DefinitionMemberStruct)0;
+    return value.member_color + member_color;
+}

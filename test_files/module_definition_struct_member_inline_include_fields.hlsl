@@ -1,0 +1,2 @@
+float3 inline_member_color;
+float inline_member_roughness;

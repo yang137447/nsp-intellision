@@ -1,0 +1,13 @@
+struct InlineDefinitionMemberStruct
+{
+    #include "module_definition_struct_member_inline_include_fields.hlsl"
+    float local_member_color;
+};
+
+float3 inline_member_color = float3(0.0, 0.0, 0.0);
+
+float4 InlineDefinitionMemberEntry(float2 uv : TEXCOORD0) : SV_Target0
+{
+    InlineDefinitionMemberStruct value = (InlineDefinitionMemberStruct)0;
+    return float4(value.inline_member_color + inline_member_color, 1.0);
+}

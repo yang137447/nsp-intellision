@@ -46,6 +46,12 @@ export type ReplayTypingProbe = {
 	samplingWindow?: ReplaySamplingWindow;
 };
 
+export type ReplayLocationExpectation = {
+	uriSubstring?: string;
+	targetText?: string;
+	lineTextSubstring?: string;
+};
+
 export type ReplayStep =
 	| {
 			kind: 'openDocument';
@@ -158,8 +164,12 @@ export type ReplayStep =
 			label: string;
 			payload?: {
 				expectedUriSubstrings?: string[];
+				expectedTargetTexts?: string[];
+				expectedLineTextSubstrings?: string[];
+				expectedLocationMatches?: ReplayLocationExpectation[];
 				minLocations?: number;
 				maxLocations?: number;
+				maxDurationMs?: number;
 			};
 			afterActionPauseMs?: number;
 			samplingWindow?: ReplaySamplingWindow;
@@ -169,8 +179,12 @@ export type ReplayStep =
 			label: string;
 			payload?: {
 				expectedUriSubstrings?: string[];
+				expectedTargetTexts?: string[];
+				expectedLineTextSubstrings?: string[];
+				expectedLocationMatches?: ReplayLocationExpectation[];
 				minLocations?: number;
 				maxLocations?: number;
+				maxDurationMs?: number;
 			};
 			afterActionPauseMs?: number;
 			samplingWindow?: ReplaySamplingWindow;

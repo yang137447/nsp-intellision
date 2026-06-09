@@ -64,6 +64,7 @@ type ProbeLatencyRow = {
 	coalescingSimulation?: CompletionCoalescingProbeSimulation;
 	coordinatorActual?: CompletionCoordinatorProbeActual;
 	uiExecutedAttribution?: CompletionUiExecutedProbeAttribution;
+	locationCount?: number;
 };
 
 type CompletionUiCoverageTriggerSource = 'nativeOnly' | 'explicitSuggest' | 'unknown';
@@ -286,6 +287,7 @@ type ReplayLatencySummary = {
 		total: number;
 		completion: number;
 		signatureHelp: number;
+		definition: number;
 		diagnostics: number;
 	};
 	completion?: {
@@ -347,6 +349,11 @@ type ReplayLatencySummary = {
 		postLatestVisibleProviderActivity: NumericStats;
 		postLatestVisibleQuietGuard: NumericStats;
 		uiQueueQuietGuard: NumericStats;
+		slowest: ProbeLatencyRow[];
+	};
+	definition?: {
+		capture: NumericStats;
+		locationCount: NumericStats;
 		slowest: ProbeLatencyRow[];
 	};
 };
@@ -1523,6 +1530,20 @@ function signatureRow(probe: Record<string, any>): ProbeLatencyRow | undefined {
 	};
 }
 
+function definitionRow(probe: Record<string, any>): ProbeLatencyRow | undefined {
+	const capture = asRecord(probe.definitionCapture);
+	if (!capture) {
+		return undefined;
+	}
+	return {
+		label: typeof probe.label === 'string' ? probe.label : '',
+		category: typeof probe.category === 'string' ? probe.category : undefined,
+		line: finiteNumber(capture.line),
+		durationMs: finiteNumber(capture.durationMs),
+		locationCount: finiteNumber(capture.locationCount)
+	};
+}
+
 function collectReplayLatencyProbes(report: unknown): Array<Record<string, any>> {
 	const root = asRecord(report);
 	const steps = Array.isArray(root?.steps) ? root.steps : [];
@@ -1549,6 +1570,13 @@ function collectReplayLatencyProbes(report: unknown): Array<Record<string, any>>
 				label: stepLabel,
 				kind: 'signatureHelp',
 				signatureHelpCapture: stepRecord.signatureHelpCapture
+			});
+		}
+		if (asRecord(stepRecord.definitionCapture)) {
+			probes.push({
+				label: stepLabel,
+				kind: 'definition',
+				definitionCapture: stepRecord.definitionCapture
 			});
 		}
 		const fullDocumentTyping = asRecord(stepRecord.fullDocumentTyping);
@@ -1638,12 +1666,17 @@ export function buildReplayLatencySummary(report: unknown): ReplayLatencySummary
 		.filter((probe) => probe.kind === 'signatureHelp')
 		.map(signatureRow)
 		.filter((row): row is ProbeLatencyRow => row !== undefined);
+	const definitionRows = probes
+		.filter((probe) => probe.kind === 'definition')
+		.map(definitionRow)
+		.filter((row): row is ProbeLatencyRow => row !== undefined);
 	const diagnosticsCount = probes.filter((probe) => probe.kind === 'diagnostics').length;
 	const summary: ReplayLatencySummary = {
 		probeCounts: {
 			total: probes.length,
 			completion: completionRows.length,
 			signatureHelp: signatureRows.length,
+			definition: definitionRows.length,
 			diagnostics: diagnosticsCount
 		}
 	};
@@ -1740,6 +1773,13 @@ export function buildReplayLatencySummary(report: unknown): ReplayLatencySummary
 			postLatestVisibleQuietGuard: stats(signatureRows.map((row) => row.postLatestVisibleQuietGuardMs)),
 			uiQueueQuietGuard: stats(signatureRows.map((row) => row.uiQueueQuietGuardMs)),
 			slowest: slowestRows(signatureRows)
+		};
+	}
+	if (definitionRows.length > 0) {
+		summary.definition = {
+			capture: stats(definitionRows.map((row) => row.durationMs)),
+			locationCount: stats(definitionRows.map((row) => row.locationCount)),
+			slowest: slowestRows(definitionRows)
 		};
 	}
 	return summary;
