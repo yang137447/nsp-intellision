@@ -5,6 +5,7 @@
 #include "callsite_parser.hpp"
 #include "declaration_query.hpp"
 #include "diagnostics_preprocessor.hpp"
+#include "document_runtime.hpp"
 #include "expanded_source.hpp"
 #include "hlsl_ast.hpp"
 #include "hlsl_builtin_docs.hpp"
@@ -37,6 +38,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -754,26 +756,46 @@ bool resolveActivePreprocessorMacroAtLine(
   if (word.empty() || line < 0)
     return false;
 
-  DiagnosticsBuildOptions options;
-  const std::string activeUnitPath = getActiveUnitPath();
-  if (!activeUnitPath.empty()) {
-    options.activeUnitUri = pathToUri(activeUnitPath);
-    if (!options.activeUnitUri.empty()) {
-      if (const Document *activeDoc = ctx.findDocument(options.activeUnitUri)) {
-        options.activeUnitText = activeDoc->text;
-      } else {
-        ctx.readDocumentText(options.activeUnitUri, options.activeUnitText);
-      }
+  std::shared_ptr<const PreprocessorView> cachedView;
+  DocumentRuntime runtime;
+  const Document *requestDoc = ctx.findDocument(uri);
+  if (documentRuntimeGet(uri, runtime) &&
+      runtime.activeUnitSnapshot.preprocessorView &&
+      (sameDocumentIdentity(runtime.activeUnitSnapshot.uri, uri) ||
+       sameDocumentIdentity(runtime.activeUnitSnapshot.path, uri))) {
+    const bool versionMatches =
+        !requestDoc ||
+        ((runtime.activeUnitSnapshot.documentVersion == requestDoc->version) &&
+         (runtime.activeUnitSnapshot.documentEpoch == requestDoc->epoch));
+    if (versionMatches) {
+      cachedView = runtime.activeUnitSnapshot.preprocessorView;
+      out.usedCachedActiveUnitView = true;
     }
   }
 
-  const DiagnosticsPreprocessorBuildResult context =
-      buildDiagnosticsPreprocessorContext(
-          uri, text, ctx.workspaceFolders, ctx.includePaths,
-          ctx.shaderExtensions, ctx.preprocessorDefines, options);
+  DiagnosticsPreprocessorBuildResult context;
+  const PreprocessorView *view = cachedView.get();
+  if (!view) {
+    DiagnosticsBuildOptions options;
+    const std::string activeUnitPath = getActiveUnitPath();
+    if (!activeUnitPath.empty()) {
+      options.activeUnitUri = pathToUri(activeUnitPath);
+      if (!options.activeUnitUri.empty()) {
+        if (const Document *activeDoc = ctx.findDocument(options.activeUnitUri)) {
+          options.activeUnitText = activeDoc->text;
+        } else {
+          ctx.readDocumentText(options.activeUnitUri, options.activeUnitText);
+        }
+      }
+    }
+    context = buildDiagnosticsPreprocessorContext(
+        uri, text, ctx.workspaceFolders, ctx.includePaths,
+        ctx.shaderExtensions, ctx.preprocessorDefines, options);
+    view = &context.view;
+  }
   const int queryLine = line + 1;
   PreprocessorMacroReplacement replacement;
-  if (!lookupActivePreprocessorMacroReplacement(context.view, queryLine, word,
+  if (!lookupActivePreprocessorMacroReplacement(*view, queryLine, word,
                                                 replacement)) {
     return false;
   }
@@ -782,14 +804,14 @@ bool resolveActivePreprocessorMacroAtLine(
   out.functionLike = replacement.functionLike;
   out.replacement = replacement.replacement;
   int integerValue = 0;
-  if (evaluateActivePreprocessorMacroInteger(context.view, queryLine, word,
+  if (evaluateActivePreprocessorMacroInteger(*view, queryLine, word,
                                              integerValue)) {
     out.hasIntegerValue = true;
     out.integerValue = integerValue;
   }
 
   const PreprocessorMacroEvent *latestEvent = nullptr;
-  for (const auto &event : context.view.macroEvents) {
+  for (const auto &event : view->macroEvents) {
     if (event.line >= queryLine || event.name != word)
       continue;
     latestEvent = &event;
@@ -1644,8 +1666,16 @@ bool request_hover_handlers::handleHoverRequest(
     return true;
   }
   ActivePreprocessorMacroResolution activeMacro;
-  if (resolveActivePreprocessorMacroAtLine(uri, doc->text, line, word, ctx,
-                                           activeMacro) &&
+  const auto activeMacroStartedAt = std::chrono::steady_clock::now();
+  const bool activeMacroFound =
+      resolveActivePreprocessorMacroAtLine(uri, doc->text, line, word, ctx,
+                                           activeMacro);
+  recordHoverActiveMacro(
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - activeMacroStartedAt)
+          .count(),
+      activeMacro.usedCachedActiveUnitView);
+  if (activeMacroFound &&
       writeActivePreprocessorMacroHoverResponse(id, uri, word, activeMacro,
                                                 ctx)) {
     return true;

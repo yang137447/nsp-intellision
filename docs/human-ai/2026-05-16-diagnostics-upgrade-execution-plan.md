@@ -3872,6 +3872,74 @@ admitted list：
 - 若改共享架构、测试策略、资源或命令，同步当前事实文档。
 - 每个子阶段关闭前更新本执行计划，记录根因、实际改动、为何符合架构、实际验证和文档更新情况。
 
+## Phase 25 (P25): Real Workspace Hover / Definition UX Latency Closure
+
+状态：已执行并关闭；准入证据来自 P24 后全量验证中的 `real-workspace-interactive-perf.json`，其中真实 workspace `base/building.nsf` 上 `CalcWorldDataInstance` hover / definition 已能通过测试，但用户可感知延迟仍接近 0.9s。
+
+### 背景
+
+P24 后 `npm run test:client:real:perf` 通过，但报告显示：
+
+- idle hover wall-clock p95 约 `955ms`，definition p95 约 `911ms`。
+- load-bg hover p95 约 `936ms`，definition p95 约 `933ms`。
+- server method metrics 本身同样接近 0.9s，排除单纯 VS Code provider / client middleware 等待。
+- `definitionMetrics.currentUnitCallMaxMs` 只有约 `18-22ms`，`hoverMetrics.requestSetup`、markdown、include context summary 等子指标接近 0，说明主要耗时尚未被现有子指标覆盖。
+
+### P25A: Baseline and attribution
+
+目标：
+
+- 用 server method metrics、hover / definition submetrics 和真实 workspace wall-clock 区分 client scheduling、server queue、request handler 子路径和响应写出。
+- 为 hover / definition 共同的 active preprocessor macro resolution 补充归因字段，区分 shared active-unit view 命中和 request-scoped preprocessor context build。
+
+结论：
+
+- 根因定位到 `resolveActivePreprocessorMacroAtLine(...)`：hover / definition 都在请求早期调用它，且它每次现场调用 `buildDiagnosticsPreprocessorContext(...)`。
+- 真实 `building.nsf` 请求是 active unit 同版本场景，global/document runtime 已经构建过 active-unit preprocessor truth；request handler 再次重建整份 diagnostics preprocessor context 与当前架构的热路径边界不一致。
+
+### P25B: Shared active-unit PreprocessorView reuse
+
+实现内容：
+
+- `ActiveUnitSnapshot` 新增 `preprocessorView`，保存 `global_context_runtime.*` 构建 active-unit snapshot 时已经得到的同一份 `PreprocessorView`。
+- `resolveActivePreprocessorMacroAtLine(...)` 在请求 URI、document version 和 epoch 与 active unit 匹配时直接查询 `ActiveUnitSnapshot.preprocessorView`；不匹配时继续构建 request-scoped preprocessor context，以保持 include / non-active 文档的既有语义边界。
+- hover / definition metrics 新增 `activeMacroSamples`、`activeMacroAvgMs`、`activeMacroMaxMs`、`activeMacroCachedViewHits` 和 `activeMacroContextBuilds`，仅用于性能归因，不参与公开行为决策。
+
+架构边界：
+
+- 没有新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径；这是把已经存在的 active-unit preprocessor truth 提升为 `ActiveUnitSnapshot` 的共享可消费状态。
+- 没有改变 hover / definition 的结果排序、定义选择或宏语义；只避免同 active unit / 同版本热路径重复构建预处理上下文。
+- 非 active-unit 或版本不匹配请求仍使用 request-scoped context，避免把 active unit view 错用于其它文档。
+
+### P25C: Verification and perf result
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run test:client:real:perf` 通过，`2 passing`。
+  - idle hover wall-clock p95 `23.3654ms`，server `textDocument/hover` p95 `20.85ms`。
+  - idle definition wall-clock p95 `22.8976ms`，server `textDocument/definition` p95 `19.7ms`。
+  - load-bg hover wall-clock p95 `24.5844ms`，server hover p95 `16.85ms`。
+  - load-bg definition wall-clock p95 `20.4697ms`，server definition p95 `17.85ms`。
+  - hover / definition `activeMacroCachedViewHits = 4`、`activeMacroContextBuilds = 0`，active macro resolution avg 约 `0.3-0.5ms`。
+- `node .\out\test\runCodeTests.js --mode repo --file-filter hover` 通过，`2 passing / 3 pending`。
+- `node .\out\test\runCodeTests.js --mode repo --file-filter definition` 通过，`1 passing / 2 pending`。
+- `npm run test:client:perf` 首次在工具 7 分钟预算处超时，未作为有效结果；确认无残留进程后以更长预算重跑通过，`26 passing / 3 pending`。
+- `npm run test:client:repo` 通过，exit code `0`。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：否。
+- 架构或单一事实来源是否变化：是，active-unit `PreprocessorView` 成为 `ActiveUnitSnapshot` 的共享状态，并同步 `docs/architecture.md`。
+- 测试策略是否变化：是，hover / definition perf 归因新增 `activeMacro*` metrics，并同步 `docs/testing.md`。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/testing.md` 和本执行计划；README、AGENTS、resources、client editor、type-method、development 均无对应事实变化。
+- 是否改变公开 hover / definition 行为：否；结果语义保持不变，仅优化同 active unit / 同版本宏查询热路径。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real perf sample：已补齐 `real-workspace-interactive-perf.json` 中 P25 真实 UX sample，并通过 repo hover / definition 定向回归。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果。
+
 ## 后续里程碑通用附加门禁
 
 - P18 以及后续任何会改变 diagnostics、semantic tokens、completion、hover、signature help、inlay hints、request scheduling、metrics 或真实输入恢复链路的里程碑，都必须把性能合规作为关闭条件。
@@ -3908,6 +3976,7 @@ admitted list：
 23. Phase 22: focused control-flow diagnostics tail。
 24. Phase 23: post-tail control-flow diagnostics closure。
 25. Phase 24: remaining diagnostics closure umbrella。
+26. Phase 25: real workspace hover / definition UX latency closure。
 
 Phase 2、Phase 3、Phase 4、Phase 7、Phase 10、Phase 11、Phase 12、Phase 14、Phase 15 和 Phase 16 是架构治理重点。它们分别对应类型系统、语义作用域、真实编译上下文、diagnostics 发布契约、builtin 类型规则共享入口、macro / parser 参数边界、macro-like expression typing、active-branch 宏上下文契约与共享预处理宏推导核心层、多行 parser continuation 和 statement-like macro local 语义；如果这些阶段不收敛，后续问题会继续以局部补丁形式扩散。Phase 14 不能用 diagnostics-local 特判替代真实宏状态机、真实配置确认或共享快照契约；P14L 的 compiler context 收口必须先区分 preset 漂移、compiler 固定上下文和用户显式配置语义，再决定是否改变公开宏合并契约。Phase 17 仍包含 call / type policy 与真实编译器行为确认重点。
 

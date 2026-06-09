@@ -216,6 +216,11 @@ struct DefinitionMetricsSnapshot {
   uint64_t currentDocInteractiveSamples = 0;
   double currentDocInteractiveTotalMs = 0.0;
   double currentDocInteractiveMaxMs = 0.0;
+  uint64_t activeMacroSamples = 0;
+  double activeMacroTotalMs = 0.0;
+  double activeMacroMaxMs = 0.0;
+  uint64_t activeMacroCachedViewHits = 0;
+  uint64_t activeMacroContextBuilds = 0;
   uint64_t currentUnitCallSamples = 0;
   double currentUnitCallTotalMs = 0.0;
   double currentUnitCallMaxMs = 0.0;
@@ -225,6 +230,7 @@ struct DefinitionMetricsSnapshot {
 };
 
 void recordDefinitionCurrentDocInteractive(double durationMs);
+void recordDefinitionActiveMacro(double durationMs, bool usedCachedView);
 void recordDefinitionCurrentUnitCall(double durationMs);
 void recordDefinitionResponseWrite(double durationMs);
 DefinitionMetricsSnapshot takeDefinitionMetricsSnapshot();
@@ -236,6 +242,11 @@ struct HoverMetricsSnapshot {
   uint64_t requestSetupSamples = 0;
   double requestSetupTotalMs = 0.0;
   double requestSetupMaxMs = 0.0;
+  uint64_t activeMacroSamples = 0;
+  double activeMacroTotalMs = 0.0;
+  double activeMacroMaxMs = 0.0;
+  uint64_t activeMacroCachedViewHits = 0;
+  uint64_t activeMacroContextBuilds = 0;
   uint64_t currentDocFunctionSamples = 0;
   double currentDocFunctionTotalMs = 0.0;
   double currentDocFunctionMaxMs = 0.0;
@@ -254,6 +265,7 @@ struct HoverMetricsSnapshot {
 };
 
 void recordHoverRequestSetup(double durationMs);
+void recordHoverActiveMacro(double durationMs, bool usedCachedView);
 void recordHoverCurrentDocDeclaration(double durationMs);
 void recordHoverCurrentDocFunction(double durationMs);
 void recordHoverIncludeContextSummary(double durationMs);

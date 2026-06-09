@@ -129,6 +129,11 @@ struct DefinitionMetricState {
   uint64_t currentDocInteractiveSamples = 0;
   double currentDocInteractiveTotalMs = 0.0;
   double currentDocInteractiveMaxMs = 0.0;
+  uint64_t activeMacroSamples = 0;
+  double activeMacroTotalMs = 0.0;
+  double activeMacroMaxMs = 0.0;
+  uint64_t activeMacroCachedViewHits = 0;
+  uint64_t activeMacroContextBuilds = 0;
   uint64_t currentUnitCallSamples = 0;
   double currentUnitCallTotalMs = 0.0;
   double currentUnitCallMaxMs = 0.0;
@@ -147,6 +152,11 @@ struct HoverMetricState {
   uint64_t requestSetupSamples = 0;
   double requestSetupTotalMs = 0.0;
   double requestSetupMaxMs = 0.0;
+  uint64_t activeMacroSamples = 0;
+  double activeMacroTotalMs = 0.0;
+  double activeMacroMaxMs = 0.0;
+  uint64_t activeMacroCachedViewHits = 0;
+  uint64_t activeMacroContextBuilds = 0;
   uint64_t currentDocFunctionSamples = 0;
   double currentDocFunctionTotalMs = 0.0;
   double currentDocFunctionMaxMs = 0.0;
@@ -271,6 +281,18 @@ void recordDefinitionCurrentDocInteractive(double durationMs) {
                               durationMs);
 }
 
+void recordDefinitionActiveMacro(double durationMs, bool usedCachedView) {
+  std::lock_guard<std::mutex> lock(gDefinitionMetricsMutex);
+  recordSignatureHelpDuration(gDefinitionMetrics.activeMacroSamples,
+                              gDefinitionMetrics.activeMacroTotalMs,
+                              gDefinitionMetrics.activeMacroMaxMs, durationMs);
+  if (usedCachedView) {
+    gDefinitionMetrics.activeMacroCachedViewHits++;
+  } else {
+    gDefinitionMetrics.activeMacroContextBuilds++;
+  }
+}
+
 void recordDefinitionCurrentUnitCall(double durationMs) {
   std::lock_guard<std::mutex> lock(gDefinitionMetricsMutex);
   recordSignatureHelpDuration(gDefinitionMetrics.currentUnitCallSamples,
@@ -292,6 +314,18 @@ void recordHoverRequestSetup(double durationMs) {
   recordSignatureHelpDuration(gHoverMetrics.requestSetupSamples,
                               gHoverMetrics.requestSetupTotalMs,
                               gHoverMetrics.requestSetupMaxMs, durationMs);
+}
+
+void recordHoverActiveMacro(double durationMs, bool usedCachedView) {
+  std::lock_guard<std::mutex> lock(gHoverMetricsMutex);
+  recordSignatureHelpDuration(gHoverMetrics.activeMacroSamples,
+                              gHoverMetrics.activeMacroTotalMs,
+                              gHoverMetrics.activeMacroMaxMs, durationMs);
+  if (usedCachedView) {
+    gHoverMetrics.activeMacroCachedViewHits++;
+  } else {
+    gHoverMetrics.activeMacroContextBuilds++;
+  }
 }
 
 void recordHoverCurrentDocDeclaration(double durationMs) {
@@ -447,6 +481,13 @@ DefinitionMetricsSnapshot takeDefinitionMetricsSnapshot() {
       gDefinitionMetrics.currentDocInteractiveTotalMs;
   snapshot.currentDocInteractiveMaxMs =
       gDefinitionMetrics.currentDocInteractiveMaxMs;
+  snapshot.activeMacroSamples = gDefinitionMetrics.activeMacroSamples;
+  snapshot.activeMacroTotalMs = gDefinitionMetrics.activeMacroTotalMs;
+  snapshot.activeMacroMaxMs = gDefinitionMetrics.activeMacroMaxMs;
+  snapshot.activeMacroCachedViewHits =
+      gDefinitionMetrics.activeMacroCachedViewHits;
+  snapshot.activeMacroContextBuilds =
+      gDefinitionMetrics.activeMacroContextBuilds;
   snapshot.currentUnitCallSamples = gDefinitionMetrics.currentUnitCallSamples;
   snapshot.currentUnitCallTotalMs = gDefinitionMetrics.currentUnitCallTotalMs;
   snapshot.currentUnitCallMaxMs = gDefinitionMetrics.currentUnitCallMaxMs;
@@ -469,6 +510,12 @@ HoverMetricsSnapshot takeHoverMetricsSnapshot() {
   snapshot.requestSetupSamples = gHoverMetrics.requestSetupSamples;
   snapshot.requestSetupTotalMs = gHoverMetrics.requestSetupTotalMs;
   snapshot.requestSetupMaxMs = gHoverMetrics.requestSetupMaxMs;
+  snapshot.activeMacroSamples = gHoverMetrics.activeMacroSamples;
+  snapshot.activeMacroTotalMs = gHoverMetrics.activeMacroTotalMs;
+  snapshot.activeMacroMaxMs = gHoverMetrics.activeMacroMaxMs;
+  snapshot.activeMacroCachedViewHits =
+      gHoverMetrics.activeMacroCachedViewHits;
+  snapshot.activeMacroContextBuilds = gHoverMetrics.activeMacroContextBuilds;
   snapshot.currentDocFunctionSamples = gHoverMetrics.currentDocFunctionSamples;
   snapshot.currentDocFunctionTotalMs = gHoverMetrics.currentDocFunctionTotalMs;
   snapshot.currentDocFunctionMaxMs = gHoverMetrics.currentDocFunctionMaxMs;

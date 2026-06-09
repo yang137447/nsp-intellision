@@ -354,12 +354,14 @@ ActiveUnitSnapshot buildActiveUnitSnapshot(
   if (buildActiveUnitPreprocessorView(activeUnitUri, activeUnitText, options,
                                       defineContext,
                                       activeUnitPreprocessorView)) {
-    snapshot.activeLineStates = activeUnitPreprocessorView.lineActive;
-    snapshot.includeClosureUris = activeUnitPreprocessorView.activeIncludeUris;
+    snapshot.preprocessorView =
+        std::make_shared<PreprocessorView>(std::move(activeUnitPreprocessorView));
+    snapshot.activeLineStates = snapshot.preprocessorView->lineActive;
+    snapshot.includeClosureUris = snapshot.preprocessorView->activeIncludeUris;
     snapshot.includeClosureFingerprint =
         fingerprintStringList(snapshot.includeClosureUris);
     snapshot.activeBranchFingerprint =
-        buildActiveUnitBranchFingerprint(activeUnitPreprocessorView);
+        buildActiveUnitBranchFingerprint(*snapshot.preprocessorView);
   }
   return snapshot;
 }

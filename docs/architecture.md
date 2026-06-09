@@ -92,7 +92,7 @@
 ### 文档运行时
 
 - `document_owner.*`: 打开文档的单 owner 串行入口；`didOpen`、`didChange` 和 analysis-context refresh 都应先切 `document_runtime.*`，其中 `didOpen` / analysis-context refresh 主动预热 current-doc semantic snapshot，`didChange` 保持输入线程轻量并交给后续交互请求按需构建最新 snapshot
-- `document_runtime.*`: `AnalysisSnapshotKey`、`ActiveUnitSnapshot`、changed ranges、current / last-good / deferred snapshot 的统一所有者
+- `document_runtime.*`: `AnalysisSnapshotKey`、`ActiveUnitSnapshot`、changed ranges、current / last-good / deferred snapshot 的统一所有者；`ActiveUnitSnapshot` 保存由 `global_context_runtime.*` 构建的 active-unit `PreprocessorView`，供同 active unit / 同版本的 macro hover / macro definition 等热路径查询复用
 - `interactive_semantic_runtime.*`: current-doc interactive 查询入口；请求热路径读取 current、last-good、shared-visible、deferred 和 workspace summary，不在热路径现建 snapshot
 - `interactive_visibility_runtime.*`: active unit include closure 约束下的 cross-file visible symbols
 - `deferred_doc_runtime.*`: deferred snapshot、semantic tokens、document symbols、full diagnostics、full-document inlay hints cache 和 current-doc AST 物化
@@ -143,7 +143,7 @@
 - background lane: semantic tokens、inlay hints、references、rename、document symbols、workspace symbol
 - background 请求统一 latest-only + cancellation；过期 analysis key 的结果只能 drop，不能发布。
 - current-doc semantic snapshot 在 `didOpen`、active unit 变化、配置变化和 workspace summary version 刷新后主动预热；`didChange` 只同步维护最新文档和 runtime key，completion / hover / signature help 等交互请求按需 build 或 promote 最新 current-doc snapshot，fast diagnostics worker 按 latest-only 构建并存储最新 local structural snapshot，fast diagnostics publish 启用时再由该 snapshot 发布 local-structural diagnostics，避免逐字符输入时在 server 输入线程上重建每个中间版本。
-- shared global context 在 `didChange` 热路径上必须先判断是否可复用：非 active unit 文档编辑且 active unit 未变化时直接复用；active unit 编辑如果改动范围不触达预处理指令或续行指令，只更新 active unit version / epoch 元数据并复用既有 include closure、active branch fingerprint、profile / `#art` / compiler macro snapshot 输入。只有 active unit 预处理状态、配置、workspace summary、include/path/profile 输入或资源模型变化时，才重建 P14 级 active-unit macro/profile/include context，避免普通输入被全闭包预处理重算阻塞。
+- shared global context 在 `didChange` 热路径上必须先判断是否可复用：非 active unit 文档编辑且 active unit 未变化时直接复用；active unit 编辑如果改动范围不触达预处理指令或续行指令，只更新 active unit version / epoch 元数据并复用既有 include closure、active branch fingerprint、profile / `#art` / compiler macro snapshot 输入。只有 active unit 预处理状态、配置、workspace summary、include/path/profile 输入或资源模型变化时，才重建 P14 级 active-unit macro/profile/include context，避免普通输入被全闭包预处理重算阻塞。active-unit `PreprocessorView` 是该 shared global context 的一部分；hover / definition 在请求文档与 active unit URI、version 和 epoch 匹配时必须直接消费该 view，避免在 request handler 内重新构建 diagnostics preprocessor context。
 - request worker 写入 `ServerRequestContext` 的 queue wait / context build / request document version / debug wall-clock timestamp / didChange 输入线程重叠摘要只用于 debug 和 replay 归因，不参与 completion、hover、signature help、diagnostics 等公开行为决策。completion replay 归因可在现有 LSP completion params 上附加 `nsfDebugRequestId` 和 client send-start timestamp 调试字段，server 只把它们写入 completion debug snapshot/history；这些字段不得参与候选生成、排序、过滤或触发行为。
 - 预处理宏 preset 属于配置输入：`nsf.preprocessorMacros` 是完整有效 preset 表；client 可在启动时对看起来像旧版完整 preset 的显式配置一次性补齐当前默认 preset 缺失 key，server 分析时不隐式叠加资源默认值；active unit compile profile 宏会在 shared global context 中按 unit 注入，`nsf.defines` 和源码 `#define/#undef` 按顺序覆盖；preset fingerprint 和 active-unit effective define fingerprint 都必须参与 active-unit / semantic cache 复用判断。
 - 小范围 syntax-only 编辑和纯注释编辑优先让 immediate syntax diagnostics 抢占热路径。

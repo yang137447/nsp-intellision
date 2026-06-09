@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
+struct PreprocessorView;
+
 // Shared edit-time range description used by document runtime invalidation and
 // global-context reuse heuristics.
 struct ChangedRange {
@@ -33,6 +35,11 @@ struct ActiveUnitSnapshot {
   std::string path;
   int documentVersion = 0;
   uint64_t documentEpoch = 0;
+  // Cached active-unit preprocessor truth built by global_context_runtime.*.
+  // Interactive request handlers may query this when the request document is
+  // the matching active unit/version; other documents must build their own
+  // request-scoped view.
+  std::shared_ptr<const PreprocessorView> preprocessorView;
   std::vector<char> activeLineStates;
   std::vector<std::string> includeClosureUris;
   std::string includeClosureFingerprint;

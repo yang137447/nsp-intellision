@@ -82,8 +82,16 @@ bool request_definition_handlers::handleDefinitionRequest(
   const size_t cursorOffset = positionToOffsetUtf16(doc->text, line, character);
   {
     ActivePreprocessorMacroResolution activeMacro;
-    if (resolveActivePreprocessorMacroAtLine(uri, doc->text, line, word, ctx,
-                                             activeMacro)) {
+    const auto activeMacroStartedAt = std::chrono::steady_clock::now();
+    const bool activeMacroFound =
+        resolveActivePreprocessorMacroAtLine(uri, doc->text, line, word, ctx,
+                                             activeMacro);
+    recordDefinitionActiveMacro(
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - activeMacroStartedAt)
+            .count(),
+        activeMacro.usedCachedActiveUnitView);
+    if (activeMacroFound) {
       Json locations = makeArray();
       if (!activeMacro.fromInitialState && !activeMacro.location.uri.empty()) {
         locations.a.push_back(makeLocationRange(

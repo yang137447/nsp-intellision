@@ -971,6 +971,19 @@ int main(int argc, char **argv) {
               : 0.0);
       definitionMetrics.o["currentDocInteractiveMaxMs"] =
           makeNumber(definitionSnapshot.currentDocInteractiveMaxMs);
+      definitionMetrics.o["activeMacroSamples"] = makeNumber(
+          static_cast<double>(definitionSnapshot.activeMacroSamples));
+      definitionMetrics.o["activeMacroAvgMs"] = makeNumber(
+          definitionSnapshot.activeMacroSamples > 0
+              ? definitionSnapshot.activeMacroTotalMs /
+                    static_cast<double>(definitionSnapshot.activeMacroSamples)
+              : 0.0);
+      definitionMetrics.o["activeMacroMaxMs"] =
+          makeNumber(definitionSnapshot.activeMacroMaxMs);
+      definitionMetrics.o["activeMacroCachedViewHits"] = makeNumber(
+          static_cast<double>(definitionSnapshot.activeMacroCachedViewHits));
+      definitionMetrics.o["activeMacroContextBuilds"] = makeNumber(
+          static_cast<double>(definitionSnapshot.activeMacroContextBuilds));
       definitionMetrics.o["currentUnitCallSamples"] = makeNumber(
           static_cast<double>(definitionSnapshot.currentUnitCallSamples));
       definitionMetrics.o["currentUnitCallAvgMs"] =
@@ -1010,6 +1023,19 @@ int main(int argc, char **argv) {
               : 0.0);
       hoverMetrics.o["requestSetupMaxMs"] =
           makeNumber(hoverSnapshot.requestSetupMaxMs);
+      hoverMetrics.o["activeMacroSamples"] =
+          makeNumber(static_cast<double>(hoverSnapshot.activeMacroSamples));
+      hoverMetrics.o["activeMacroAvgMs"] = makeNumber(
+          hoverSnapshot.activeMacroSamples > 0
+              ? hoverSnapshot.activeMacroTotalMs /
+                    static_cast<double>(hoverSnapshot.activeMacroSamples)
+              : 0.0);
+      hoverMetrics.o["activeMacroMaxMs"] =
+          makeNumber(hoverSnapshot.activeMacroMaxMs);
+      hoverMetrics.o["activeMacroCachedViewHits"] = makeNumber(
+          static_cast<double>(hoverSnapshot.activeMacroCachedViewHits));
+      hoverMetrics.o["activeMacroContextBuilds"] = makeNumber(
+          static_cast<double>(hoverSnapshot.activeMacroContextBuilds));
       hoverMetrics.o["currentDocFunctionSamples"] = makeNumber(
           static_cast<double>(hoverSnapshot.currentDocFunctionSamples));
       hoverMetrics.o["currentDocFunctionAvgMs"] = makeNumber(

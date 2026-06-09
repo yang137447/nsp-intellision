@@ -33,6 +33,9 @@ bool pickBestWorkspaceDefinitionForCurrentContext(
 
 struct ActivePreprocessorMacroResolution {
   bool found = false;
+  // Attribution only: true when the request reused the active-unit
+  // PreprocessorView already published by global_context_runtime.*.
+  bool usedCachedActiveUnitView = false;
   // True only for configured/profile inputs that have no source location.
   bool fromInitialState = false;
   bool fromSynthesizedZero = false;

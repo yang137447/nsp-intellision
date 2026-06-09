@@ -44,6 +44,7 @@
   - 适用于 interactive / deferred / diagnostics / workspace-summary 调度或性能路径变更
   - perf suite 的 p95 门禁默认使用足够样本量：短交互场景通常 20 次，completion / hover / references / rename / workspace-summary 等容易受宿主抖动影响的场景通常 40 次。报告仍保留原始 wall-clock samples，但当 VS Code extension host 出现 unrelated stall 时，门禁应优先看 server/client 分层 metrics 是否证明 NSF 产品路径在预算内
   - perf metrics 可能跨多个 flush window；测试应通过 metrics history 聚合样本数、method count 和 buckets，再断言样本覆盖与预算。聚合时 count / samples 累加，max / p50 / p95 / p99 / AvgMs / Rate 类字段按窗口最大值保留，避免把相邻窗口的平均值相加
+  - hover / definition 的 `activeMacro*` metrics 用于归因 active preprocessor macro resolution：`activeMacroCachedViewHits` 表示同 active unit / 同版本请求复用了 `ActiveUnitSnapshot` 中的 shared `PreprocessorView`，`activeMacroContextBuilds` 表示请求文档不匹配 active unit 或版本不匹配而构建 request-scoped preprocessor context；这些字段只用于性能归因，不改变 hover / definition 语义
   - VS Code 测试启动器会为 repo / perf / real 模式禁用内置 Git/GitHub 扩展、telemetry 和 updates，减少测试环境噪声；如果日志仍出现 extension host unresponsive，应先用报告里的 NSF server/client 分层指标确认是否为产品路径回归
 - `npm run test:client:real:replay`
   - 在真实 workspace 输入路径上回放短交互脚本，并写报告到 `out/test/perf-reports/real-replay/`
