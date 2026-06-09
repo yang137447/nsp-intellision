@@ -3437,6 +3437,55 @@ P23 后，50-unit trend 中 P22/P23 admitted 的 control-flow diagnostics 已清
 - focused diagnostics repo 测试通过。
 - 5-unit smoke 和 50-unit trend 中对应 `modf` indeterminate group 消失或迁移为明确真实 mismatch。
 
+### P24A 执行记录
+
+状态：已落地 `modf` builtin indeterminate modeling。
+
+owner review：
+
+- 官方 HLSL `modf` 签名确认为 `ret modf(x, out ip)`，`x` 可为 scalar / vector / matrix，返回值和 `ip` 均与 `x` 同形；真实 50-unit 样本为 `shaderlib/function.hlsl` 中合法 `modf(float2, float2)` 与 `modf(float, float)` 调用。
+- 判定为 LSP builtin modeling 缺口，不是源码或配置问题；实现入口收敛到 `hlsl_builtin_docs.*` type-checked builtin 名单和 `diagnostics_expression_type.*` 共享 resolver。
+
+实现内容：
+
+- `hlsl_builtin_docs.cpp` 将 `modf` 纳入 builtin function fallback 和 type-checked builtin 集合，避免 registry 不可用时退回 unmodeled。
+- `diagnostics_expression_type.cpp` 在 `resolveBuiltinCall(...)` 中新增 `modf` 分支：要求 2 个参数，两个参数均为 floating scalar/vector/matrix，且第二个 out 参数与第一个参数同形同元素；返回类型为第一个参数类型。
+- `diagnostics_expression_type.hpp` 更新 builtin out 参数建模契约，说明 `sincos` 与 `modf` 的共享建模边界。
+- 新增 focused fixture `test_files/module_diagnostics_p24a_modf_builtin.nsf`，覆盖合法 `modf(float, float)`、合法 `modf(float2, float2)`、非法 arity、非法 shape 和非法 element type sentinel。
+- `src/test/suite/integration/diagnostics.ts` 新增 `models P24a modf builtin out-parameter shape` 集成断言。
+- `docs/architecture.md` 同步记录 `modf` 属于 `diagnostics_expression_type.*` 的 common builtin 共享规则。
+- 后续同步治理 `scripts/builtins/update_hlsl_intrinsics_manifest.js`，确认 P24A 使用的 `modf` 官方资源条目已被完整抓取链路覆盖；脚本现在同时解析 Microsoft Learn table / list 形式索引，优先使用索引 href 抓详情页，并要求生成 manifest 完整覆盖所有官方索引名，避免 `modf` 或同类 builtin 资源因页面结构 / URL 规则变化被静默漏抓。
+
+公开行为变化：
+
+- 合法 `modf(float, float)` 和 `modf(float2, float2)` 不再发布 `Indeterminate builtin call: type rules not implemented`。
+- 非法 arity、out 参数 shape 不匹配或 out 参数 element type 不匹配仍发布明确 `Builtin call type mismatch: modf...`。
+
+验证结果：
+
+- `cmake --build .\server_cpp\build` 通过。
+- `npm run compile` 通过。
+- `$env:NSF_TEST_FILE_FILTER='diagnostics'; npm run test:client:repo` 通过，`97 passing / 1 pending`；覆盖新增 P24A fixture。运行中出现一次 VS Code extension host unresponsive/responsive 事件，但测试最终通过，未复现为产品路径失败。
+- 5-unit smoke audit 通过，输出 `real-workspace-diagnostics-audit.phase-24a-modf-builtin-smoke-5.{json,md}`；units scanned `5`，diagnostics total `199`，waitTimeouts / truncated / timedOut / fileErrors 均为 `0`，未出现 `modf` indeterminate group。
+- 50-unit trend audit 通过，输出 `real-workspace-diagnostics-audit.phase-24a-modf-builtin-trend-50.{json,md}`；units scanned `50`，diagnostics total `1604`，waitTimeouts / truncated / timedOut / fileErrors 均为 `0`。相对 P23 trend-50，diagnostics total 从 `1704` 降到 `1604`，`Indeterminate builtin call: type rules not implemented. Name: modf. Args: (float, float).` 从 `50` 降到 `0`，`Args: (float2, float2).` 从 `50` 降到 `0`。
+- 50-unit audit 本阶段使用 `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS=3600000`，延续 P23 在本机长链路审计中确认的预算调整；未改变 npm 命令。
+- `npm run test:client:perf` 通过，`26 passing / 3 pending`。
+- `npm run builtins:update` 通过；两个 Microsoft Learn 官方索引分别抓到 `139` / `40` 个名字，合并输出 `139` entries，且 `modf` 资源条目保留官方 docUrl / `modf(x, ip)` 签名。脚本对比证明 generated manifest 覆盖官方索引名，missing / extra 均为 `0`；官方索引中无详情页的 `object` 特殊行保留为 index-only 并输出 warning。
+- `npm run json:validate` 通过；`cmake --build .\server_cpp\build` 通过并复制最新 builtin resource bundle。
+
+阶段关闭判断：
+
+- 命令是否变化：否。
+- 路径或命名是否变化：新增 P24A focused fixture 和阶段 audit 报告；未改变运行时路径 / 命名规则。
+- 架构或单一事实来源是否变化：是，`modf` builtin call 规则收敛到 `diagnostics_expression_type.*` 共享 resolver，并同步 `docs/architecture.md` 与头文件契约。
+- 测试策略是否变化：是，新增 P24A focused integration fixture；执行计划已记录。`docs/testing.md` 无需更新，因为验证命令、入口和共享测试制度未变化。
+- 文档是否已同步：已更新 `docs/architecture.md`、`docs/resources.md`、`diagnostics_expression_type.hpp` 和本执行计划；README、AGENTS、testing、client editor、type-method、development 均无对应事实变化。
+- 是否改变公开 diagnostics 行为：是，合法 `modf` 不再发布 indeterminate；非法 sentinel 仍发布 mismatch。
+- 是否新增 fallback、compat layer、shim、feature flag 或新旧逻辑并存路径：否；`hlsl_builtin_docs.cpp` 既有 fallback set 只是 registry unavailable 时的 builtin 名单，不是新旧逻辑并存。
+- 是否有新的资源 bundle、资源路径、命名或加载规则变化：否。
+- 是否补齐 focused fixture 或稳定 real audit sample：是，新增 focused fixture，并完成 phase-24a 5-unit smoke 与 50-unit trend。
+- 是否重新跑了对应验证并记录结果：是，见上方验证结果。
+
 ### P24B: duplicate local / global declaration owner review
 
 目标：

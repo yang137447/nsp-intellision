@@ -1,0 +1,18 @@
+void test_p24a_modf_builtin(float x, float2 uv)
+{
+    float scalarWhole;
+    float scalarFraction = modf(x, scalarWhole);
+
+    float2 vectorWhole;
+    float2 vectorFraction = modf(uv, vectorWhole);
+
+    float badArity = modf(x);
+
+    float badShapeWhole;
+    float2 badShape = modf(uv, badShapeWhole);
+
+    int badElementWhole;
+    float badElement = modf(x, badElementWhole);
+
+    scalarFraction = scalarFraction + vectorFraction.x + badArity + badShape.x + badElement;
+}

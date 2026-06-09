@@ -64,6 +64,10 @@ struct NumericLiteralParseResult {
 // accepted and returns a vector with the matrix row count; the reverse
 // vector-matrix form and vector dimensions larger than matrix columns remain
 // invalid.
+// Builtins with out parameters are modeled at the call-shape layer when their
+// public HLSL contract is type-only: `sincos` is call-only with same-shape
+// numeric outputs, while `modf` returns the first floating argument type and
+// requires the second out argument to have that exact scalar/vector/matrix type.
 // Numeric literal parsing is token-span aware because the shared lexer splits
 // decimal points and exponent signs into punctuation tokens. The accepted
 // decimal/octal/hex literal grammar follows official HLSL numeric literal forms,

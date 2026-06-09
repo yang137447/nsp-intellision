@@ -233,6 +233,10 @@ resolveBuiltinCall(const std::string &name,
       return a.rows == b.rows && a.cols == b.cols;
     return true;
   };
+  auto exactTypeEq = [&](const BuiltinTypeInfo &a,
+                         const BuiltinTypeInfo &b) -> bool {
+    return a.elem == b.elem && exactShapeEq(a, b);
+  };
   auto scalarOrExactMatch = [&](const BuiltinTypeInfo &a,
                                 const BuiltinTypeInfo &ref) -> bool {
     if (a.shape == BuiltinTypeInfo::ShapeKind::Scalar)
@@ -646,6 +650,19 @@ resolveBuiltinCall(const std::string &name,
       return r;
     r.ok = true;
     r.ret = converted;
+    return r;
+  }
+
+  if (builtinName == "modf") {
+    if (args.size() != 2)
+      return r;
+    if (!isBuiltinFloatingElem(args[0].elem) ||
+        !isBuiltinFloatingElem(args[1].elem))
+      return r;
+    if (!exactTypeEq(args[0], args[1]))
+      return r;
+    r.ok = true;
+    r.ret = args[0];
     return r;
   }
 

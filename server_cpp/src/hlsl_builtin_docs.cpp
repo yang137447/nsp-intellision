@@ -38,8 +38,9 @@ std::vector<std::string> gBuiltinNames;
 const std::unordered_set<std::string> &builtinFallbackNames() {
   static const std::unordered_set<std::string> kNames = {
       "saturate",     "clamp",        "lerp",         "min",
-      "max",          "step",         "smoothstep",   "dot",
-      "length",       "distance",     "normalize",    "reflect",
+      "max",          "modf",         "step",         "smoothstep",
+      "dot",          "length",       "distance",     "normalize",
+      "reflect",
       "refract",      "mul",          "pow",          "atan2",
       "asfloat",      "asint",        "asuint",       "asdouble",
       "f16tof32",     "f32tof16",     "countbits",    "firstbithigh",
@@ -67,7 +68,8 @@ const std::unordered_set<std::string> &builtinTypeCheckedFallbackNames() {
       "frac",        "fmod",        "rsqrt",       "sqrt",
       "sign",        "pow",         "atan2",       "reflect",
       "refract",     "clamp",       "lerp",        "step",
-      "smoothstep",  "min",         "max",         "mul",
+      "smoothstep",  "min",         "max",         "modf",
+      "mul",
       "cross",       "asfloat",     "asint",       "asuint",
       "countbits",   "firstbithigh","firstbitlow", "reversebits",
       "f16tof32",    "f32tof16",    "rcp",         "mad",

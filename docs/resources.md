@@ -97,7 +97,7 @@ server 构建预处理环境时按以下顺序合并：
 
 资源相关脚本：
 
-- `scripts/builtins/update_hlsl_intrinsics_manifest.js`: 生成 `server_cpp/resources/builtins/intrinsics/base.json`
+- `scripts/builtins/update_hlsl_intrinsics_manifest.js`: 从 Microsoft Learn HLSL intrinsic 官方索引生成 `server_cpp/resources/builtins/intrinsics/base.json`；脚本同时解析 table 和 list 形式索引，优先使用索引里的官方 href 抓取详情页，并要求输出条目完整覆盖所有索引名。找不到详情页的条目默认会失败，当前仅允许官方索引里的 `object` 特殊行作为 index-only 条目保留并输出 warning，避免官方页面结构变化或 URL 规则变化时静默漏抓。
 - `scripts/builtins/update_preprocessor_macros.py`: 从 shadercompiler `builtin_macros.py` 生成 `server_cpp/resources/language/preprocessor_macros/base.json`；可传入 `--const-macros` 补齐 builtin 表达式依赖的枚举 / 常量宏，可传入 `--compiler-context` 指向 `hlsl_process.py` 以补齐编译上下文宏名；脚本内的 `LEGACY_COMPILER_CONTEXT_MACROS` 用于记录已确认的 legacy profile/context 宏，`LEGACY_UNDEFINED_ZERO_MACROS` 用于记录按 shadercompiler `#if` undefined-as-zero 对齐的 project 宏，`VERIFIED_STABLE_SOURCE_CONSTANT_MACROS` 用于记录已验证无冲突的 source enum-like 常量
 - `scripts/json/validate_resources.js`: 校验所有资源 bundle
 

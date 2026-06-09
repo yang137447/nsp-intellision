@@ -1970,6 +1970,53 @@ export function registerDiagnosticsTests(): void {
 		}
 	});
 
+	itWithDiagnosticsMode('balanced', 'models P24a modf builtin out-parameter shape', async () => {
+		const document = await openFixture('module_diagnostics_p24a_modf_builtin.nsf');
+
+		const diagnostics = await waitForDiagnostics(
+			document,
+			(value) => diagnosticMessages(value).includes('Builtin call type mismatch: modf. Args: (float).'),
+			'P24a modf builtin diagnostics'
+		);
+
+		const messages = diagnosticMessages(diagnostics);
+		assert.ok(!messages.includes('Indeterminate builtin call: type rules not implemented. Name: modf.'), messages);
+		assert.ok(!messages.includes('Indeterminate builtin call: arg types unavailable. Name: modf.'), messages);
+		assert.ok(
+			!hasDiagnosticOnLine(
+				diagnostics,
+				lineOf(document, 'float scalarFraction = modf(x, scalarWhole);'),
+				'Builtin call type mismatch: modf. Args: (float, float).'
+			),
+			messages
+		);
+		assert.ok(
+			!hasDiagnosticOnLine(
+				diagnostics,
+				lineOf(document, 'float2 vectorFraction = modf(uv, vectorWhole);'),
+				'Builtin call type mismatch: modf. Args: (float2, float2).'
+			),
+			messages
+		);
+		assert.ok(hasDiagnosticOnLine(diagnostics, lineOf(document, 'float badArity = modf(x);'), 'Builtin call type mismatch: modf. Args: (float).'), messages);
+		assert.ok(
+			hasDiagnosticOnLine(
+				diagnostics,
+				lineOf(document, 'float2 badShape = modf(uv, badShapeWhole);'),
+				'Builtin call type mismatch: modf. Args: (float2, float).'
+			),
+			messages
+		);
+		assert.ok(
+			hasDiagnosticOnLine(
+				diagnostics,
+				lineOf(document, 'float badElement = modf(x, badElementWhole);'),
+				'Builtin call type mismatch: modf. Args: (float, int).'
+			),
+			messages
+		);
+	});
+
 	itWithDiagnosticsMode('balanced', 'keeps macro expression arguments available for builtin and object method diagnostics', async () => {
 		const document = await openFixture('module_diagnostics_macro_argument_availability.nsf');
 

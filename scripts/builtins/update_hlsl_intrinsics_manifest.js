@@ -13,6 +13,7 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const outDir = path.join(repoRoot, 'server_cpp', 'resources', 'builtins', 'intrinsics');
 const outFile = path.join(outDir, 'base.json');
 const validateScript = path.join(repoRoot, 'scripts', 'json', 'validate_resources.js');
+const INDEX_ONLY_DETAIL_PAGE_ALLOWLIST = new Set(['object']);
 
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -96,13 +97,70 @@ function decodeHtmlEntities(value) {
 		.replace(/&#39;/g, "'");
 }
 
-function extractFunctionNamesFromIndexHtml(html) {
-	const names = new Set();
+function htmlToText(html) {
+	return decodeHtmlEntities((html || '').replace(/<[^>]+>/g, ' '))
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function isFunctionLikeIndexName(name) {
+	return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name || '');
+}
+
+function makeAbsoluteLearnUrl(href, baseUrl) {
+	if (!href) return '';
+	try {
+		const absolute = new URL(href, baseUrl);
+		if (absolute.hostname !== 'learn.microsoft.com') return '';
+		absolute.hash = '';
+		absolute.search = '';
+		return absolute.toString();
+	} catch {
+		return '';
+	}
+}
+
+function parseShaderModelCell(text) {
+	const models = new Set();
+	for (const match of String(text || '').matchAll(/\b(\d+)\b/g)) {
+		models.add(match[1]);
+	}
+	return Array.from(models).sort();
+}
+
+function extractHrefFromCellHtml(cellHtml, baseUrl) {
+	const m = String(cellHtml || '').match(/<a\s+[^>]*href="([^"]+)"/i);
+	return m ? makeAbsoluteLearnUrl(decodeHtmlEntities(m[1]), baseUrl) : '';
+}
+
+function addIndexEntry(map, entry) {
+	const name = String(entry.name || '').trim();
+	if (!isFunctionLikeIndexName(name)) return;
+	if (!map.has(name)) {
+		map.set(name, {
+			name,
+			urls: new Set(),
+			summary: '',
+			shaderModels: new Set()
+		});
+	}
+	const current = map.get(name);
+	for (const url of entry.urls || []) {
+		if (url) current.urls.add(url);
+	}
+	if (entry.summary && !current.summary) current.summary = entry.summary;
+	for (const sm of entry.shaderModels || []) {
+		if (sm) current.shaderModels.add(sm);
+	}
+}
+
+function extractFunctionEntriesFromIndexHtml(html, indexUrl) {
+	const entries = new Map();
 	const re = /<tr[^>]*>\s*<td[^>]*>([\s\S]*?)<\/td>/gi;
 	let match;
 	while ((match = re.exec(html))) {
 		const cellHtml = match[1] || '';
-		const cellText = decodeHtmlEntities(cellHtml.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+		const cellText = htmlToText(cellHtml);
 		const raw = cellText;
 		if (!raw) continue;
 		if (raw.toLowerCase() === 'function') continue;
@@ -111,9 +169,45 @@ function extractFunctionNamesFromIndexHtml(html) {
 		if (paren >= 0) name = name.substring(0, paren);
 		name = name.trim();
 		if (!name) continue;
-		names.add(name);
+
+		const rowEnd = html.indexOf('</tr>', re.lastIndex);
+		const rowHtml = rowEnd >= 0 ? html.slice(match.index, rowEnd) : '';
+		const tdCells = [];
+		const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+		let tdMatch;
+		while ((tdMatch = tdRe.exec(rowHtml))) {
+			tdCells.push(tdMatch[1] || '');
+		}
+		addIndexEntry(entries, {
+			name,
+			urls: [extractHrefFromCellHtml(cellHtml, indexUrl)],
+			summary: tdCells.length > 1 ? htmlToText(tdCells[1]) : '',
+			shaderModels: tdCells.length > 2 ? parseShaderModelCell(htmlToText(tdCells[2])) : []
+		});
 	}
-	return Array.from(names).sort();
+
+	const mainStart = html.search(/<main\b[^>]*\bid="main"[^>]*>/i);
+	const mainEnd = mainStart >= 0 ? html.indexOf('</main>', mainStart) : -1;
+	const articleHtml =
+		mainStart >= 0 && mainEnd > mainStart ? html.slice(mainStart, mainEnd) : html;
+	const linkRe = /<a\s+[^>]*href="([^"]+)"[^>]*>\s*(?:<strong>)?([^<]+)(?:<\/strong>)?\s*<\/a>/gi;
+	while ((match = linkRe.exec(articleHtml))) {
+		const name = htmlToText(match[2] || '');
+		if (!isFunctionLikeIndexName(name)) continue;
+		addIndexEntry(entries, {
+			name,
+			urls: [makeAbsoluteLearnUrl(decodeHtmlEntities(match[1] || ''), indexUrl)]
+		});
+	}
+
+	return Array.from(entries.values())
+		.map((entry) => ({
+			name: entry.name,
+			urls: Array.from(entry.urls).sort(),
+			summary: entry.summary,
+			shaderModels: Array.from(entry.shaderModels).sort()
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function slugDx(name) {
@@ -133,14 +227,16 @@ function slugPlain(name) {
 		.replace(/[^a-z0-9_]/g, '');
 }
 
-async function fetchFirstWorkingUrl(name) {
+async function fetchFirstWorkingUrl(name, hintedUrls = []) {
 	const dx = slugDx(name);
 	const plain = slugPlain(name);
 	const candidates = [
+		...hintedUrls,
 		`${ORIGIN}/windows/win32/direct3dhlsl/dx-graphics-hlsl-${dx}`,
 		`${ORIGIN}/windows/win32/direct3dhlsl/dx-graphics-hlsl-${plain}`,
+		`${ORIGIN}/windows/win32/direct3dhlsl/${dx}`,
 		`${ORIGIN}/windows/win32/direct3dhlsl/${plain}`
-	];
+	].filter((url, index, all) => url && all.indexOf(url) === index);
 	for (const url of candidates) {
 		try {
 			await httpGet(url);
@@ -150,6 +246,16 @@ async function fetchFirstWorkingUrl(name) {
 		}
 	}
 	return '';
+}
+
+function makeIndexOnlyItem(entry) {
+	return {
+		name: entry.name,
+		docUrl: '',
+		shaderModels: entry.shaderModels || [],
+		signatures: [],
+		summary: entry.summary || ''
+	};
 }
 
 function parseSignatures(textLines, expectedName) {
@@ -459,26 +565,70 @@ async function runPool(items, concurrency, worker) {
 async function main() {
 	fs.mkdirSync(outDir, { recursive: true });
 
-	const allNames = new Set();
+	const indexEntries = new Map();
 	for (const url of INDEX_URLS) {
 		const html = await httpGet(url);
-		for (const name of extractFunctionNamesFromIndexHtml(html)) allNames.add(name);
+		const entries = extractFunctionEntriesFromIndexHtml(html, url);
+		if (entries.length === 0) {
+			throw new Error(`No intrinsic names extracted from index ${url}`);
+		}
+		process.stdout.write(`index ${url} names=${entries.length}\n`);
+		for (const entry of entries) addIndexEntry(indexEntries, entry);
 	}
 
-	const names = Array.from(allNames).sort();
+	const entriesFromIndexes = Array.from(indexEntries.values())
+		.map((entry) => ({
+			name: entry.name,
+			urls: Array.from(entry.urls).sort(),
+			summary: entry.summary,
+			shaderModels: Array.from(entry.shaderModels).sort()
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
 	const manifest = {};
+	const indexOnlyNames = [];
 	await runPool(
-		names,
+		entriesFromIndexes,
 		2,
-		async (name) => {
-			const url = await fetchFirstWorkingUrl(name);
-			if (!url) return;
-			const item = await fetchAndParseFunctionPage(name, url);
+		async (entry) => {
+			const url = await fetchFirstWorkingUrl(entry.name, entry.urls);
+			if (!url) {
+				indexOnlyNames.push(entry.name);
+				mergeIntoManifest(manifest, makeIndexOnlyItem(entry));
+				return;
+			}
+			const item = await fetchAndParseFunctionPage(entry.name, url);
+			if (!item.summary && entry.summary) item.summary = entry.summary;
+			if ((item.shaderModels || []).length === 0) item.shaderModels = entry.shaderModels || [];
 			mergeIntoManifest(manifest, item);
 		}
 	);
 
 	const entries = Object.values(manifest).sort((a, b) => a.name.localeCompare(b.name));
+	const generatedNames = new Set(entries.map((entry) => entry.name));
+	const missingNames = entriesFromIndexes
+		.map((entry) => entry.name)
+		.filter((name) => !generatedNames.has(name));
+	if (missingNames.length > 0) {
+		throw new Error(`Generated manifest is missing index names: ${missingNames.join(', ')}`);
+	}
+	if (entries.length !== entriesFromIndexes.length) {
+		throw new Error(
+			`Generated manifest count mismatch: index=${entriesFromIndexes.length} entries=${entries.length}`
+		);
+	}
+	if (indexOnlyNames.length > 0) {
+		const unexpectedIndexOnly = indexOnlyNames.filter(
+			(name) => !INDEX_ONLY_DETAIL_PAGE_ALLOWLIST.has(name)
+		);
+		if (unexpectedIndexOnly.length > 0) {
+			throw new Error(
+				`Missing detail pages for intrinsic names: ${unexpectedIndexOnly.sort().join(', ')}`
+			);
+		}
+		process.stderr.write(
+			`warning: index-only intrinsic entries without detail pages: ${indexOnlyNames.sort().join(', ')}\n`
+		);
+	}
 	const out = {
 		source: 'Microsoft Learn',
 		sourceUrls: INDEX_URLS,

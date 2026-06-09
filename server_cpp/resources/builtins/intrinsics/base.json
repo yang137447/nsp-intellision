@@ -4,8 +4,8 @@
     "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-intrinsic-functions",
     "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/d3d11-graphics-reference-sm5-intrinsics"
   ],
-  "generatedAtUtc": "2026-03-16T18:42:36.083Z",
-  "count": 134,
+  "generatedAtUtc": "2026-06-09T03:06:54.019Z",
+  "count": 139,
   "entries": [
     {
       "name": "abort",
@@ -17,7 +17,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/abort"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/abort"
       ],
       "shaderModels": [
         "4"
@@ -36,7 +36,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-abs"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-abs"
       ],
       "shaderModels": [
         "1",
@@ -56,7 +56,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-acos"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-acos"
       ],
       "shaderModels": [
         "1",
@@ -76,7 +76,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-all"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-all"
       ],
       "shaderModels": [
         "1",
@@ -94,7 +94,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/allmemorybarrier"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/allmemorybarrier"
       ],
       "shaderModels": [
         "5"
@@ -111,7 +111,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/allmemorybarrierwithgroupsync"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/allmemorybarrierwithgroupsync"
       ],
       "shaderModels": [
         "5"
@@ -130,7 +130,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-any"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-any"
       ],
       "shaderModels": [
         "1",
@@ -151,7 +151,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/asdouble"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/asdouble"
       ],
       "shaderModels": [
         "5"
@@ -177,7 +177,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-asfloat"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-asfloat"
       ],
       "shaderModels": [
         "1",
@@ -199,7 +199,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-asin"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-asin"
       ],
       "shaderModels": [
         "1",
@@ -219,7 +219,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-asint"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-asint"
       ],
       "shaderModels": [
         "1",
@@ -233,23 +233,29 @@
       "name": "asuint",
       "signatures": [
         {
-          "display": "asuint(x)",
+          "display": "asuint(HLSL)",
           "params": [
-            "x"
+            "HLSL"
           ],
-          "kind": "ret"
+          "kind": "void"
+        },
+        {
+          "display": "asuint(value, lowbits, highbits)",
+          "params": [
+            "value",
+            "lowbits",
+            "highbits"
+          ],
+          "kind": "void"
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-asuint"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/asuint"
       ],
       "shaderModels": [
-        "1",
-        "2",
-        "3",
-        "4"
+        "5"
       ],
-      "summary": "Interprets the bit pattern of"
+      "summary": "Reinterprets the bit pattern of a 64-bit value as two unsigned 32-bit integers."
     },
     {
       "name": "atan",
@@ -263,7 +269,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-atan"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-atan"
       ],
       "shaderModels": [
         "1",
@@ -291,7 +297,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-atan2"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-atan2"
       ],
       "shaderModels": [
         "1",
@@ -318,7 +324,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-ceil"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-ceil"
       ],
       "shaderModels": [
         "1",
@@ -338,7 +344,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/checkaccessfullymapped"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/checkaccessfullymapped"
       ],
       "shaderModels": [
         "5"
@@ -359,7 +365,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-clamp"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-clamp"
       ],
       "shaderModels": [
         "1",
@@ -386,7 +392,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-clip"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-clip"
       ],
       "shaderModels": [
         "1",
@@ -408,7 +414,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-cos"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-cos"
       ],
       "shaderModels": [
         "1",
@@ -428,7 +434,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-cosh"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-cosh"
       ],
       "shaderModels": [
         "1",
@@ -448,7 +454,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/countbits"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/countbits"
       ],
       "shaderModels": [
         "5"
@@ -468,7 +474,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-cross"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-cross"
       ],
       "shaderModels": [
         "1",
@@ -488,7 +494,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-d3dcolortoubyte4"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-d3dcolortoubyte4"
       ],
       "shaderModels": [
         "1",
@@ -508,7 +514,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-ddx"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-ddx"
       ],
       "shaderModels": [
         "1",
@@ -518,6 +524,44 @@
         "5"
       ],
       "summary": "Returns the partial derivative of the specified value with respect to the screen-space x-coordinate."
+    },
+    {
+      "name": "ddx_coarse",
+      "signatures": [
+        {
+          "display": "ddx_coarse(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "float"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/ddx-coarse"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Computes a low precision partial derivative with respect to the screen-space x-coordinate."
+    },
+    {
+      "name": "ddx_fine",
+      "signatures": [
+        {
+          "display": "ddx_fine(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "float"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/ddx-fine"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Computes a high precision partial derivative with respect to the screen-space x-coordinate."
     },
     {
       "name": "ddy",
@@ -531,7 +575,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-ddy"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-ddy"
       ],
       "shaderModels": [
         "1",
@@ -541,6 +585,44 @@
         "5"
       ],
       "summary": "Returns the partial derivative of the specified value with respect to the screen-space y-coordinate."
+    },
+    {
+      "name": "ddy_coarse",
+      "signatures": [
+        {
+          "display": "ddy_coarse(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "float"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/ddy-coarse"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Computes a low precision partial derivative with respect to the screen-space y-coordinate."
+    },
+    {
+      "name": "ddy_fine",
+      "signatures": [
+        {
+          "display": "ddy_fine(value)",
+          "params": [
+            "value"
+          ],
+          "kind": "float"
+        }
+      ],
+      "docUrls": [
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/ddy-fine"
+      ],
+      "shaderModels": [
+        "5"
+      ],
+      "summary": "Computes a high precision partial derivative with respect to the screen-space y-coordinate."
     },
     {
       "name": "degrees",
@@ -554,7 +636,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-degrees"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-degrees"
       ],
       "shaderModels": [
         "1",
@@ -574,7 +656,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-determinant"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-determinant"
       ],
       "shaderModels": [
         "1",
@@ -592,7 +674,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/devicememorybarrier"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/devicememorybarrier"
       ],
       "shaderModels": [
         "5"
@@ -609,7 +691,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/devicememorybarrierwithgroupsync"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/devicememorybarrierwithgroupsync"
       ],
       "shaderModels": [
         "5"
@@ -629,7 +711,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-distance"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-distance"
       ],
       "shaderModels": [
         "1",
@@ -650,7 +732,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-dot"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-dot"
       ],
       "shaderModels": [
         "1",
@@ -671,9 +753,11 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dst"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dst"
       ],
-      "shaderModels": [],
+      "shaderModels": [
+        "5"
+      ],
       "summary": "Calculates a distance vector."
     },
     {
@@ -689,7 +773,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/errorf"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/errorf"
       ],
       "shaderModels": [
         "4"
@@ -709,7 +793,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/evaluateattributeatsample"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/evaluateattributeatsample"
       ],
       "shaderModels": [
         "5"
@@ -728,7 +812,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/evaluateattributecentroid"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/evaluateattributecentroid"
       ],
       "shaderModels": [
         "5"
@@ -748,7 +832,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/evaluateattributesnapped"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/evaluateattributesnapped"
       ],
       "shaderModels": [
         "5"
@@ -767,7 +851,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-exp"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-exp"
       ],
       "shaderModels": [
         "1",
@@ -794,7 +878,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-exp2"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-exp2"
       ],
       "shaderModels": [
         "1",
@@ -814,7 +898,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/f16tof32"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/f16tof32"
       ],
       "shaderModels": [
         "4",
@@ -834,7 +918,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/f32tof16"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/f32tof16"
       ],
       "shaderModels": [
         "4",
@@ -856,7 +940,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-faceforward"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-faceforward"
       ],
       "shaderModels": [
         "1",
@@ -876,7 +960,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/firstbithigh"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/firstbithigh"
       ],
       "shaderModels": [
         "5"
@@ -895,7 +979,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/firstbitlow"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/firstbitlow"
       ],
       "shaderModels": [
         "5"
@@ -921,7 +1005,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-floor"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-floor"
       ],
       "shaderModels": [
         "1",
@@ -950,7 +1034,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-fma"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-fma"
       ],
       "shaderModels": [
         "5"
@@ -977,7 +1061,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-fmod"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-fmod"
       ],
       "shaderModels": [
         "1",
@@ -997,7 +1081,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-frac"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-frac"
       ],
       "shaderModels": [
         "1",
@@ -1025,7 +1109,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-frexp"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-frexp"
       ],
       "shaderModels": [
         "1",
@@ -1046,7 +1130,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-fwidth"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-fwidth"
       ],
       "shaderModels": [
         "1",
@@ -1065,7 +1149,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-getrendertargetsamplecount"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-getrendertargetsamplecount"
       ],
       "shaderModels": [
         "1",
@@ -1087,7 +1171,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-getrendertargetsampleposition"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-getrendertargetsampleposition"
       ],
       "shaderModels": [
         "1",
@@ -1107,7 +1191,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/groupmemorybarrier"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/groupmemorybarrier"
       ],
       "shaderModels": [
         "5"
@@ -1124,7 +1208,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/groupmemorybarrierwithgroupsync"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/groupmemorybarrierwithgroupsync"
       ],
       "shaderModels": [
         "5"
@@ -1145,7 +1229,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedadd"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedadd"
       ],
       "shaderModels": [
         "5"
@@ -1166,7 +1250,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedand"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedand"
       ],
       "shaderModels": [
         "5"
@@ -1188,7 +1272,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedcompareexchange"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedcompareexchange"
       ],
       "shaderModels": [
         "5"
@@ -1209,7 +1293,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedcomparestore"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedcomparestore"
       ],
       "shaderModels": [
         "5"
@@ -1230,7 +1314,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedexchange"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedexchange"
       ],
       "shaderModels": [
         "5"
@@ -1251,7 +1335,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedmax"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedmax"
       ],
       "shaderModels": [
         "5"
@@ -1272,7 +1356,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedmin"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedmin"
       ],
       "shaderModels": [
         "5"
@@ -1293,7 +1377,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedor"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedor"
       ],
       "shaderModels": [
         "5"
@@ -1314,7 +1398,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/interlockedxor"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/interlockedxor"
       ],
       "shaderModels": [
         "5"
@@ -1340,7 +1424,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-isfinite"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-isfinite"
       ],
       "shaderModels": [
         "1",
@@ -1367,7 +1451,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-isinf"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-isinf"
       ],
       "shaderModels": [
         "1",
@@ -1394,7 +1478,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-isnan"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-isnan"
       ],
       "shaderModels": [
         "1",
@@ -1422,7 +1506,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-ldexp"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-ldexp"
       ],
       "shaderModels": [
         "1",
@@ -1442,7 +1526,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-length"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-length"
       ],
       "shaderModels": [
         "1",
@@ -1464,7 +1548,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-lerp"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-lerp"
       ],
       "shaderModels": [
         "1",
@@ -1486,7 +1570,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-lit"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-lit"
       ],
       "shaderModels": [
         "1",
@@ -1506,7 +1590,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-log"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-log"
       ],
       "shaderModels": [
         "1",
@@ -1526,7 +1610,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-log10"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-log10"
       ],
       "shaderModels": [
         "1",
@@ -1553,7 +1637,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-log2"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-log2"
       ],
       "shaderModels": [
         "1",
@@ -1575,7 +1659,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/mad"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/mad"
       ],
       "shaderModels": [
         "2",
@@ -1605,7 +1689,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-max"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-max"
       ],
       "shaderModels": [
         "1",
@@ -1626,7 +1710,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-min"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-min"
       ],
       "shaderModels": [
         "1",
@@ -1654,7 +1738,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-modf"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-modf"
       ],
       "shaderModels": [
         "1",
@@ -1676,7 +1760,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-msad4"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-msad4"
       ],
       "shaderModels": [
         "5"
@@ -1696,7 +1780,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-mul"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-mul"
       ],
       "shaderModels": [
         "1"
@@ -1715,7 +1799,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-noise"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-noise"
       ],
       "shaderModels": [
         "1",
@@ -1735,13 +1819,20 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-normalize"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-normalize"
       ],
       "shaderModels": [
         "1",
         "2"
       ],
       "summary": "Normalizes the specified floating-point vector according to x / length(x)."
+    },
+    {
+      "name": "object",
+      "signatures": [],
+      "docUrls": [],
+      "shaderModels": [],
+      "summary": "sampler object"
     },
     {
       "name": "pow",
@@ -1756,7 +1847,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-pow"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-pow"
       ],
       "shaderModels": [
         "1",
@@ -1777,7 +1868,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/printf"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/printf"
       ],
       "shaderModels": [
         "4"
@@ -1800,7 +1891,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/process2dquadtessfactorsavg"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/process2dquadtessfactorsavg"
       ],
       "shaderModels": [
         "5"
@@ -1823,7 +1914,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/process2dquadtessfactorsmax"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/process2dquadtessfactorsmax"
       ],
       "shaderModels": [
         "5"
@@ -1846,7 +1937,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/process2dquadtessfactorsmin"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/process2dquadtessfactorsmin"
       ],
       "shaderModels": [
         "5"
@@ -1868,7 +1959,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processisolinetessfactors"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/processisolinetessfactors"
       ],
       "shaderModels": [
         "5"
@@ -1891,7 +1982,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processquadtessfactorsavg"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/processquadtessfactorsavg"
       ],
       "shaderModels": [
         "5"
@@ -1914,7 +2005,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processquadtessfactorsmax"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/processquadtessfactorsmax"
       ],
       "shaderModels": [
         "5"
@@ -1937,7 +2028,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processquadtessfactorsmin"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/processquadtessfactorsmin"
       ],
       "shaderModels": [
         "5"
@@ -1960,7 +2051,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processtritessfactorsavg"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/processtritessfactorsavg"
       ],
       "shaderModels": [
         "5"
@@ -1983,7 +2074,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processtritessfactorsmax"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/processtritessfactorsmax"
       ],
       "shaderModels": [
         "5"
@@ -2006,7 +2097,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/processtritessfactorsmin"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/processtritessfactorsmin"
       ],
       "shaderModels": [
         "5"
@@ -2025,7 +2116,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-radians"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-radians"
       ],
       "shaderModels": [
         "1"
@@ -2044,7 +2135,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/rcp"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/rcp"
       ],
       "shaderModels": [
         "5"
@@ -2064,7 +2155,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-reflect"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-reflect"
       ],
       "shaderModels": [
         "1"
@@ -2085,7 +2176,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-refract"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-refract"
       ],
       "shaderModels": [
         "1",
@@ -2105,7 +2196,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/reversebits"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/reversebits"
       ],
       "shaderModels": [
         "5"
@@ -2131,7 +2222,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-round"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-round"
       ],
       "shaderModels": [
         "1",
@@ -2151,7 +2242,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-rsqrt"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-rsqrt"
       ],
       "shaderModels": [
         "1",
@@ -2178,7 +2269,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-saturate"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-saturate"
       ],
       "shaderModels": [
         "1"
@@ -2208,7 +2299,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sign"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-sign"
       ],
       "shaderModels": [
         "1",
@@ -2228,7 +2319,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sin"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-sin"
       ],
       "shaderModels": [
         "1",
@@ -2250,7 +2341,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sincos"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-sincos"
       ],
       "shaderModels": [
         "1",
@@ -2270,7 +2361,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sinh"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-sinh"
       ],
       "shaderModels": [
         "1",
@@ -2292,7 +2383,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-smoothstep"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-smoothstep"
       ],
       "shaderModels": [
         "1",
@@ -2312,7 +2403,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-sqrt"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-sqrt"
       ],
       "shaderModels": [
         "1",
@@ -2333,7 +2424,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-step"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-step"
       ],
       "shaderModels": [
         "1",
@@ -2353,7 +2444,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tan"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tan"
       ],
       "shaderModels": [
         "1",
@@ -2373,7 +2464,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tanh"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tanh"
       ],
       "shaderModels": [
         "1",
@@ -2401,7 +2492,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1d"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1d"
       ],
       "shaderModels": [
         "1",
@@ -2424,7 +2515,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dbias"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dbias"
       ],
       "shaderModels": [
         "1",
@@ -2449,7 +2540,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dgrad"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dgrad"
       ],
       "shaderModels": [
         "1",
@@ -2472,7 +2563,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dlod"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dlod"
       ],
       "shaderModels": [
         "1",
@@ -2495,7 +2586,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dproj"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex1dproj"
       ],
       "shaderModels": [
         "1",
@@ -2525,7 +2616,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2d"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2d"
       ],
       "shaderModels": [
         "1",
@@ -2548,7 +2639,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dbias"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dbias"
       ],
       "shaderModels": [
         "1",
@@ -2573,7 +2664,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dgrad"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dgrad"
       ],
       "shaderModels": [
         "1",
@@ -2596,7 +2687,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dlod"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dlod"
       ],
       "shaderModels": [
         "1",
@@ -2619,7 +2710,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dproj"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex2dproj"
       ],
       "shaderModels": [
         "1",
@@ -2649,7 +2740,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3d"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3d"
       ],
       "shaderModels": [
         "1",
@@ -2672,7 +2763,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dbias"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dbias"
       ],
       "shaderModels": [
         "1",
@@ -2697,7 +2788,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dgrad"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dgrad"
       ],
       "shaderModels": [
         "1",
@@ -2720,7 +2811,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dlod"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dlod"
       ],
       "shaderModels": [
         "1",
@@ -2743,7 +2834,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dproj"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-tex3dproj"
       ],
       "shaderModels": [
         "1",
@@ -2773,7 +2864,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcube"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcube"
       ],
       "shaderModels": [
         "1",
@@ -2796,7 +2887,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubebias"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubebias"
       ],
       "shaderModels": [
         "1",
@@ -2821,7 +2912,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubegrad"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubegrad"
       ],
       "shaderModels": [
         "1",
@@ -2844,7 +2935,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubelod"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubelod"
       ],
       "shaderModels": [
         "1",
@@ -2867,7 +2958,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubeproj"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-texcubeproj"
       ],
       "shaderModels": [
         "1",
@@ -2889,7 +2980,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-transpose"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-transpose"
       ],
       "shaderModels": [
         "1"
@@ -2915,7 +3006,7 @@
         }
       ],
       "docUrls": [
-        "https://learn.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-trunc"
+        "https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-trunc"
       ],
       "shaderModels": [
         "1"
