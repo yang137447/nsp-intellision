@@ -3850,6 +3850,7 @@ admitted list：
 - 50-unit trend audit 通过，`1 passing`，输出 `phase-24g-post-p24-trend-50`；`diagnostics=1604`、`truncatedFiles=0`、`timedOutFiles=0`、`fileErrors=0`，相对 phase-00 baseline `diagnosticsTotal` 从 `43341` 降到 `1604`。
 - P24G 50-unit 与 P24A 50-unit 关键统计一致：`diagnostics=1604`、`filesWithDiagnostics=8`、`likely-plugin-limitation=49`、`needs-manual-review=1555`、`semantic-source-rule=1333`、`call-type-analysis=161`、`expression-type-analysis=50`、`undefined-identifier=49`、`syntax-structure=11`。
 - 剩余 top groups 与 P24B-F review 对齐：duplicate local / global、`GetVisibility` argument mismatch、`grass_max_offset` / `season_uniforms.hlsl` undefined tail、`indirect_lighting.hlsl` `half4 = half3` assignment mismatch、`season_uniforms.hlsl` missing semicolon / call-count tail 仍属于 owner / source / policy 分流，不是 admitted LSP 缺口。
+- P24 source / config owner handoff 已沉淀到 `docs/human-ai/2026-06-09-diagnostics-p24-source-config-owner-handoff.md`，作为后续 source / config owner 修复与 post-owner-fix re-audit 的交接入口。
 
 阶段关闭判断：
 
