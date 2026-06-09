@@ -99,6 +99,9 @@ def main():
         "params": {
             "settings": {
                 "nsf": {
+                    "diagnostics": {
+                        "mode": "full"
+                    },
                     "semanticCache": {
                         "shadowCompare": {
                             "enabled": True
@@ -439,7 +442,7 @@ def main():
             expected_line = 4
             ok_line_map = False
             for d in diag_internal:
-                if d.get("message", "").startswith("Assignment type mismatch"):
+                if d.get("message", "").startswith("Implicit truncation conversion:"):
                     s = d.get("range", {}).get("start", {})
                     if s.get("line") == expected_line:
                         ok_line_map = True
@@ -454,9 +457,9 @@ def main():
                 s = d.get("range", {}).get("start", {})
                 line = s.get("line")
                 msg = d.get("message", "")
-                if msg.startswith("Binary operator type mismatch") and line == 7:
+                if msg.startswith("Implicit truncation conversion: float3 -> float2.") and line == 7:
                     ok_add = True
-                if msg.startswith("Binary operator type mismatch") and line == 8:
+                if msg.startswith("Implicit truncation conversion: float3 -> float2.") and line == 8:
                     ok_cmp = True
                 if msg.startswith("Assignment type mismatch: float3 = float2.") and line == 9:
                     ok_assign = True

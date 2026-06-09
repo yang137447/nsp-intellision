@@ -3,10 +3,12 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import {
+	aggregateMetricsHistory,
 	computeLatencyStats,
 	drainMetricsWindow,
 	measureLatencySamples,
 	readPerfIntEnv,
+	waitForMetricsHistorySinceRevision,
 	waitForNextMetricsRevision,
 	writePerfReport
 } from './perf_helpers';
@@ -85,6 +87,7 @@ perfDescribe('NSF real workspace perf', () => {
 
 		const buildingDocument = await openDocument(buildingPath);
 		const heavyDocument = await openDocument(heavyPath);
+		await vscode.window.showTextDocument(buildingDocument, { preview: false });
 		await waitForIndexingIdle('real workspace perf indexing idle');
 
 		const hoverPosition = positionOf(buildingDocument, 'CalcWorldDataInstance', 1, 3);
@@ -124,10 +127,19 @@ perfDescribe('NSF real workspace perf', () => {
 			assert.ok(Array.isArray(result) && result.length > 0);
 			return result.length;
 		});
-		const idleMetrics = await waitForNextMetricsRevision(
+		const idleMetricWindows = await waitForMetricsHistorySinceRevision(
 			idleDrained.revision ?? 0,
-			'real workspace perf idle metrics flush'
+			(snapshots) => {
+				const aggregate = aggregateMetricsHistory(snapshots);
+				return (
+					(aggregate.methods['textDocument/hover']?.count ?? 0) >= iterations &&
+					(aggregate.methods['textDocument/definition']?.count ?? 0) >= iterations
+				);
+			},
+			'real workspace perf idle metrics history'
 		);
+		const idleAggregatedMetrics = aggregateMetricsHistory(idleMetricWindows);
+		const idleMetrics = idleMetricWindows[idleMetricWindows.length - 1];
 
 		const loadDrained = await drainMetricsWindow('real workspace perf load-bg');
 		const spamPromise = vscode.commands.executeCommand<{ completed: number; cancelled: number; failed: number }>(
@@ -160,10 +172,20 @@ perfDescribe('NSF real workspace perf', () => {
 			return result.length;
 		});
 		const spamResult = await spamPromise;
-		const loadMetrics = await waitForNextMetricsRevision(
+		const loadMetricWindows = await waitForMetricsHistorySinceRevision(
 			loadDrained.revision ?? 0,
-			'real workspace perf load-bg metrics flush'
+			(snapshots) => {
+				const aggregate = aggregateMetricsHistory(snapshots);
+				return (
+					(aggregate.methods['textDocument/hover']?.count ?? 0) >= iterations &&
+					(aggregate.methods['textDocument/definition']?.count ?? 0) >= iterations &&
+					(aggregate.methods['textDocument/inlayHint']?.count ?? 0) > 0
+				);
+			},
+			'real workspace perf load-bg metrics history'
 		);
+		const loadAggregatedMetrics = aggregateMetricsHistory(loadMetricWindows);
+		const loadMetrics = loadMetricWindows[loadMetricWindows.length - 1];
 
 		const report = {
 			scenario: 'real-workspace-interactive-perf',
@@ -174,21 +196,27 @@ perfDescribe('NSF real workspace perf', () => {
 			idle: {
 				hover: computeLatencyStats(idleHoverRun.samples),
 				definition: computeLatencyStats(idleDefinitionRun.samples),
-				metrics: idleMetrics
+				metrics: idleMetrics,
+				metricWindows: idleMetricWindows,
+				aggregatedMetrics: idleAggregatedMetrics
 			},
 			loadBg: {
 				hover: computeLatencyStats(loadHoverRun.samples),
 				definition: computeLatencyStats(loadDefinitionRun.samples),
 				spamCount,
 				spamResult,
-				metrics: loadMetrics
+				metrics: loadMetrics,
+				metricWindows: loadMetricWindows,
+				aggregatedMetrics: loadAggregatedMetrics
 			}
 		};
 		writePerfReport('real-workspace-interactive-perf', report);
 
-		assert.ok((idleMetrics.payload?.methods?.['textDocument/hover']?.count ?? 0) >= iterations);
-		assert.ok((idleMetrics.payload?.methods?.['textDocument/definition']?.count ?? 0) >= iterations);
-		assert.ok((loadMetrics.payload?.methods?.['textDocument/inlayHint']?.count ?? 0) > 0);
+		assert.ok((idleAggregatedMetrics.methods['textDocument/hover']?.count ?? 0) >= iterations);
+		assert.ok((idleAggregatedMetrics.methods['textDocument/definition']?.count ?? 0) >= iterations);
+		assert.ok((loadAggregatedMetrics.methods['textDocument/hover']?.count ?? 0) >= iterations);
+		assert.ok((loadAggregatedMetrics.methods['textDocument/definition']?.count ?? 0) >= iterations);
+		assert.ok((loadAggregatedMetrics.methods['textDocument/inlayHint']?.count ?? 0) > 0);
 		assert.strictEqual(
 			(spamResult?.completed ?? 0) + (spamResult?.cancelled ?? 0) + (spamResult?.failed ?? 0),
 			spamCount
