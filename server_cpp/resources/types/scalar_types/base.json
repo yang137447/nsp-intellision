@@ -1,0 +1,320 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "bool",
+      "kind": "bool",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "documentation": "Boolean scalar type."
+    },
+    {
+      "name": "double",
+      "kind": "floating",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "documentation": "Double-precision floating-point scalar type."
+    },
+    {
+      "name": "dword",
+      "kind": "integer",
+      "generateVector": false,
+      "generateMatrix": false,
+      "documentation": "Unsigned 32-bit scalar type alias."
+    },
+    {
+      "name": "float",
+      "kind": "floating",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "documentation": "Single-precision floating-point scalar type."
+    },
+    {
+      "name": "half",
+      "kind": "floating",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "documentation": "Half-precision floating-point scalar type."
+    },
+    {
+      "name": "int",
+      "kind": "integer",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "documentation": "Signed integer scalar type."
+    },
+    {
+      "name": "matrix",
+      "kind": "special",
+      "generateVector": false,
+      "generateMatrix": false,
+      "documentation": "Generic matrix type keyword."
+    },
+    {
+      "name": "min10float",
+      "kind": "floating",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "minPrecision": true,
+      "documentation": "Minimum 10-bit floating-point scalar type."
+    },
+    {
+      "name": "min12int",
+      "kind": "integer",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "minPrecision": true,
+      "documentation": "Minimum 12-bit signed integer scalar type."
+    },
+    {
+      "name": "min16float",
+      "kind": "floating",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "minPrecision": true,
+      "documentation": "Minimum 16-bit floating-point scalar type."
+    },
+    {
+      "name": "min16int",
+      "kind": "integer",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "minPrecision": true,
+      "documentation": "Minimum 16-bit signed integer scalar type."
+    },
+    {
+      "name": "min16uint",
+      "kind": "integer",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "minPrecision": true,
+      "documentation": "Minimum 16-bit unsigned integer scalar type."
+    },
+    {
+      "name": "string",
+      "kind": "special",
+      "generateVector": false,
+      "generateMatrix": false,
+      "documentation": "String type keyword."
+    },
+    {
+      "name": "uint",
+      "kind": "integer",
+      "generateVector": true,
+      "generateMatrix": true,
+      "vectorDimensions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixRows": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "matrixColumns": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "documentation": "Unsigned integer scalar type."
+    },
+    {
+      "name": "vector",
+      "kind": "special",
+      "generateVector": false,
+      "generateMatrix": false,
+      "documentation": "Generic vector type keyword."
+    },
+    {
+      "name": "void",
+      "kind": "special",
+      "generateVector": false,
+      "generateMatrix": false,
+      "documentation": "Void return type keyword."
+    }
+  ]
+}

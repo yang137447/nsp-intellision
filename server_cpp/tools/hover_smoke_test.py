@@ -75,6 +75,23 @@ def main():
     diag_invalid_suffix_text = open(diag_invalid_suffix_path, "rb").read().decode("utf-8")
     diag_struct_members_ok_text = open(diag_struct_members_ok_path, "rb").read().decode("utf-8")
     signature_text = open(signature_path, "rb").read().decode("utf-8")
+    decls_lines = decls_text.splitlines()
+    decls_local_line = -1
+    decls_local_char = -1
+    decls_ref_line = -1
+    decls_ref_char = -1
+    decls_decl_line = -1
+    for i, line in enumerate(decls_lines):
+        if "float localValue = SuiteMultiB" in line:
+            decls_local_line = i
+            decls_local_char = line.find("localValue") + 1
+            decls_ref_line = i
+            decls_ref_char = line.find("SuiteMultiB") + 1
+        if "SuiteMultiA" in line and "SuiteMultiB" in line:
+            decls_decl_line = i
+    if decls_local_line < 0 or decls_ref_line < 0 or decls_decl_line < 0:
+        sys.stderr.write("module_decls smoke anchors not found\n")
+        return 1
     main_line_190 = main_text.splitlines()[190]
     abs_char = main_line_190.find("abs(")
     if abs_char < 0:
@@ -206,7 +223,10 @@ def main():
         "jsonrpc": "2.0",
         "id": 2,
         "method": "textDocument/hover",
-        "params": {"textDocument": {"uri": decls_uri}, "position": {"line": 9, "character": 12}},
+        "params": {
+            "textDocument": {"uri": decls_uri},
+            "position": {"line": decls_local_line, "character": decls_local_char},
+        },
     }
     hover_abs = {
         "jsonrpc": "2.0",
@@ -224,7 +244,10 @@ def main():
         "jsonrpc": "2.0",
         "id": 7,
         "method": "textDocument/definition",
-        "params": {"textDocument": {"uri": decls_uri}, "position": {"line": 9, "character": 23}},
+        "params": {
+            "textDocument": {"uri": decls_uri},
+            "position": {"line": decls_ref_line, "character": decls_ref_char},
+        },
     }
     signature_help_local = {
         "jsonrpc": "2.0",
@@ -287,7 +310,8 @@ def main():
     p = subprocess.Popen([exe], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     p.stdin.write(payload)
     p.stdin.flush()
-    time.sleep(4.0)
+    diagnostics_wait_seconds = float(os.environ.get("NSF_HOVER_SMOKE_WAIT_SECONDS", "10"))
+    time.sleep(diagnostics_wait_seconds)
     try:
         p.stdin.close()
     except Exception:
@@ -411,7 +435,7 @@ def main():
                             .get("start", {})
                             .get("line")
                         )
-                        if uri == decls_uri and line == 2:
+                        if uri == decls_uri and line == decls_decl_line:
                             definition_ok = True
                 except Exception:
                     pass

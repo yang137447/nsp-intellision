@@ -10,6 +10,7 @@
 #include "lsp_io.hpp"
 #include "member_query.hpp"
 #include "nsf_lexer.hpp"
+#include "scalar_type_model.hpp"
 #include "server_parse.hpp"
 #include "text_utils.hpp"
 #include "type_model.hpp"
@@ -208,35 +209,6 @@ CompletionMetricsSnapshot takeCompletionMetricsSnapshot() {
   snapshot.responseWriteMaxMs = gCompletionMetrics.responseWriteMaxMs;
   gCompletionMetrics = CompletionMetricState{};
   return snapshot;
-}
-
-static const std::vector<std::string> &getHlslScalarVectorMatrixTypeNames() {
-  static const std::vector<std::string> names = []() {
-    const std::vector<std::string> scalarTypes = {
-        "void",       "bool",       "int",       "uint",      "dword",
-        "half",       "float",      "double",    "min16float","min10float",
-        "min16int",   "min12int",   "min16uint",
-    };
-    const std::vector<std::string> numericBases = {
-        "bool",       "int",        "uint",      "half",      "float",
-        "double",     "min16float", "min10float","min16int",  "min12int",
-        "min16uint",
-    };
-
-    std::vector<std::string> generated = scalarTypes;
-    generated.reserve(scalarTypes.size() + numericBases.size() * 12);
-    for (const auto &base : numericBases) {
-      for (int dim = 2; dim <= 4; ++dim)
-        generated.push_back(base + std::to_string(dim));
-      for (int rows = 2; rows <= 4; ++rows) {
-        for (int cols = 2; cols <= 4; ++cols)
-          generated.push_back(base + std::to_string(rows) + "x" +
-                              std::to_string(cols));
-      }
-    }
-    return generated;
-  }();
-  return names;
 }
 
 static std::string extractCompletionPrefix(const std::string &lineText,

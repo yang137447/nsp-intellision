@@ -28,14 +28,34 @@ export function registerInteractiveRuntimeCoreTests(): void {
 		const completionItems = await waitForCompletionLabels(
 			document,
 			completionPosition,
-			['#include', 'discard', 'float4'],
+			[
+				'#include',
+				'discard',
+				'groupshared',
+				'packoffset',
+				'float4',
+				'uint4x4',
+				'min16float2',
+				'Texture2D',
+				'SamplerState',
+				'texture',
+				'sampler'
+			],
 			'completion items with lsp labels'
 		);
 
 		const labels = new Set(completionItems.map((item) => item.label.toString()));
 		assert.ok(labels.has('#include'), 'Expected #include completion item.');
 		assert.ok(labels.has('discard'), 'Expected discard completion item.');
+		assert.ok(labels.has('groupshared'), 'Expected groupshared completion item.');
+		assert.ok(labels.has('packoffset'), 'Expected packoffset completion item.');
 		assert.ok(labels.has('float4'), 'Expected float4 completion item.');
+		assert.ok(labels.has('uint4x4'), 'Expected uint4x4 completion item.');
+		assert.ok(labels.has('min16float2'), 'Expected min16float2 completion item.');
+		assert.ok(labels.has('Texture2D'), 'Expected Texture2D completion item.');
+		assert.ok(labels.has('SamplerState'), 'Expected SamplerState completion item.');
+		assert.ok(labels.has('texture'), 'Expected legacy texture completion item.');
+		assert.ok(labels.has('sampler'), 'Expected legacy sampler completion item.');
 	});
 
 	it('merges current-doc locals, globals, and functions into completion items', async () => {
@@ -783,6 +803,80 @@ export function registerInteractiveRuntimeCoreTests(): void {
 		const hoverText = hoverToText(hovers);
 		assert.ok(hoverText.includes('(HLSL keyword)'));
 		assert.ok(hoverText.includes('Discards the current pixel (pixel shader).'));
+	});
+
+	it('keeps scalar type-token hover separate from workspace symbol definitions', async () => {
+		const document = await openFixture('module_decls.nsf');
+
+		const half3TypeHovers = await waitForHoverText(
+			document,
+			positionOf(document, 'half3 SuiteSharedHalf3Cache'),
+			(text) => text.includes('(HLSL type)') && text.includes('half3'),
+			'hover results for half3 type token'
+		);
+		const half3TypeText = hoverToText(half3TypeHovers);
+		assert.ok(!half3TypeText.includes('Type: groupshared'), half3TypeText);
+		assert.ok(!half3TypeText.includes('Defined at:'), half3TypeText);
+
+		const sharedVarHovers = await waitForHoverText(
+			document,
+			positionOf(document, 'SuiteSharedHalf3Cache'),
+			(text) => text.includes('Type: half3'),
+			'hover results for groupshared half3 variable'
+		);
+		const sharedVarText = hoverToText(sharedVarHovers);
+		assert.ok(sharedVarText.includes('SuiteSharedHalf3Cache'), sharedVarText);
+		assert.ok(!sharedVarText.includes('Type: groupshared'), sharedVarText);
+	});
+
+	it('preserves object template display types without treating template arguments as symbols', async () => {
+		const document = await openFixture('module_decls.nsf');
+
+		const templateArgHovers = await waitForHoverText(
+			document,
+			positionOf(document, 'float4> SuiteTemplateTex'),
+			(text) => text.includes('(HLSL type)') && text.includes('float4'),
+			'hover results for Texture2D template argument type token'
+		);
+		const templateArgText = hoverToText(templateArgHovers);
+		assert.ok(!templateArgText.includes('Type: Texture2D'), templateArgText);
+		assert.ok(!templateArgText.includes('Defined at:'), templateArgText);
+
+		const textureVarHovers = await waitForHoverText(
+			document,
+			positionOf(document, 'SuiteTemplateTex'),
+			(text) => text.includes('Texture2D<float4> SuiteTemplateTex') && text.includes('Type: Texture2D'),
+			'hover results for object template declaration variable'
+		);
+		const textureVarText = hoverToText(textureVarHovers);
+		assert.ok(textureVarText.includes('Texture2D<float4> SuiteTemplateTex'), textureVarText);
+		assert.ok(textureVarText.includes('Type: Texture2D'), textureVarText);
+	});
+
+	it('does not index storage-qualified types or object template arguments as workspace symbols', async () => {
+		await withTemporaryIntellisionPath([path.join(getWorkspaceRoot(), 'test_files')], async () => {
+			await waitForIndexingIdle('indexing idle for type-token workspace index regression');
+
+			const half3Debug = await vscode.commands.executeCommand<any>('nsf._getWorkspaceIndexSymbolDebug', {
+				query: 'half3',
+				limit: 64
+			});
+			const half3Items = Array.isArray(half3Debug?.items) ? half3Debug.items : [];
+			assert.ok(
+				!half3Items.some((item) => item?.name === 'half3'),
+				`Expected no indexed symbol named half3: ${JSON.stringify(half3Debug)}`
+			);
+
+			const float4Debug = await vscode.commands.executeCommand<any>('nsf._getWorkspaceIndexSymbolDebug', {
+				query: 'float4',
+				limit: 64
+			});
+			const float4Items = Array.isArray(float4Debug?.items) ? float4Debug.items : [];
+			assert.ok(
+				!float4Items.some((item) => item?.name === 'float4'),
+				`Expected no indexed symbol named float4: ${JSON.stringify(float4Debug)}`
+			);
+		});
 	});
 
 	it('includes trailing inline comments in hover documentation', async () => {

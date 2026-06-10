@@ -87,6 +87,7 @@ static bool computeModelsHash(std::string &hashOut, std::string &errorOut) {
   std::sort(files.begin(), files.end());
 
   uint64_t hash = 1469598103934665603ull;
+  hash = fnv1a64Append(hash, "workspace-index-extraction-v3\n");
   for (const auto &pathStr : files) {
     fs::path path(pathStr);
     std::ifstream in(path, std::ios::binary);

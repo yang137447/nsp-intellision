@@ -60,6 +60,7 @@ add_executable(nsf_lsp
   src/hover_markdown.cpp
   src/hlsl_builtin_docs.cpp
   src/language_registry.cpp
+  src/scalar_type_model.cpp
   src/conditional_ast.cpp
   src/expanded_source.cpp
   src/hlsl_ast.cpp

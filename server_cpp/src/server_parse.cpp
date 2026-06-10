@@ -2,6 +2,7 @@
 
 #include "nsf_lexer.hpp"
 #include "text_utils.hpp"
+#include "type_model.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -823,8 +824,10 @@ findDeclaratorTokenInRange(const std::vector<LexToken> &tokens,
 static bool findBaseTypeBeforeToken(const std::vector<LexToken> &tokens,
                                     const TokenRange &range,
                                     size_t declaratorIndex,
-                                    std::string &typeOut) {
+                                    std::string &typeOut,
+                                    std::string &displayTypeOut) {
   typeOut.clear();
+  displayTypeOut.clear();
   int a = 0;
   int p = 0;
   int b = 0;
@@ -857,6 +860,27 @@ static bool findBaseTypeBeforeToken(const std::vector<LexToken> &tokens,
       continue;
     }
     typeOut = t;
+    displayTypeOut = t;
+    if (idx + 1 < declaratorIndex && tokens[idx + 1].kind == LexToken::Kind::Punct &&
+        tokens[idx + 1].text == "<") {
+      int angleDepth = 0;
+      for (size_t endIdx = idx + 1; endIdx < declaratorIndex; endIdx++) {
+        const auto &angleTok = tokens[endIdx];
+        if (angleTok.kind != LexToken::Kind::Punct)
+          continue;
+        if (angleTok.text == "<") {
+          angleDepth++;
+        } else if (angleTok.text == ">" && angleDepth > 0) {
+          angleDepth--;
+          if (angleDepth == 0) {
+            displayTypeOut.clear();
+            for (size_t partIdx = idx; partIdx <= endIdx; partIdx++)
+              displayTypeOut += tokens[partIdx].text;
+            break;
+          }
+        }
+      }
+    }
     return true;
   }
   return false;
@@ -949,13 +973,19 @@ parseDeclarationsInLine(const std::string &line) {
       continue;
     const size_t firstDeclIndex = static_cast<size_t>(firstDecl - &tokens[0]);
     std::string baseType;
-    if (!findBaseTypeBeforeToken(tokens, segments[0], firstDeclIndex, baseType) ||
+    std::string baseDisplayType;
+    if (!findBaseTypeBeforeToken(tokens, segments[0], firstDeclIndex, baseType,
+                                 baseDisplayType) ||
         baseType.empty()) {
       continue;
     }
+    if (baseDisplayType.empty())
+      baseDisplayType = baseType;
 
     parsed.push_back(ParsedDeclarationInfo{
         appendDeclaratorArraySuffix(baseType, tokens, segments[0],
+                                    firstDeclIndex),
+        appendDeclaratorArraySuffix(baseDisplayType, tokens, segments[0],
                                     firstDeclIndex),
         firstDecl->text, firstDecl->start, firstDecl->end});
     for (size_t i = 1; i < segments.size(); i++) {
@@ -965,6 +995,8 @@ parseDeclarationsInLine(const std::string &line) {
       const size_t declIndex = static_cast<size_t>(decl - &tokens[0]);
       parsed.push_back(ParsedDeclarationInfo{
           appendDeclaratorArraySuffix(baseType, tokens, segments[i], declIndex),
+          appendDeclaratorArraySuffix(baseDisplayType, tokens, segments[i],
+                                      declIndex),
           decl->text, decl->start, decl->end});
     }
   }
@@ -1179,16 +1211,29 @@ bool extractFxBlockDeclarationHeaderShared(const std::string &line,
     return false;
 
   auto isBlockType = [](const std::string &t) {
-    return t == "texture" || t == "Texture" || t == "Texture2D" ||
-           t == "Texture3D" || t == "TextureCube" || t == "SamplerState" ||
-           t == "SamplerComparisonState" || t == "BlendState" ||
+    std::string family;
+    if (getTypeModelObjectFamily(t, family))
+      return true;
+    return t == "Texture" || t == "BlendState" ||
            t == "DepthStencilState" || t == "RasterizerState";
   };
 
-  bool hasAssignBefore = false;
+  int angleDepth = 0;
   for (const auto &token : tokens) {
-    if (token.kind == LexToken::Kind::Punct && token.text == "=")
-      return false;
+    if (token.kind == LexToken::Kind::Punct) {
+      if (token.text == "<") {
+        angleDepth++;
+        continue;
+      }
+      if (token.text == ">" && angleDepth > 0) {
+        angleDepth--;
+        continue;
+      }
+      if (token.text == "=")
+        return false;
+    }
+    if (angleDepth > 0)
+      continue;
     if (token.kind != LexToken::Kind::Identifier)
       continue;
     if (isQualifierToken(token.text))
@@ -1631,6 +1676,27 @@ bool findTypeOfIdentifierInDeclarationLineShared(const std::string &line,
   if (extractMetadataDeclarationHeaderShared(line, metadataType, metadataName) &&
       metadataName == identifier && !metadataType.empty()) {
     typeNameOut = metadataType;
+    return true;
+  }
+  return false;
+}
+
+bool findDisplayTypeOfIdentifierInDeclarationLineShared(
+    const std::string &line, const std::string &identifier,
+    std::string &displayTypeOut) {
+  displayTypeOut.clear();
+  const auto parsed = parseDeclarationsInLine(line);
+  for (const auto &item : parsed) {
+    if (item.name == identifier) {
+      displayTypeOut = item.displayType.empty() ? item.type : item.displayType;
+      return true;
+    }
+  }
+  std::string metadataType;
+  std::string metadataName;
+  if (extractMetadataDeclarationHeaderShared(line, metadataType, metadataName) &&
+      metadataName == identifier && !metadataType.empty()) {
+    displayTypeOut = metadataType;
     return true;
   }
   return false;

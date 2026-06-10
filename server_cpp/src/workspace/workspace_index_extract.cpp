@@ -84,6 +84,24 @@ bool buildCodeMaskForLine(const std::string &lineText,
   return true;
 }
 
+static bool declarationNameIsFollowedByParen(
+    const std::vector<LexToken> &tokens, const ParsedDeclarationInfo &decl) {
+  for (size_t i = 0; i < tokens.size(); i++) {
+    if (tokens[i].kind != LexToken::Kind::Identifier ||
+        tokens[i].start != decl.start || tokens[i].end != decl.end) {
+      continue;
+    }
+    for (size_t j = i + 1; j < tokens.size(); j++) {
+      if (tokens[j].kind == LexToken::Kind::Punct)
+        return tokens[j].text == "(";
+      if (tokens[j].kind == LexToken::Kind::Identifier)
+        return false;
+    }
+    return false;
+  }
+  return false;
+}
+
 struct LiteralConditionalFrame {
   bool parentActive = true;
   bool currentActive = true;
@@ -701,6 +719,7 @@ void extractDefinitions(const std::string &uri, const std::string &text,
 
       std::string fxBlockType;
       std::string fxBlockName;
+      bool recordedFxBlockDeclaration = false;
       if (extractFxBlockDeclarationHeaderShared(lineText, fxBlockType,
                                                 fxBlockName)) {
         for (size_t i = 0; i < tokens.size(); i++) {
@@ -709,6 +728,7 @@ void extractDefinitions(const std::string &uri, const std::string &text,
             record(tokens[i].text, fxBlockType, 8,
                    static_cast<int>(tokens[i].start),
                    static_cast<int>(tokens[i].end), lineIndex);
+            recordedFxBlockDeclaration = true;
             break;
           }
         }
@@ -793,49 +813,33 @@ void extractDefinitions(const std::string &uri, const std::string &text,
                          static_cast<int>(tokens[nameIndex].end), lineIndex);
                 }
               }
-            } else {
-              bool hasSemi = false;
-              for (size_t j = 0; j < tokens.size(); j++) {
-                if (tokens[j].kind == LexToken::Kind::Punct &&
-                    tokens[j].text == ";") {
-                  hasSemi = true;
-                  break;
-                }
-              }
-              if (hasSemi) {
-                record(name, type, 8, static_cast<int>(tokens[nameIndex].start),
-                       static_cast<int>(tokens[nameIndex].end), lineIndex);
-              }
             }
           }
         }
       }
+
+      const auto declarations =
+          extractDeclarationsInLineShared(applyCodeMaskToLine(lineText, mask));
+      for (const auto &decl : declarations) {
+        if (decl.name.empty() || decl.type.empty())
+          continue;
+        if (recordedFxBlockDeclaration && decl.name == fxBlockName)
+          continue;
+        if (declarationNameIsFollowedByParen(tokens, decl))
+          continue;
+        record(decl.name, decl.type, 8, static_cast<int>(decl.start),
+               static_cast<int>(decl.end), lineIndex);
+      }
     }
 
     if (inCbuffer && cbufferBraceDepth == 1 && !tokens.empty()) {
-      size_t typeIndex = std::string::npos;
-      for (size_t i = 0; i < tokens.size(); i++) {
-        if (tokens[i].kind != LexToken::Kind::Identifier)
+      const auto declarations =
+          extractDeclarationsInLineShared(applyCodeMaskToLine(lineText, mask));
+      for (const auto &decl : declarations) {
+        if (decl.name.empty() || decl.type.empty())
           continue;
-        if (isQualifierToken(tokens[i].text))
-          continue;
-        typeIndex = i;
-        break;
-      }
-      if (typeIndex != std::string::npos && typeIndex + 1 < tokens.size() &&
-          tokens[typeIndex + 1].kind == LexToken::Kind::Identifier) {
-        bool hasSemi = false;
-        for (const auto &t : tokens) {
-          if (t.kind == LexToken::Kind::Punct && t.text == ";") {
-            hasSemi = true;
-            break;
-          }
-        }
-        if (hasSemi) {
-          record(tokens[typeIndex + 1].text, tokens[typeIndex].text, 13,
-                 static_cast<int>(tokens[typeIndex + 1].start),
-                 static_cast<int>(tokens[typeIndex + 1].end), lineIndex);
-        }
+        record(decl.name, decl.type, 13, static_cast<int>(decl.start),
+               static_cast<int>(decl.end), lineIndex);
       }
     }
 

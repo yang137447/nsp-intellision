@@ -1,6 +1,6 @@
 # 对象类型与对象方法接口契约
 
-本文档收敛 `server_cpp/resources/types/*`、`server_cpp/resources/methods/object_methods/*`、`type_model.*` 与下游 consumer 之间的共享契约。它是当前事实文档。
+本文档收敛 `server_cpp/resources/types/object_types/`、`server_cpp/resources/types/object_families/`、`server_cpp/resources/types/type_overrides/`、`server_cpp/resources/methods/object_methods/*`、`type_model.*` 与下游 consumer 之间的共享契约。它是当前事实文档。`types/scalar_types` 与 `scalar_type_model.*` 只负责 scalar/vector/matrix 类型名和形状，不属于本文的对象类型 / 对象方法契约。
 
 除“当前偏差”外，本文条目都是当前仓库要求遵守的契约；实现若不一致，应优先修实现，或在同一次任务里同步改写本文。
 
@@ -34,7 +34,7 @@
 
 | 层次 | 当前载体 | 当前责任 |
 | --- | --- | --- |
-| 资源/数据接口 | `resources/types/*`、`resources/methods/object_methods/*` | 定义对象类型字段、对象族和对象方法模板 |
+| 资源/数据接口 | `resources/types/object_types/`、`resources/types/object_families/`、`resources/types/type_overrides/`、`resources/methods/object_methods/*` | 定义对象类型字段、对象族和对象方法模板 |
 | 加载接口 | `resource_registry.*` | bundle 路径解析、JSON 读取和 schema 校验 |
 | 共享模块 API | `type_model.*`、`hover_markdown.*` public 查询 | 暴露跨模块可调用入口 |
 | consumer-ready 语义接口 | `type_model.*` 返回的 family、texture-like、sampleCoordDim、loadCoordDim | 把底层字段转换成 consumer 可直接使用的共享语义 |
@@ -46,6 +46,7 @@
 ## 共享术语
 
 - `baseType`: 规范化基础类型名，例如 `Texture2DArray`、`RWTexture2D`、`SamplerState`
+- `displayType`: 声明 hover/code block 使用的源码拼写，例如 `Texture2D<float4>`；它不是新的对象类型 key
 - `family`: 对象族，例如 `Texture`、`RWTexture`、`Buffer`
 - `coordDim`: 空间坐标维度，不包含 array slice、mip 或 sample index
 - `isArray`: 对象是否带 array slice 维度
@@ -93,6 +94,7 @@
 - consumer 需要方法实际坐标维度时，必须通过 `type_model.*` 查询。
 - consumer 不得用 `family == Texture`、`coordDim == 2` 等本地规则反推 array texture 参数形状。
 - 公开查询语义变化时，必须同步更新 `type_model.hpp` 的职责与 public API 注释。
+- object template declaration 的语义类型必须保持 normalized object base，例如 `Texture2D<float4> tex` 对 `type_model.*` 仍是 `Texture2D`；`Texture2D<float4>` 只作为 shared declaration parser 提供的 `displayType` 给 hover 展示，不进入 `types/object_types`、对象族或方法匹配。
 
 `hover_markdown.*` 的职责：
 
@@ -161,7 +163,7 @@ consumer 包括 hover、signature help、member completion、inlay hints 和 dia
 
 修改以下任一项时，必须同步检查并更新本文：
 
-- `types/*` 资源字段语义
+- `types/object_types`、`types/object_families` 或 `types/type_overrides` 资源字段语义
 - `methods/object_methods` 占位符含义
 - `type_model.*` public 查询语义
 - 对象方法 hover、completion、signature help、diagnostics 判定规则

@@ -11,12 +11,14 @@ namespace {
 constexpr int kIllegalCost = 1000000000;
 
 bool isFloatFamily(const std::string &base) {
-  return base == "half" || base == "float" || base == "double";
+  return base == "min10float" || base == "min16float" || base == "half" ||
+         base == "float" || base == "double";
 }
 
 bool isIntFamily(const std::string &base) {
-  return base == "int" || base == "uint" || base == "int64_t" ||
-         base == "uint64_t";
+  return base == "min12int" || base == "min16int" ||
+         base == "min16uint" || base == "dword" || base == "int" ||
+         base == "uint" || base == "int64_t" || base == "uint64_t";
 }
 
 bool isNumericScalarBase(const std::string &base) {
@@ -24,7 +26,7 @@ bool isNumericScalarBase(const std::string &base) {
 }
 
 int floatRank(const std::string &base) {
-  if (base == "half")
+  if (base == "min10float" || base == "min16float" || base == "half")
     return 0;
   if (base == "float")
     return 1;
@@ -34,11 +36,13 @@ int floatRank(const std::string &base) {
 }
 
 bool isUnsignedIntFamily(const std::string &base) {
-  return base == "uint" || base == "uint64_t";
+  return base == "min16uint" || base == "dword" || base == "uint" ||
+         base == "uint64_t";
 }
 
 int intRank(const std::string &base) {
-  if (base == "int" || base == "uint")
+  if (base == "min12int" || base == "min16int" || base == "min16uint" ||
+      base == "dword" || base == "int" || base == "uint")
     return 0;
   if (base == "int64_t" || base == "uint64_t")
     return 1;

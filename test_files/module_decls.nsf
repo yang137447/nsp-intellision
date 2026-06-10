@@ -1,4 +1,6 @@
 Texture2D<float4> SuiteTemplateTex;
+Buffer<uint> SuiteTemplateBuffer;
+groupshared half3 SuiteSharedHalf3Cache[4];
 
 float SuiteMultiA = 0, SuiteMultiB = 1;
 

@@ -25,6 +25,7 @@ server_cpp/resources/
   language/semantics/
   language/preprocessor_macros/
   methods/object_methods/
+  types/scalar_types/
   types/object_types/
   types/object_families/
   types/type_overrides/
@@ -38,6 +39,7 @@ server_cpp/resources/
 - `language/semantics`: 系统语义名、说明和典型类型
 - `language/preprocessor_macros`: shadercompiler 风格默认预处理宏 preset，用于首次填充用户可见的 `nsf.preprocessorMacros` 工作区设置；包含 `builtin_macros.py` 的 builtin 宏、`hlsl_process.py` 编译上下文宏名、已确认按 legacy `#if` undefined-as-zero 语义工作的 profile / project 宏，以及已验证无冲突的 source enum-like 常量
 - `methods/object_methods`: 对象方法签名、适用对象族和文档
+- `types/scalar_types`: HLSL scalar base、vector / matrix 公式展开范围和 numeric/special 分类
 - `types/object_types`: 对象类型定义
 - `types/object_families`: 对象族与兼容关系
 - `types/type_overrides`: 类型和对象族覆盖层
@@ -98,8 +100,11 @@ server 构建预处理环境时按以下顺序合并：
 资源相关脚本：
 
 - `scripts/builtins/update_hlsl_intrinsics_manifest.js`: 从 Microsoft Learn HLSL intrinsic 官方索引生成 `server_cpp/resources/builtins/intrinsics/base.json`；脚本同时解析 table 和 list 形式索引，优先使用索引里的官方 href 抓取详情页，并要求输出条目完整覆盖所有索引名。找不到详情页的条目默认会失败，当前仅允许官方索引里的 `object` 特殊行作为 index-only 条目保留并输出 warning，避免官方页面结构变化或 URL 规则变化时静默漏抓。
+- `scripts/language/update_hlsl_keywords.js`: 从 Microsoft Learn HLSL keywords 官方页面生成 `server_cpp/resources/language/keywords/base.json`；脚本优先抓取 `?accept=text/markdown`，失败时回退 HTML meta/body 抽取，并排除 type/object type 关键字，避免类型资源混入 language keyword bundle。输出会保留现有同名 keyword documentation，先写临时文件并通过 `scripts/json/validate_resources.js --keywords-base` 校验后再替换正式资源；校验或替换失败会清理临时文件。
+- `scripts/language/update_hlsl_types.js`: 从 Microsoft Learn HLSL keywords 官方页面抽取 HLSL type 关键字，校验 scalar / vector / matrix pattern，并按当前 object type schema 生成 `server_cpp/resources/types/object_types/base.json`；脚本会把 legacy `texture` / `sampler` 别名纳入现有 Texture / Sampler family，先写临时文件并通过 `scripts/json/validate_resources.js --object-types-base` 校验后再替换正式资源；校验或替换失败会清理临时文件。
+- `scripts/language/update_hlsl_scalar_types.js`: 从 Microsoft Learn HLSL keywords 官方页面抽取官方 scalar / special type base，并按 `types/scalar_types` schema 生成 vector / matrix 公式展开事实；`half` / `double` 的展开资格由脚本内显式 curated evidence 记录，因为官方 expansion 段当前只列部分 numeric base。脚本先写临时文件并通过 `scripts/json/validate_resources.js --scalar-types-base` 校验后再替换正式资源；校验或替换失败会清理临时文件。
 - `scripts/builtins/update_preprocessor_macros.py`: 从 shadercompiler `builtin_macros.py` 生成 `server_cpp/resources/language/preprocessor_macros/base.json`；可传入 `--const-macros` 补齐 builtin 表达式依赖的枚举 / 常量宏，可传入 `--compiler-context` 指向 `hlsl_process.py` 以补齐编译上下文宏名；脚本内的 `LEGACY_COMPILER_CONTEXT_MACROS` 用于记录已确认的 legacy profile/context 宏，`LEGACY_UNDEFINED_ZERO_MACROS` 用于记录按 shadercompiler `#if` undefined-as-zero 对齐的 project 宏，`VERIFIED_STABLE_SOURCE_CONSTANT_MACROS` 用于记录已验证无冲突的 source enum-like 常量
-- `scripts/json/validate_resources.js`: 校验所有资源 bundle
+- `scripts/json/validate_resources.js`: 校验所有资源 bundle，并对关键事实入口执行 coverage 检查；其中 keyword bundle 会断言 `discard` / `groupshared` / `packoffset` 等代表性 keyword 存在，同时断言 scalar / vector / matrix / object type token 不混入 `language/keywords`；scalar type bundle 会校验 generated type name 覆盖代表性 scalar / vector / matrix token；object type / family bundle 会互相校验成员归属和 compatible family 引用，避免 `types/object_types` 和 `types/object_families` 漂移；主要资源入口还会检查重复 name
 
 构建规则：
 

@@ -405,7 +405,7 @@ std::string getDocumentRuntimeResourceModelHash() {
       "language/directives",  "language/semantics",
       "methods/object_methods",
       "types/object_types",   "types/object_families",
-      "types/type_overrides"};
+      "types/type_overrides",  "types/scalar_types"};
   static std::mutex gResourceModelHashMutex;
   static std::vector<ResourceFileStamp> gCachedStamps;
   static std::string gCachedHash;

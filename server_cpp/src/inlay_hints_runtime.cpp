@@ -11,6 +11,7 @@
 #include "server_parse.hpp"
 #include "server_request_handlers.hpp"
 #include "text_utils.hpp"
+#include "type_model.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -89,13 +90,7 @@ bool resolveBuiltinMethodParametersForInlay(const std::string &methodName,
   if (methodName.empty())
     return false;
   std::vector<HlslBuiltinSignature> signatures;
-  static const std::vector<std::string> kBaseTypeCandidates = {
-      "Texture2D",        "RWTexture2D",       "Buffer",
-      "RWBuffer",         "StructuredBuffer",  "RWStructuredBuffer",
-      "ByteAddressBuffer","RWByteAddressBuffer","SamplerState",
-      "SamplerComparisonState",
-  };
-  for (const auto &baseType : kBaseTypeCandidates) {
+  for (const auto &baseType : getTypeModelObjectTypeNames()) {
     if (lookupHlslBuiltinMethodSignatures(methodName, baseType, signatures) &&
         !signatures.empty()) {
       outParams = signatures.front().parameters;

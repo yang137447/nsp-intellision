@@ -2,148 +2,260 @@
   "version": 1,
   "entries": [
     {
-      "name": "struct",
-      "documentation": "Declares a structure type."
+      "name": "asm",
+      "documentation": "HLSL reserved keyword."
     },
     {
-      "name": "cbuffer",
-      "documentation": "Declares a constant buffer block."
-    },
-    {
-      "name": "class",
-      "documentation": "Declares a class type."
-    },
-    {
-      "name": "typedef",
-      "documentation": "Creates a type alias."
-    },
-    {
-      "name": "static",
-      "documentation": "Marks a declaration with static storage semantics."
-    },
-    {
-      "name": "const",
-      "documentation": "Marks a value as read-only."
-    },
-    {
-      "name": "in",
-      "documentation": "Marks a parameter as input-only."
-    },
-    {
-      "name": "out",
-      "documentation": "Marks a parameter as output-only."
-    },
-    {
-      "name": "inout",
-      "documentation": "Marks a parameter as both input and output."
-    },
-    {
-      "name": "uniform",
-      "documentation": "Marks a parameter or variable as uniform."
-    },
-    {
-      "name": "volatile",
-      "documentation": "Prevents certain compiler optimizations on a value."
-    },
-    {
-      "name": "row_major",
-      "documentation": "Uses row-major matrix packing."
-    },
-    {
-      "name": "column_major",
-      "documentation": "Uses column-major matrix packing."
-    },
-    {
-      "name": "precise",
-      "documentation": "Requests precise evaluation without value-changing optimization."
-    },
-    {
-      "name": "nointerpolation",
-      "documentation": "Disables interpolation for a varying value."
-    },
-    {
-      "name": "linear",
-      "documentation": "Uses linear interpolation for a varying value."
-    },
-    {
-      "name": "centroid",
-      "documentation": "Samples an interpolated value at the centroid."
-    },
-    {
-      "name": "noperspective",
-      "documentation": "Uses non-perspective interpolation."
-    },
-    {
-      "name": "sample",
-      "documentation": "Samples an interpolated value at the pixel sample position."
-    },
-    {
-      "name": "technique",
-      "documentation": "Declares an effect technique."
-    },
-    {
-      "name": "pass",
-      "documentation": "Declares an effect pass."
-    },
-    {
-      "name": "if",
-      "documentation": "Conditional statement."
-    },
-    {
-      "name": "else",
-      "documentation": "Fallback branch for a conditional statement."
-    },
-    {
-      "name": "switch",
-      "documentation": "Multi-branch conditional statement."
-    },
-    {
-      "name": "case",
-      "documentation": "Labels a switch branch."
-    },
-    {
-      "name": "default",
-      "documentation": "Fallback branch for a switch statement."
-    },
-    {
-      "name": "for",
-      "documentation": "Loop statement."
-    },
-    {
-      "name": "while",
-      "documentation": "Loop statement."
-    },
-    {
-      "name": "do",
-      "documentation": "Loop statement that executes before checking its condition."
+      "name": "asm_fragment",
+      "documentation": "HLSL reserved keyword."
     },
     {
       "name": "break",
       "documentation": "Breaks out of the nearest loop or switch."
     },
     {
+      "name": "case",
+      "documentation": "Labels a switch branch."
+    },
+    {
+      "name": "cbuffer",
+      "documentation": "Declares a constant buffer block."
+    },
+    {
+      "name": "centroid",
+      "documentation": "Samples an interpolated value at the centroid."
+    },
+    {
+      "name": "class",
+      "documentation": "Declares a class type."
+    },
+    {
+      "name": "column_major",
+      "documentation": "Uses column-major matrix packing."
+    },
+    {
+      "name": "compile",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "compile_fragment",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "CompileShader",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "ComputeShader",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "const",
+      "documentation": "Marks a value as read-only."
+    },
+    {
       "name": "continue",
       "documentation": "Continues to the next loop iteration."
     },
     {
-      "name": "return",
-      "documentation": "Returns from a function."
+      "name": "default",
+      "documentation": "Fallback branch for a switch statement."
     },
     {
       "name": "discard",
       "documentation": "Discards the current pixel (pixel shader)."
     },
     {
+      "name": "do",
+      "documentation": "Loop statement that executes before checking its condition."
+    },
+    {
+      "name": "DomainShader",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "else",
+      "documentation": "Fallback branch for a conditional statement."
+    },
+    {
+      "name": "export",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "extern",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "false",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "for",
+      "documentation": "Loop statement."
+    },
+    {
+      "name": "fxgroup",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "GeometryShader",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "groupshared",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "Hullshader",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "if",
+      "documentation": "Conditional statement."
+    },
+    {
+      "name": "in",
+      "documentation": "Marks a parameter as input-only."
+    },
+    {
+      "name": "inline",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "inout",
+      "documentation": "Marks a parameter as both input and output."
+    },
+    {
+      "name": "interface",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "linear",
+      "documentation": "Uses linear interpolation for a varying value."
+    },
+    {
+      "name": "namespace",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "nointerpolation",
+      "documentation": "Disables interpolation for a varying value."
+    },
+    {
+      "name": "noperspective",
+      "documentation": "Uses non-perspective interpolation."
+    },
+    {
+      "name": "NULL",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "out",
+      "documentation": "Marks a parameter as output-only."
+    },
+    {
+      "name": "packoffset",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "pass",
+      "documentation": "Declares an effect pass."
+    },
+    {
+      "name": "pixelfragment",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "PixelShader",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "precise",
+      "documentation": "Requests precise evaluation without value-changing optimization."
+    },
+    {
+      "name": "register",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "return",
+      "documentation": "Returns from a function."
+    },
+    {
+      "name": "row_major",
+      "documentation": "Uses row-major matrix packing."
+    },
+    {
+      "name": "sample",
+      "documentation": "Samples an interpolated value at the pixel sample position."
+    },
+    {
+      "name": "shared",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "stateblock",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "stateblock_state",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "static",
+      "documentation": "Marks a declaration with static storage semantics."
+    },
+    {
+      "name": "struct",
+      "documentation": "Declares a structure type."
+    },
+    {
       "name": "switch",
       "documentation": "Multi-branch conditional statement."
     },
     {
-      "name": "case",
-      "documentation": "Labels a switch branch."
+      "name": "tbuffer",
+      "documentation": "HLSL reserved keyword."
     },
     {
-      "name": "default",
-      "documentation": "Fallback branch for a switch statement."
+      "name": "technique",
+      "documentation": "Declares an effect technique."
+    },
+    {
+      "name": "technique10",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "technique11",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "true",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "typedef",
+      "documentation": "Creates a type alias."
+    },
+    {
+      "name": "uniform",
+      "documentation": "Marks a parameter or variable as uniform."
+    },
+    {
+      "name": "vertexfragment",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "VertexShader",
+      "documentation": "HLSL reserved keyword."
+    },
+    {
+      "name": "volatile",
+      "documentation": "Prevents certain compiler optimizations on a value."
+    },
+    {
+      "name": "while",
+      "documentation": "Loop statement."
     }
   ]
 }

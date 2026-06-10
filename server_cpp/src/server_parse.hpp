@@ -8,7 +8,13 @@ struct ParsedDeclarationInfo {
   // Consumer-ready declaration type. Declarator array suffixes are preserved
   // on the type, e.g. `float4x4 m[6]` is reported as `float4x4[]`, so shared
   // expression typing can distinguish array indexing from matrix row indexing.
+  // Object template declarations such as `Texture2D<float4> t` keep `type`
+  // normalized to the object base type (`Texture2D`) for type_model consumers.
   std::string type;
+  // Source-facing type spelling for hover/code display. This may preserve
+  // object template arguments, e.g. `Texture2D<float4>`, while `type` stays
+  // normalized to `Texture2D`. When empty, consumers should fall back to `type`.
+  std::string displayType;
   std::string name;
   size_t start = 0;
   size_t end = 0;
@@ -148,3 +154,7 @@ bool shouldReportMissingSemicolonShared(const std::string &previousTrimmed,
 bool findTypeOfIdentifierInDeclarationLineShared(const std::string &line,
                                                  const std::string &identifier,
                                                  std::string &typeNameOut);
+
+bool findDisplayTypeOfIdentifierInDeclarationLineShared(
+    const std::string &line, const std::string &identifier,
+    std::string &displayTypeOut);

@@ -1,5 +1,6 @@
 #include "callsite_parser.hpp"
 
+#include "scalar_type_model.hpp"
 #include "text_utils.hpp"
 
 #include <cctype>
@@ -76,43 +77,13 @@ static std::string toLowerAscii(std::string value) {
   return value;
 }
 
-static bool isDigits(const std::string &value) {
-  if (value.empty())
-    return false;
-  for (char ch : value) {
-    if (!std::isdigit(static_cast<unsigned char>(ch)))
-      return false;
-  }
-  return true;
-}
-
 static bool isLikelyTypeConstructor(const std::string &name) {
-  const std::string lower = toLowerAscii(name);
-  if (lower == "bool" || lower == "int" || lower == "uint" ||
-      lower == "dword" || lower == "half" || lower == "float" ||
-      lower == "double" || lower == "min16float" || lower == "min10float" ||
-      lower == "min16int" || lower == "min12int" || lower == "min16uint")
-    return true;
-  const std::vector<std::string> bases = {
-      "bool",       "int",        "uint",     "half",     "float",    "double",
-      "min16float", "min10float", "min16int", "min12int", "min16uint"};
-  for (const auto &base : bases) {
-    if (lower.rfind(base, 0) != 0)
-      continue;
-    const std::string suffix = lower.substr(base.size());
-    if (suffix.empty())
-      continue;
-    if (isDigits(suffix))
-      return true;
-    const size_t x = suffix.find('x');
-    if (x == std::string::npos)
-      continue;
-    const std::string rows = suffix.substr(0, x);
-    const std::string cols = suffix.substr(x + 1);
-    if (isDigits(rows) && isDigits(cols))
-      return true;
-  }
-  return false;
+  HlslScalarTypeShape shape;
+  if (!parseHlslScalarVectorMatrixTypeShape(toLowerAscii(name), shape))
+    return false;
+  return shape.shape != HlslScalarTypeShapeKind::Unknown &&
+         (hlslScalarTypeKindIsNumeric(shape.kind) ||
+          hlslScalarTypeKindIsBoolean(shape.kind));
 }
 
 } // namespace

@@ -51,7 +51,8 @@ bool isQualifierToken(const std::string &token) {
       "const",        "static",        "uniform",         "volatile",
       "in",           "out",           "inout",           "row_major",
       "column_major", "precise",       "nointerpolation", "linear",
-      "centroid",     "noperspective", "sample",          "struct"};
+      "centroid",     "noperspective", "sample",          "groupshared",
+      "struct"};
   return qualifiers.find(token) != qualifiers.end();
 }
 

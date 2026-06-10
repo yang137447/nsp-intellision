@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "required": ["version", "entries"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": ["bool", "integer", "floating", "special"]
+          },
+          "generateVector": { "type": "boolean" },
+          "generateMatrix": { "type": "boolean" },
+          "vectorDimensions": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "matrixRows": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "matrixColumns": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "legacy": { "type": "boolean" },
+          "minPrecision": { "type": "boolean" },
+          "documentation": { "type": "string", "minLength": 1 },
+          "disabled": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

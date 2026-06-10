@@ -1,8 +1,9 @@
 #include "type_desc.hpp"
 
+#include "scalar_type_model.hpp"
+
 #include <algorithm>
 #include <cctype>
-#include <regex>
 #include <unordered_set>
 
 namespace {
@@ -50,14 +51,20 @@ std::vector<std::string> splitBySpace(const std::string &value) {
 
 bool isQualifierToken(const std::string &value) {
   static const std::unordered_set<std::string> qualifiers = {
-      "const", "in", "out", "inout", "uniform", "volatile", "static"};
+      "const", "in", "out", "inout", "uniform", "volatile", "static",
+      "groupshared"};
   return qualifiers.find(value) != qualifiers.end();
 }
 
 bool isNumericScalar(const std::string &base) {
-  return base == "float" || base == "half" || base == "double" ||
-         base == "int" || base == "uint" || base == "int64_t" ||
-         base == "uint64_t" || base == "bool";
+  if (base == "int64_t" || base == "uint64_t")
+    return true;
+  HlslScalarTypeShape shape;
+  if (!parseHlslScalarVectorMatrixTypeShape(base, shape))
+    return false;
+  return shape.shape == HlslScalarTypeShapeKind::Scalar &&
+         (hlslScalarTypeKindIsNumeric(shape.kind) ||
+          hlslScalarTypeKindIsBoolean(shape.kind));
 }
 
 std::string normalizeMacroLikeNumericAlias(const std::string &typeToken) {
@@ -134,24 +141,23 @@ TypeDesc parseTypeDesc(const std::string &value) {
     return out;
   }
 
-  static const std::regex matrixPattern(
-      R"(^(float|half|double|int|uint|bool)([2-4])x([2-4])$)");
-  std::smatch matrixMatch;
-  if (std::regex_match(typeToken, matrixMatch, matrixPattern)) {
-    out.kind = TypeDescKind::Matrix;
-    out.base = matrixMatch[1].str();
-    out.rows = std::stoi(matrixMatch[2].str());
-    out.cols = std::stoi(matrixMatch[3].str());
-    return out;
-  }
-
-  static const std::regex vectorPattern(
-      R"(^(float|half|double|int|uint|bool)([2-4])$)");
-  std::smatch vectorMatch;
-  if (std::regex_match(typeToken, vectorMatch, vectorPattern)) {
-    out.kind = TypeDescKind::Vector;
-    out.base = vectorMatch[1].str();
-    out.rows = std::stoi(vectorMatch[2].str());
+  HlslScalarTypeShape shape;
+  if (parseHlslScalarVectorMatrixTypeShape(typeToken, shape) &&
+      (hlslScalarTypeKindIsNumeric(shape.kind) ||
+       hlslScalarTypeKindIsBoolean(shape.kind))) {
+    out.base = shape.baseName;
+    out.rows = shape.rows;
+    out.cols = shape.cols;
+    if (shape.shape == HlslScalarTypeShapeKind::Matrix) {
+      out.kind = TypeDescKind::Matrix;
+      return out;
+    }
+    if (shape.shape == HlslScalarTypeShapeKind::Vector && shape.rows > 1) {
+      out.kind = TypeDescKind::Vector;
+      return out;
+    }
+    out.kind = TypeDescKind::Scalar;
+    out.rows = 1;
     out.cols = 1;
     return out;
   }
@@ -179,7 +185,7 @@ std::string typeDescToCanonicalString(const TypeDesc &type) {
       return type.base + std::to_string(type.rows);
     return type.base;
   case TypeDescKind::Matrix:
-    if (!type.base.empty() && type.rows >= 2 && type.rows <= 4 && type.cols >= 2 &&
+    if (!type.base.empty() && type.rows >= 1 && type.rows <= 4 && type.cols >= 1 &&
         type.cols <= 4) {
       return type.base + std::to_string(type.rows) + "x" +
              std::to_string(type.cols);

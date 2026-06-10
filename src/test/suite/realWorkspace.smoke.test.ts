@@ -5,6 +5,10 @@ import * as vscode from 'vscode';
 type ProviderLocation = vscode.Location | vscode.LocationLink;
 type SymbolLike = vscode.DocumentSymbol | vscode.SymbolInformation;
 type Awaitable<T> = T | Thenable<T> | PromiseLike<T>;
+type WaitForOptions = {
+	attempts?: number;
+	delayMs?: number;
+};
 
 const testMode = process.env.NSF_TEST_MODE ?? 'repo';
 const realDescribe = testMode === 'real' ? describe : describe.skip;
@@ -34,18 +38,58 @@ async function waitForIndexingIdle(label: string): Promise<void> {
 async function waitFor<T>(
 	producer: () => Awaitable<T>,
 	isReady: (value: T) => boolean,
-	label: string
+	label: string,
+	options?: WaitForOptions
 ): Promise<T> {
 	let lastValue: T | undefined;
-	const maxAttempts = testMode === 'real' ? 120 : 40;
+	const maxAttempts = options?.attempts ?? (testMode === 'real' ? 120 : 40);
+	const delayMs = options?.delayMs ?? 500;
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {
 		lastValue = await Promise.resolve(producer());
 		if (isReady(lastValue)) {
 			return lastValue;
 		}
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await new Promise((resolve) => setTimeout(resolve, delayMs));
 	}
 	throw new Error(`Timed out waiting for ${label}.`);
+}
+
+async function waitForClientQuiescent(label: string): Promise<void> {
+	await waitFor(
+		() => vscode.commands.executeCommand<any>('nsf._getInternalStatus'),
+		(value) => {
+			const state = value?.indexingState;
+			const indexingIdle =
+				!state ||
+				(state.state === 'Idle' &&
+					(state.pending?.queuedTasks ?? 0) === 0 &&
+					(state.pending?.runningWorkers ?? 0) === 0);
+			return (
+				indexingIdle &&
+				(value?.activeRpcCount ?? 0) === 0 &&
+				!value?.pendingInitialInlayRefreshAfterIndex &&
+				!value?.pendingInlayRefreshAfterIndexActivity
+			);
+		},
+		label,
+		{ attempts: 180 }
+	);
+}
+
+async function resetRealSmokeEditorState(): Promise<void> {
+	for (const document of vscode.workspace.textDocuments) {
+		if (!document.isDirty || document.isUntitled) {
+			continue;
+		}
+		await vscode.window.showTextDocument(document, { preview: false });
+		await vscode.commands.executeCommand('workbench.action.files.revert');
+	}
+	await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+	const commands = await vscode.commands.getCommands(true);
+	if (!commands.includes('nsf._getInternalStatus')) {
+		return;
+	}
+	await waitForClientQuiescent('real workspace smoke precondition quiescent');
 }
 
 function toFsPath(location: ProviderLocation): string {
@@ -87,6 +131,99 @@ function flattenSymbolNames(symbols: SymbolLike[]): string[] {
 	return names;
 }
 
+async function requestServerDocumentSymbols(document: vscode.TextDocument): Promise<SymbolLike[]> {
+	const response = await vscode.commands.executeCommand<SymbolLike[]>(
+		'nsf._sendServerRequest',
+		{
+			method: 'textDocument/documentSymbol',
+			params: {
+				textDocument: { uri: document.uri.toString() }
+			}
+		}
+	);
+	return Array.isArray(response) ? response : [];
+}
+
+async function getDocumentSymbolsDebug(document: vscode.TextDocument): Promise<string> {
+	let status: any;
+	try {
+		status = await vscode.commands.executeCommand<any>('nsf._getInternalStatus');
+	} catch (error) {
+		status = { error: error instanceof Error ? error.message : String(error) };
+	}
+
+	let runtime: any;
+	try {
+		runtime = await vscode.commands.executeCommand<any>('nsf._getDocumentRuntimeDebug', {
+			uris: [document.uri.toString()]
+		});
+	} catch (error) {
+		runtime = { error: error instanceof Error ? error.message : String(error) };
+	}
+	const state = status?.indexingState;
+	const runtimeEntry = Array.isArray(runtime?.documents) ? runtime.documents[0] : undefined;
+	return JSON.stringify({
+		status: {
+			clientState: status?.clientState,
+			activeRpcCount: status?.activeRpcCount,
+			indexingState: state?.state,
+			queuedTasks: state?.pending?.queuedTasks,
+			runningWorkers: state?.pending?.runningWorkers,
+			pendingInitialInlayRefreshAfterIndex: status?.pendingInitialInlayRefreshAfterIndex,
+			pendingInlayRefreshAfterIndexActivity: status?.pendingInlayRefreshAfterIndexActivity
+		},
+		runtime: {
+			exists: runtimeEntry?.exists,
+			version: runtimeEntry?.version,
+			epoch: runtimeEntry?.epoch,
+			hasDeferredDocSnapshot: runtimeEntry?.hasDeferredDocSnapshot,
+			deferredHasSemanticSnapshot: runtimeEntry?.deferredHasSemanticSnapshot,
+			deferredHasSemanticTokensFull: runtimeEntry?.deferredHasSemanticTokensFull,
+			deferredHasDocumentSymbols: runtimeEntry?.deferredHasDocumentSymbols,
+			activeUnitPath: runtimeEntry?.activeUnitPath
+		}
+	});
+}
+
+async function waitForDocumentSymbols(
+	document: vscode.TextDocument,
+	label: string
+): Promise<SymbolLike[]> {
+	let lastProviderLength = 0;
+	let lastServerLength = 0;
+	let lastServerNames: string[] = [];
+	try {
+		return await waitFor(
+			async () => {
+				const providerSymbols = await vscode.commands.executeCommand<SymbolLike[]>(
+					'vscode.executeDocumentSymbolProvider',
+					document.uri
+				);
+				lastProviderLength = Array.isArray(providerSymbols) ? providerSymbols.length : 0;
+				if (lastProviderLength > 0) {
+					return providerSymbols;
+				}
+
+				// Real full-suite runs can leave VS Code's executeDocumentSymbolProvider returning
+				// an empty provider result even after the LSP server has materialized symbols.
+				const serverSymbols = await requestServerDocumentSymbols(document);
+				lastServerLength = serverSymbols.length;
+				lastServerNames = flattenSymbolNames(serverSymbols).slice(0, 16);
+				return serverSymbols.length > 0 ? serverSymbols : providerSymbols;
+			},
+			(value) => Array.isArray(value) && value.length > 0,
+			label,
+			{ attempts: 240 }
+		);
+	} catch (error) {
+		const debug = await getDocumentSymbolsDebug(document);
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`${message} providerLength=${lastProviderLength} serverLength=${lastServerLength} serverNames=${lastServerNames.join(', ')} debug=${debug}`
+		);
+	}
+}
+
 function countWorkspaceEdits(edit: vscode.WorkspaceEdit): number {
 	let count = 0;
 	for (const [, edits] of edit.entries()) {
@@ -124,6 +261,11 @@ function hoverToText(hovers: vscode.Hover[]): string {
 }
 
 realDescribe('NSF real workspace smoke', () => {
+	beforeEach(async function () {
+		this.timeout(180000);
+		await resetRealSmokeEditorState();
+	});
+
 	it('works against a real project nsf file', async function () {
 		this.timeout(180000);
 		const shaderSourceRoot = getWorkspaceFolderPath('shader-source');
@@ -240,15 +382,8 @@ realDescribe('NSF real workspace smoke', () => {
 		);
 		assert.ok(countWorkspaceEdits(renameEdit) >= 1);
 
-		const symbols = await waitFor(
-			() =>
-				vscode.commands.executeCommand<SymbolLike[]>(
-					'vscode.executeDocumentSymbolProvider',
-					buildingDocument.uri
-				),
-			(value) => Array.isArray(value) && value.length > 0,
-			'real workspace document symbols'
-		);
+		await waitForClientQuiescent('real workspace client quiescent before document symbols');
+		const symbols = await waitForDocumentSymbols(buildingDocument, 'real workspace document symbols');
 		const names = flattenSymbolNames(symbols);
 		assert.ok(names.includes('VS_INPUT'));
 		assert.ok(names.includes('PS_INPUT'));
@@ -365,15 +500,8 @@ realDescribe('NSF real workspace smoke', () => {
 		);
 		assert.strictEqual(path.basename(toFsPath(localDefinitions[0])), 'bluetide_common.hlsl');
 
-		const symbols = await waitFor(
-			() =>
-				vscode.commands.executeCommand<SymbolLike[]>(
-					'vscode.executeDocumentSymbolProvider',
-					hlslDocument.uri
-				),
-			(value) => Array.isArray(value) && value.length > 0,
-			'real workspace macro-heavy document symbols'
-		);
+		await waitForClientQuiescent('real workspace client quiescent before macro-heavy document symbols');
+		const symbols = await waitForDocumentSymbols(hlslDocument, 'real workspace macro-heavy document symbols');
 		const names = flattenSymbolNames(symbols);
 		assert.ok(names.includes('BlueTideInflunence'));
 		assert.ok(names.includes('textureNoTile'));

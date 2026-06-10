@@ -20,6 +20,7 @@
 #include "nsf_lexer.hpp"
 #include "overload_resolver.hpp"
 #include "preprocessor_view.hpp"
+#include "scalar_type_model.hpp"
 #include "semantic_cache.hpp"
 #include "semantic_snapshot.hpp"
 #include "server_parse.hpp"
@@ -831,33 +832,37 @@ std::string normalizeTypeTokenWithPreprocessor(
 }
 
 bool isVectorType(const std::string &type, int &dimensionOut) {
-  if (type.size() < 2)
+  HlslScalarTypeShape shape;
+  if (!parseHlslScalarVectorMatrixTypeShape(type, shape))
     return false;
-  size_t digitPos = type.size() - 1;
-  if (!std::isdigit(static_cast<unsigned char>(type[digitPos])))
+  if (shape.shape != HlslScalarTypeShapeKind::Vector || shape.rows <= 1)
     return false;
-  int dim = type[digitPos] - '0';
-  if (dim < 2 || dim > 4)
+  if (!hlslScalarTypeKindIsNumeric(shape.kind) &&
+      !hlslScalarTypeKindIsBoolean(shape.kind))
     return false;
-  std::string base = type.substr(0, digitPos);
-  if (base == "float" || base == "half" || base == "double" ||
-      base == "int" || base == "uint" || base == "bool") {
-    dimensionOut = dim;
-    return true;
-  }
-  return false;
+  dimensionOut = shape.rows;
+  return true;
 }
 
 bool isScalarType(const std::string &type) {
-  return type == "float" || type == "half" || type == "double" ||
-         type == "int" || type == "uint" || type == "int64_t" ||
-         type == "uint64_t" || type == "bool";
+  if (type == "int64_t" || type == "uint64_t")
+    return true;
+  HlslScalarTypeShape shape;
+  if (!parseHlslScalarVectorMatrixTypeShape(type, shape))
+    return false;
+  return shape.shape == HlslScalarTypeShapeKind::Scalar &&
+         (hlslScalarTypeKindIsNumeric(shape.kind) ||
+          hlslScalarTypeKindIsBoolean(shape.kind));
 }
 
 bool isNumericScalarType(const std::string &type) {
-  return type == "float" || type == "half" || type == "double" ||
-         type == "int" || type == "uint" || type == "int64_t" ||
-         type == "uint64_t";
+  if (type == "int64_t" || type == "uint64_t")
+    return true;
+  HlslScalarTypeShape shape;
+  if (!parseHlslScalarVectorMatrixTypeShape(type, shape))
+    return false;
+  return shape.shape == HlslScalarTypeShapeKind::Scalar &&
+         hlslScalarTypeKindIsNumeric(shape.kind);
 }
 
 bool isMatrixType(const std::string &type, std::string &scalarOut,
@@ -865,29 +870,15 @@ bool isMatrixType(const std::string &type, std::string &scalarOut,
   scalarOut.clear();
   rowsOut = 0;
   colsOut = 0;
-  if (type.size() < 4)
+  HlslScalarTypeShape shape;
+  if (!parseHlslScalarVectorMatrixTypeShape(type, shape))
     return false;
-  size_t xPos = type.find('x');
-  if (xPos == std::string::npos)
+  if (shape.shape != HlslScalarTypeShapeKind::Matrix ||
+      !hlslScalarTypeKindIsNumeric(shape.kind))
     return false;
-  if (xPos == 0 || xPos + 1 >= type.size())
-    return false;
-  if (!std::isdigit(static_cast<unsigned char>(type[xPos - 1])) ||
-      !std::isdigit(static_cast<unsigned char>(type[xPos + 1])))
-    return false;
-  int rows = type[xPos - 1] - '0';
-  int cols = type[xPos + 1] - '0';
-  if (rows < 1 || rows > 4 || cols < 1 || cols > 4)
-    return false;
-  std::string base = type.substr(0, xPos - 1);
-  if (base != "float" && base != "half" && base != "double" &&
-      base != "int" && base != "uint")
-    return false;
-  if (xPos + 2 != type.size())
-    return false;
-  scalarOut = base;
-  rowsOut = rows;
-  colsOut = cols;
+  scalarOut = shape.baseName;
+  rowsOut = shape.rows;
+  colsOut = shape.cols;
   return true;
 }
 

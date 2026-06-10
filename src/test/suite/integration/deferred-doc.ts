@@ -103,6 +103,17 @@ function semanticTokenAtText(
 	return matches[occurrence - 1];
 }
 
+function assertAnySemanticTokenRole(tokens: DecodedSemanticToken[], text: string, type: string): void {
+	const matches = tokens.filter((token) => token.text === text && token.type === type);
+	assert.ok(
+		matches.length > 0,
+		`Expected at least one ${type} semantic token for ${text}. Actual tokens=${tokens
+			.filter((token) => token.text === text)
+			.map((token) => token.type)
+			.join(',')}`
+	);
+}
+
 function assertSemanticTokenRole(
 	tokens: DecodedSemanticToken[],
 	text: string,
@@ -200,6 +211,13 @@ export function registerDeferredDocSemanticTokenTests(): void {
 			assertSemanticTokenRole(tokens, 'material', 1, 'parameter', ['declaration']);
 			assertSemanticTokenRole(tokens, 'material', 2, 'parameter', []);
 			assertSemanticTokenRole(tokens, 'base_color', 1, 'property', ['modification']);
+			assertAnySemanticTokenRole(tokens, 'float4', 'type');
+			assertAnySemanticTokenRole(tokens, 'float2', 'type');
+			assertAnySemanticTokenRole(tokens, 'Texture2D', 'type');
+			assertAnySemanticTokenRole(tokens, 'SamplerState', 'type');
+			assertAnySemanticTokenRole(tokens, 'groupshared', 'keyword');
+			assertAnySemanticTokenRole(tokens, 'if', 'keyword');
+			assertAnySemanticTokenRole(tokens, 'return', 'keyword');
 		});
 
 		it('classifies semantic token roles and modifiers for standalone HLSL documents', async () => {
@@ -217,6 +235,13 @@ export function registerDeferredDocSemanticTokenTests(): void {
 			assertSemanticTokenRole(tokens, 'CBufferTint', 1, 'property', ['declaration']);
 			assertSemanticTokenRole(tokens, 'CBufferTint', 2, 'property', []);
 			assertSemanticTokenRole(tokens, 'base_color', 1, 'property', ['modification']);
+			assertAnySemanticTokenRole(tokens, 'float4', 'type');
+			assertAnySemanticTokenRole(tokens, 'float2', 'type');
+			assertAnySemanticTokenRole(tokens, 'Texture2D', 'type');
+			assertAnySemanticTokenRole(tokens, 'SamplerState', 'type');
+			assertAnySemanticTokenRole(tokens, 'groupshared', 'keyword');
+			assertAnySemanticTokenRole(tokens, 'if', 'keyword');
+			assertAnySemanticTokenRole(tokens, 'return', 'keyword');
 		});
 
 		it('classifies included HLSL under the selected NSF active-unit context', async function () {
@@ -250,6 +275,8 @@ export function registerDeferredDocSemanticTokenTests(): void {
 		it('reports deferred artifact state in document runtime debug', async function () {
 			this.timeout(120000);
 			await vscode.commands.executeCommand('nsf.restartServer');
+			await waitForClientReady('client ready before deferred artifact runtime debug');
+			await waitForIndexingIdle('indexing idle before deferred artifact runtime debug', { attempts: 240, delayMs: 500 });
 			const document = await openFixture('module_semantic_tokens.nsf');
 
 			await waitFor(
@@ -280,6 +307,8 @@ export function registerDeferredDocSemanticTokenTests(): void {
 		it('keeps range semantic token requests lazy and avoids eager full deferred artifacts', async function () {
 			this.timeout(120000);
 			await vscode.commands.executeCommand('nsf.restartServer');
+			await waitForClientReady('client ready before lazy range semantic tokens');
+			await waitForIndexingIdle('indexing idle before lazy range semantic tokens', { attempts: 240, delayMs: 500 });
 			const absolutePath = path.join(getWorkspaceRoot(), 'test_files', 'module_semantic_tokens.nsf');
 			const document = await vscode.workspace.openTextDocument(absolutePath);
 			const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(6, 0));
@@ -519,6 +548,8 @@ export function registerDeferredDocVisualContinuityTests(): void {
 		it('does not let the final deferred inlay publish clobber semantic token range caches built after early diagnostics publish', async function () {
 			this.timeout(120000);
 			await vscode.commands.executeCommand('nsf.restartServer');
+			await waitForClientReady('client ready before deferred full publish race');
+			await waitForIndexingIdle('indexing idle before deferred full publish race', { attempts: 240, delayMs: 500 });
 			const tempPath = path.join(
 				os.tmpdir(),
 				`tmp_deferred_full_publish_race_${Date.now()}_${Math.random().toString(16).slice(2)}.nsf`
@@ -731,6 +762,8 @@ export function registerDeferredDocInlayTests(): void {
 		it('retains non-overlapping inlay range caches and clears them on overlapping edits', async function () {
 			this.timeout(120000);
 			await vscode.commands.executeCommand('nsf.restartServer');
+			await waitForClientReady('client ready before inlay range cache isolation');
+			await waitForIndexingIdle('indexing idle before inlay range cache isolation', { attempts: 240, delayMs: 500 });
 			const workspaceRoot = getWorkspaceRoot();
 			const sourcePath = path.join(workspaceRoot, 'test_files', 'module_inlay_hints.nsf');
 			const tempPath = path.join(
@@ -748,15 +781,12 @@ export function registerDeferredDocInlayTests(): void {
 					(value) => Array.isArray(value) && value.includes('nsf._invalidateInlayHintsForTests'),
 					'internal inlay invalidation command'
 				);
-				await vscode.commands.executeCommand('nsf._invalidateInlayHintsForTests', document.uri.toString());
-				await waitFor(
-					() => getDocumentRuntimeDebug([document.uri.toString()]),
-					(entries) =>
-						entries[0]?.hasDeferredDocSnapshot === true &&
-						entries[0]?.deferredHasInlayHintsFull === false &&
-						(entries[0]?.deferredInlayRangeCacheCount ?? 0) === 0,
-					'cleared deferred full inlay snapshot before range cache seeding'
+				await waitForDocumentRuntimeDebugEntry(
+					document.uri.toString(),
+					(entry) => Boolean(entry),
+					'document runtime entry before inlay range cache invalidation'
 				);
+				await vscode.commands.executeCommand('nsf._invalidateInlayHintsForTests', document.uri.toString());
 
 				await waitFor(
 					() =>

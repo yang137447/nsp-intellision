@@ -12,9 +12,50 @@ const preprocessorMacrosRoot = path.join(resourcesRoot, 'language', 'preprocesso
 const objectTypesRoot = path.join(resourcesRoot, 'types', 'object_types');
 const objectFamiliesRoot = path.join(resourcesRoot, 'types', 'object_families');
 const typeOverridesRoot = path.join(resourcesRoot, 'types', 'type_overrides');
+const scalarTypesRoot = path.join(resourcesRoot, 'types', 'scalar_types');
 
-const MIN_OBJECT_TYPE_COUNT = 24;
+const MIN_SCALAR_TYPE_COUNT = 16;
+const MIN_OBJECT_TYPE_COUNT = 26;
+const MIN_KEYWORD_COUNT = 40;
 const MIN_METHOD_COUNT = 12;
+
+const REQUIRED_KEYWORDS = [
+	'break',
+	'case',
+	'cbuffer',
+	'const',
+	'discard',
+	'for',
+	'groupshared',
+	'if',
+	'in',
+	'inout',
+	'out',
+	'packoffset',
+	'return',
+	'struct',
+	'typedef',
+	'uniform',
+	'while'
+];
+
+const FORBIDDEN_KEYWORD_TYPE_TOKENS = [
+	'bool',
+	'float',
+	'float4',
+	'float4x4',
+	'uint',
+	'uint4x4',
+	'min16float',
+	'min16float2',
+	'Texture2D',
+	'SamplerState',
+	'texture',
+	'sampler',
+	'matrix',
+	'vector',
+	'void'
+];
 
 const REQUIRED_OBJECT_TYPES = [
 	'Buffer',
@@ -28,6 +69,7 @@ const REQUIRED_OBJECT_TYPES = [
 	'Texture3D',
 	'TextureCube',
 	'TextureCubeArray',
+	'texture',
 	'RWTexture1D',
 	'RWTexture1DArray',
 	'RWTexture2D',
@@ -40,7 +82,39 @@ const REQUIRED_OBJECT_TYPES = [
 	'AppendStructuredBuffer',
 	'ConsumeStructuredBuffer',
 	'SamplerState',
+	'sampler',
 	'SamplerComparisonState'
+];
+
+const REQUIRED_SCALAR_TYPES = [
+	'bool',
+	'double',
+	'dword',
+	'float',
+	'half',
+	'int',
+	'matrix',
+	'min10float',
+	'min12int',
+	'min16float',
+	'min16int',
+	'min16uint',
+	'string',
+	'uint',
+	'vector',
+	'void'
+];
+
+const REQUIRED_GENERATED_SCALAR_TYPE_NAMES = [
+	'float',
+	'float1',
+	'float4',
+	'float4x4',
+	'uint4x4',
+	'min16float2',
+	'min16uint4x4',
+	'bool4',
+	'bool4x4'
 ];
 
 const REQUIRED_FAMILIES = [
@@ -79,6 +153,15 @@ function parseCliArgs(argv) {
 		if (token === '--builtins-manifest' && i + 1 < argv.length) {
 			parsed.builtinsManifest = path.resolve(argv[i + 1]);
 			i++;
+		} else if (token === '--keywords-base' && i + 1 < argv.length) {
+			parsed.keywordsBase = path.resolve(argv[i + 1]);
+			i++;
+		} else if (token === '--object-types-base' && i + 1 < argv.length) {
+			parsed.objectTypesBase = path.resolve(argv[i + 1]);
+			i++;
+		} else if (token === '--scalar-types-base' && i + 1 < argv.length) {
+			parsed.scalarTypesBase = path.resolve(argv[i + 1]);
+			i++;
 		}
 	}
 	return parsed;
@@ -99,13 +182,23 @@ const schemaChecks = [
 	},
 	{
 		label: 'object types',
-		dataPath: path.join(objectTypesRoot, 'base.json'),
+		dataPath: cliArgs.objectTypesBase || path.join(objectTypesRoot, 'base.json'),
 		schemaPath: path.join(objectTypesRoot, 'schema.json')
 	},
 	{
 		label: 'object type overrides',
 		dataPath: path.join(objectTypesRoot, 'override.json'),
 		schemaPath: path.join(objectTypesRoot, 'schema.json')
+	},
+	{
+		label: 'scalar types',
+		dataPath: cliArgs.scalarTypesBase || path.join(scalarTypesRoot, 'base.json'),
+		schemaPath: path.join(scalarTypesRoot, 'schema.json')
+	},
+	{
+		label: 'scalar type overrides',
+		dataPath: path.join(scalarTypesRoot, 'override.json'),
+		schemaPath: path.join(scalarTypesRoot, 'schema.json')
 	},
 	{
 		label: 'object families',
@@ -139,7 +232,7 @@ const schemaChecks = [
 	},
 	{
 		label: 'keyword base',
-		dataPath: path.join(keywordsRoot, 'base.json'),
+		dataPath: cliArgs.keywordsBase || path.join(keywordsRoot, 'base.json'),
 		schemaPath: path.join(keywordsRoot, 'schema.json')
 	},
 	{
@@ -271,28 +364,107 @@ function assertOrThrow(condition, message) {
 	if (!condition) throw new Error(message);
 }
 
+function assertUniqueNames(entries, label, options = {}) {
+	const caseInsensitive = options.caseInsensitive !== false;
+	const names = new Set();
+	const originalNames = new Set();
+	for (const entry of entries) {
+		assertOrThrow(typeof entry.name === 'string' && entry.name.length > 0, `${label} entry name must be non-empty`);
+		originalNames.add(entry.name);
+		const key = caseInsensitive ? entry.name.toLowerCase() : entry.name;
+		assertOrThrow(!names.has(key), `duplicate ${label} entry: ${entry.name}`);
+		names.add(key);
+	}
+	return originalNames;
+}
+
+function assertUniqueStrings(values, label) {
+	const seen = new Set();
+	for (const value of values || []) {
+		assertOrThrow(!seen.has(value), `duplicate ${label}: ${value}`);
+		seen.add(value);
+	}
+}
+
 function validateBuiltinsCoverage(baseBundle) {
 	assertOrThrow(Array.isArray(baseBundle.entries), 'builtins base entries must be array');
 	assertOrThrow(baseBundle.entries.length > 0, 'builtins base must contain entries');
 	if (typeof baseBundle.count === 'number') {
 		assertOrThrow(baseBundle.count === baseBundle.entries.length, 'builtins base count must equal entries length');
 	}
+	assertUniqueNames(baseBundle.entries, 'builtin');
+}
+
+function assertDimensionList(values, label) {
+	assertOrThrow(Array.isArray(values), `${label} must be array`);
+	assertOrThrow(values.length > 0, `${label} must not be empty`);
+	assertUniqueStrings(values, label);
+	for (const value of values) {
+		assertOrThrow(Number.isInteger(value) && value >= 1 && value <= 4, `${label} must contain dimensions 1..4`);
+	}
+}
+
+function generatedScalarTypeNames(scalarTypes) {
 	const names = new Set();
-	for (const entry of baseBundle.entries) {
-		assertOrThrow(typeof entry.name === 'string' && entry.name.length > 0, 'builtin entry name must be non-empty');
-		assertOrThrow(!names.has(entry.name.toLowerCase()), `duplicate builtin entry: ${entry.name}`);
-		names.add(entry.name.toLowerCase());
+	for (const entry of scalarTypes.entries) {
+		names.add(entry.name);
+		if (entry.generateVector) {
+			for (const dim of entry.vectorDimensions || []) {
+				names.add(`${entry.name}${dim}`);
+			}
+		}
+		if (entry.generateMatrix) {
+			for (const rows of entry.matrixRows || []) {
+				for (const cols of entry.matrixColumns || []) {
+					names.add(`${entry.name}${rows}x${cols}`);
+				}
+			}
+		}
+	}
+	return names;
+}
+
+function validateScalarTypeCoverage(scalarTypes) {
+	assertOrThrow(Array.isArray(scalarTypes.entries), 'scalar type entries must be array');
+	assertOrThrow(scalarTypes.entries.length >= MIN_SCALAR_TYPE_COUNT, `scalar type entries < ${MIN_SCALAR_TYPE_COUNT}`);
+	const scalarNames = assertUniqueNames(scalarTypes.entries, 'scalar type');
+	for (const requiredType of REQUIRED_SCALAR_TYPES) {
+		assertOrThrow(scalarNames.has(requiredType), `missing required scalar type: ${requiredType}`);
+	}
+	for (const entry of scalarTypes.entries) {
+		if (entry.generateVector) {
+			assertDimensionList(entry.vectorDimensions, `vectorDimensions for ${entry.name}`);
+		}
+		if (entry.generateMatrix) {
+			assertDimensionList(entry.matrixRows, `matrixRows for ${entry.name}`);
+			assertDimensionList(entry.matrixColumns, `matrixColumns for ${entry.name}`);
+		}
+		if (!entry.generateVector) {
+			assertOrThrow(!entry.vectorDimensions, `non-vector scalar type ${entry.name} must not define vectorDimensions`);
+		}
+		if (!entry.generateMatrix) {
+			assertOrThrow(!entry.matrixRows && !entry.matrixColumns, `non-matrix scalar type ${entry.name} must not define matrix dimensions`);
+		}
+	}
+	const generatedNames = generatedScalarTypeNames(scalarTypes);
+	for (const requiredName of REQUIRED_GENERATED_SCALAR_TYPE_NAMES) {
+		assertOrThrow(generatedNames.has(requiredName), `missing generated scalar/vector/matrix type: ${requiredName}`);
 	}
 }
 
 function validateTypeCoverage(objectTypes, families) {
 	assertOrThrow(objectTypes.entries.length >= MIN_OBJECT_TYPE_COUNT, `object type entries < ${MIN_OBJECT_TYPE_COUNT}`);
+	assertUniqueNames(objectTypes.entries, 'object type');
 	const typeNames = new Set(objectTypes.entries.map((item) => item.name));
+	const entriesByName = new Map(objectTypes.entries.map((item) => [item.name, item]));
 	for (const requiredType of REQUIRED_OBJECT_TYPES) {
 		assertOrThrow(typeNames.has(requiredType), `missing required object type: ${requiredType}`);
 	}
 	const familyMap = new Map();
 	for (const family of families.families) {
+		assertOrThrow(!familyMap.has(family.name), `duplicate object family: ${family.name}`);
+		assertUniqueStrings(family.members || [], `member in family ${family.name}`);
+		assertUniqueStrings(family.compatibleWith || [], `compatibleWith in family ${family.name}`);
 		familyMap.set(family.name, family);
 	}
 	for (const familyName of REQUIRED_FAMILIES) {
@@ -300,15 +472,25 @@ function validateTypeCoverage(objectTypes, families) {
 		assertOrThrow(familyMap.get(familyName).members.length > 0, `family ${familyName} must have members`);
 	}
 	for (const family of families.families) {
+		for (const compatibleFamily of family.compatibleWith || []) {
+			assertOrThrow(familyMap.has(compatibleFamily), `family ${family.name} references unknown compatible family: ${compatibleFamily}`);
+		}
 		for (const member of family.members) {
 			assertOrThrow(typeNames.has(member), `family ${family.name} references unknown type: ${member}`);
+			const memberEntry = entriesByName.get(member);
+			assertOrThrow(memberEntry.family === family.name, `family ${family.name} includes ${member}, but object type declares family ${memberEntry.family}`);
 		}
+	}
+	for (const entry of objectTypes.entries) {
+		const family = familyMap.get(entry.family);
+		assertOrThrow(family, `object type ${entry.name} references unknown family: ${entry.family}`);
+		assertOrThrow(family.members.includes(entry.name), `object type ${entry.name} is missing from family ${entry.family}`);
 	}
 }
 
 function validateMethodCoverage(methods) {
 	assertOrThrow(methods.entries.length >= MIN_METHOD_COUNT, `object method entries < ${MIN_METHOD_COUNT}`);
-	const methodNames = new Set(methods.entries.map((item) => item.name));
+	const methodNames = assertUniqueNames(methods.entries, 'object method');
 	for (const requiredMethod of REQUIRED_METHODS) {
 		assertOrThrow(methodNames.has(requiredMethod), `missing required method: ${requiredMethod}`);
 	}
@@ -316,12 +498,20 @@ function validateMethodCoverage(methods) {
 
 function validateKeywordCoverage(keywords) {
 	assertOrThrow(Array.isArray(keywords.entries), 'keyword base entries must be array');
+	assertOrThrow(keywords.entries.length >= MIN_KEYWORD_COUNT, `keyword base entries < ${MIN_KEYWORD_COUNT}`);
+	assertUniqueNames(keywords.entries, 'keyword');
 	const keywordNames = new Set(keywords.entries.map((item) => item.name));
-	assertOrThrow(keywordNames.has('discard'), 'language keywords base must include discard');
+	for (const requiredKeyword of REQUIRED_KEYWORDS) {
+		assertOrThrow(keywordNames.has(requiredKeyword), `language keywords base must include ${requiredKeyword}`);
+	}
+	for (const forbiddenTypeToken of FORBIDDEN_KEYWORD_TYPE_TOKENS) {
+		assertOrThrow(!keywordNames.has(forbiddenTypeToken), `type token leaked into language keywords: ${forbiddenTypeToken}`);
+	}
 }
 
 function validateDirectiveCoverage(directives) {
 	assertOrThrow(Array.isArray(directives.entries), 'directive base entries must be array');
+	assertUniqueNames(directives.entries, 'directive');
 	const directiveNames = new Set(directives.entries.map((item) => item.name));
 	for (const requiredDirective of ['include', 'define', 'undef', 'if', 'ifdef', 'ifndef', 'elif', 'else', 'endif', 'pragma']) {
 		assertOrThrow(directiveNames.has(requiredDirective), `language directives base must include ${requiredDirective}`);
@@ -330,6 +520,7 @@ function validateDirectiveCoverage(directives) {
 
 function validateSemanticCoverage(semantics) {
 	assertOrThrow(Array.isArray(semantics.entries), 'semantic base entries must be array');
+	assertUniqueNames(semantics.entries, 'semantic', { caseInsensitive: false });
 	const semanticNames = new Set(semantics.entries.map((item) => item.name));
 	for (const requiredSemantic of ['SV_Position', 'SV_Target0', 'SV_Depth']) {
 		assertOrThrow(semanticNames.has(requiredSemantic), `language semantics base must include ${requiredSemantic}`);
@@ -338,6 +529,7 @@ function validateSemanticCoverage(semantics) {
 
 function validatePreprocessorMacroCoverage(macros) {
 	assertOrThrow(Array.isArray(macros.entries), 'preprocessor macro base entries must be array');
+	assertUniqueNames(macros.entries, 'preprocessor macro');
 	const macroNames = new Set(macros.entries.map((item) => item.name));
 	for (const requiredMacro of [
 		'SHADER_QUALITY',
@@ -371,6 +563,7 @@ function main() {
 	}
 
 	validateBuiltinsCoverage(loaded['builtins base']);
+	validateScalarTypeCoverage(loaded['scalar types']);
 	validateTypeCoverage(loaded['object types'], loaded['object families']);
 	validateMethodCoverage(loaded['object methods']);
 	validateKeywordCoverage(loaded['keyword base']);

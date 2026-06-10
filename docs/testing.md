@@ -22,6 +22,9 @@
 - `npm run json:validate`
   - 校验 `server_cpp/resources/` 下所有 bundle 的 `base.json`、`override.json` 和 `schema.json`
   - 适用于资源、schema 或资源生成脚本变更
+- `npm run scalar-types:update`
+  - 从 Microsoft Learn HLSL keywords 页面和脚本内 curated expansion evidence 生成 `server_cpp/resources/types/scalar_types/base.json`
+  - 适用于刷新 HLSL scalar/vector/matrix type-name 资源；运行后必须再跑 `npm run json:validate`
 - `npm run compile`
   - 构建 TypeScript client 和测试入口
   - 适用于 `client/`、`src/test/` 或根级 TypeScript 配置变更
@@ -84,7 +87,7 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
   - 可选设置 unit 起始偏移：`$env:NSF_REAL_DIAGNOSTICS_UNIT_OFFSET = "200"`；runner 会先发现完整 `.nsf` unit 列表，再按 offset 和 `MAX_UNITS` 切片，适合把 full audit 拆成多个固定批次。`MAX_UNITS=0` 表示从当前 offset 扫到末尾。分批报告会记录完整 discovered 数量、batch offset、batch limit 和实际 scanned 数量；非 5 / 50 / full 的批次默认不加载 full baseline 做趋势比较
   - 可选限制单个 unit include closure：`$env:NSF_REAL_DIAGNOSTICS_CLOSURE_LIMIT = "1024"`
   - 可选限制写入 JSON 的诊断样本数量：`NSF_REAL_DIAGNOSTICS_SAMPLE_PER_GROUP`、`NSF_REAL_DIAGNOSTICS_SAMPLE_PER_UNIT`、`NSF_REAL_DIAGNOSTICS_SAMPLE_MAX_TOTAL`
-  - `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS` 是整条 Mocha audit 用例预算；5-unit / 50-unit 可用较短预算，full audit 可按真实 workspace 规模设置到数小时，当前上限为 6 小时
+  - `NSF_REAL_DIAGNOSTICS_TIMEOUT_MS` 是整条 Mocha audit 用例预算；5-unit 可用较短预算，50-unit trend 在当前 G66 workspace 上可能接近 50 分钟，推荐至少 70 分钟预算；full audit 可按真实 workspace 规模设置到数小时，当前上限为 6 小时
   - 5-unit smoke audit 推荐命令：
 
 ```powershell
@@ -100,7 +103,7 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 ```powershell
 $env:NSF_REAL_DIAGNOSTICS_AUDIT = "1"
 $env:NSF_REAL_DIAGNOSTICS_MAX_UNITS = "50"
-$env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "1800000"
+$env:NSF_REAL_DIAGNOSTICS_TIMEOUT_MS = "4200000"
 $env:NSF_REAL_DIAGNOSTICS_REPORT_LABEL = "phase-XX-topic-trend-50"
 node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G66ShaderDevelop\G66ShaderDevelop.code-workspace" --file-filter realWorkspace.diagnostics-audit
 ```
@@ -133,9 +136,11 @@ node .\out\test\runCodeTests.js --mode real --workspace "C:\Software\WorkTemp\G6
 
 - 只改文档：通常不需要构建或测试
 - 改资源或资源脚本：至少跑 `npm run json:validate`
+- 改 scalar/vector/matrix type-name 资源或 `scalar_type_model.*`：至少跑 `npm run scalar-types:update`（资源刷新时）、`npm run json:validate`、`cmake --build .\server_cpp\build`；若影响 completion、semantic tokens、callsite constructor 或 diagnostics type shape，补跑 `npm run test:client:repo`
 - 改 TypeScript client：至少跑 `npm run compile`
 - 改 C++ server：至少跑 `cmake --build .\server_cpp\build`
 - 改 completion、hover、signature help、diagnostics、semantic tokens 或 client/server 协议交互：补跑 `npm run test:client:repo`
+- 改 type-token hover、shared declaration parser、workspace definition extraction、object template declaration 或 storage qualifier 解析：至少跑 `cmake --build .\server_cpp\build`、`node .\out\test\runCodeTests.js --mode repo --file-filter client.interactive-runtime` 和 `npm run test:client:repo`；若触达 semantic/deferred consumer，补跑 `node .\out\test\runCodeTests.js --mode repo --file-filter client.deferred-doc-runtime`。回归必须覆盖 `groupshared half3` 不把 `half3` 索引成 symbol、`Texture2D<float4>` 不把 `float4` 索引成 symbol、变量 hover 展示 source-facing template spelling 但语义类型保持 normalized object base。
 - 改 completion auto-trigger coordinator：至少补跑 completion request coordinator 单元测试、completion auto-trigger、completion client metrics、member completion、interactive visibility、real-workspace-replay repo 定向测试和 `pbr-flow-water-full-input` real replay
 - 改预处理宏资源、workspace `#art` default-zero / companion enum 索引、active-unit compiler private numeric constants、C++ compiler macro snapshot、`#undef` 候选清空 / 后续重定义收集语义、active-unit compile profile 宏提供链路、`nsf.shaderCompilerPath` 配置同步 / provider 发现根或 active-unit include 预处理上下文：补跑 `npm run json:validate`（仅资源改动时）、`cmake --build .\server_cpp\build`、`npm run test:client:repo:m4`（profile 链路改动时）和 diagnostics repo 集成用例；默认 preprocessor preset focused 回归应同时覆盖 compiler context 宏、legacy undefined-zero project 宏和 stable source constants
 - 改 client 侧 `nsf.preprocessorMacros` 首次填充或旧 preset 补齐逻辑：至少跑 `npm run compile` 和 `node .\out\test\runCodeTests.js --mode repo --file-filter client_config_sync`；如果补齐规则改变真实配置语义，还要同步 README / architecture / resources 文档
@@ -204,6 +209,7 @@ document outline 和 semantic tokens 属于 deferred surface；对应 replay cap
 - 如果测试目标是 editor-native auto-trigger，使用 `typeWithEditorFocusForTests(...)`。
 - semantic tokens、inlay hints、document symbols 属于 deferred 路径，应使用 `waitFor(...)` 等待 provider、legend 或 cache 进入可断言状态。
 - completion / hover 断言特定 server 结果时，优先用 `waitForCompletionLabels(...)`、`waitForHoverText(...)`，不要只等非空。
+- 测试中调用 `nsf.restartServer` 后，继续发 provider、debug request、runtime assertion 或内部命令前必须等待 `waitForClientReady(...)`；依赖 workspace summary 的场景还要等待 `waitForIndexingIdle(...)`。不要在重启旧 stdio 流关闭期间继续写请求，否则容易出现 `write after end` 并污染后续断言。
 
 ### Runtime 断言
 
@@ -221,6 +227,7 @@ document outline 和 semantic tokens 属于 deferred surface；对应 replay cap
 - perf 用例在 drain metrics window 时，如果空闲阶段没有新窗口可 flush，shared helper 会返回当前 snapshot 作为基线；后续断言应等待 `waitForMetricsHistorySinceRevision(...)` 收集到目标样本，而不是假设所有目标 metrics 一定落在最新单个 window。
 - perf 报告里 raw wall-clock samples 用于观察真实用户体感和宿主抖动；是否产品性能合规则优先结合 method p95、client middleware metrics、server handler metrics、request queue wait、request context build、didChange/owner metrics 和 deferred runtime 指标判断。
 - real workspace 测试不要依赖外部工程里某一整行固定文本永远不变；优先用稳定前缀定位并缓存原始文本。
+- real workspace 全套里靠后的 smoke / deferred surface 用例不应继承前置 auto-trigger、member completion 或 replay 用例留下的 dirty editor、active RPC 和后台刷新状态；开始前应丢弃测试宿主中的未保存编辑、关闭旧 editor，并等待 indexing idle / active RPC 清零。document symbols 这类 deferred 能力若跟在 references / rename / replay 后面断言，应先等待 client quiescent；如果目标是验证 server LSP 语义而不是 VS Code provider registry，可用 `nsf._sendServerRequest` 直连 `textDocument/documentSymbol`，避免 real 全套尾部 `vscode.executeDocumentSymbolProvider` 在测试宿主中返回瞬态空结果时误判。
 - real replay 脚本解析锚点前会把已打开的 dirty 文档恢复到磁盘文本基线，避免前置 real workspace 用例的未保存 buffer 污染后续锚点解析。
 - real diagnostics audit 只做统计和初筛分类，不作为通过/失败门禁；`likely-plugin-limitation`、`likely-real-source` 和 `check-config-or-source` 都是 triage hint，最终归因仍需要结合样例行、include context 和真实编译结果复核。
 

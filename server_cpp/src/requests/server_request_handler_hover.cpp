@@ -20,6 +20,7 @@
 #include "macro_generated_functions.hpp"
 #include "member_query.hpp"
 #include "nsf_lexer.hpp"
+#include "scalar_type_model.hpp"
 #include "semantic_snapshot.hpp"
 #include "server_parse.hpp"
 #include "server_request_handler_common.hpp"
@@ -129,6 +130,60 @@ static std::string formatFileLineDisplay(const std::string &uri, int line,
     target += std::to_string(oneBased);
   }
   return "[" + label + "](" + target + ")";
+}
+
+static bool renderHlslTypeTokenHoverMarkdown(const std::string &word,
+                                             std::string &markdownOut) {
+  markdownOut.clear();
+  HlslScalarTypeShape scalarShape;
+  if (parseHlslScalarVectorMatrixTypeShape(word, scalarShape) ||
+      isHlslScalarTypeBaseName(word)) {
+    markdownOut += formatCppCodeBlock(word);
+    markdownOut += "\n\n(HLSL type)";
+    if (scalarShape.shape != HlslScalarTypeShapeKind::Unknown) {
+      markdownOut += "\n\nShape: ";
+      switch (scalarShape.shape) {
+      case HlslScalarTypeShapeKind::Scalar:
+        markdownOut += "scalar";
+        break;
+      case HlslScalarTypeShapeKind::Vector:
+        markdownOut += "vector";
+        if (scalarShape.rows > 0) {
+          markdownOut += " ";
+          markdownOut += std::to_string(scalarShape.rows);
+        }
+        break;
+      case HlslScalarTypeShapeKind::Matrix:
+        markdownOut += "matrix";
+        if (scalarShape.rows > 0 && scalarShape.cols > 0) {
+          markdownOut += " ";
+          markdownOut += std::to_string(scalarShape.rows);
+          markdownOut += "x";
+          markdownOut += std::to_string(scalarShape.cols);
+        }
+        break;
+      case HlslScalarTypeShapeKind::Unknown:
+        break;
+      }
+    }
+    if (!scalarShape.baseName.empty() && scalarShape.baseName != word) {
+      markdownOut += "\n\nBase: ";
+      markdownOut += scalarShape.baseName;
+    }
+    return true;
+  }
+
+  std::string family;
+  if (getTypeModelObjectFamily(word, family)) {
+    markdownOut += formatCppCodeBlock(word);
+    markdownOut += "\n\n(HLSL object type)";
+    if (!family.empty()) {
+      markdownOut += "\n\nFamily: ";
+      markdownOut += family;
+    }
+    return true;
+  }
+  return false;
 }
 
 static bool buildMacroHoverInputFromDocumentText(
@@ -1807,6 +1862,16 @@ bool request_hover_handlers::handleHoverRequest(
     }
   }
 
+  {
+    std::string md;
+    if (renderHlslTypeTokenHoverMarkdown(word, md)) {
+      Json hover = makeObject();
+      hover.o["contents"] = makeMarkup(md);
+      writeResponse(id, hover);
+      return true;
+    }
+  }
+
   const HlslBuiltinSignature *builtinSig = lookupHlslBuiltinSignature(word);
   if (builtinSig) {
     const auto builtinStartedAt = std::chrono::steady_clock::now();
@@ -2322,7 +2387,10 @@ bool request_hover_handlers::handleHoverRequest(
       bool isParam = false;
       TypeEvalResult typeEval = resolveHoverTypeAtDeclaration(
           uri, *doc, word, cursorOffset, ctx, isParam);
-      const std::string &typeName = typeEval.type;
+      std::string typeName = typeEval.type;
+      if (typeName.empty())
+        findTypeOfIdentifierInDeclarationLineShared(decl.lineText, word,
+                                                    typeName);
       if (decl.braceDepth == 0 && !isParam) {
         int nameChar = byteOffsetInLineToUtf16(decl.lineText, decl.nameBytePos);
         std::string functionLabel;
@@ -2358,7 +2426,13 @@ bool request_hover_handlers::handleHoverRequest(
           return true;
         }
       }
-      std::string code = (typeName.empty() ? std::string() : (typeName + " "));
+      std::string displayType;
+      findDisplayTypeOfIdentifierInDeclarationLineShared(decl.lineText, word,
+                                                         displayType);
+      const std::string codeType =
+          displayType.empty() ? typeName : displayType;
+      std::string code =
+          (codeType.empty() ? std::string() : (codeType + " "));
       code += word;
       HoverSymbolMarkdownInput symbolInput;
       symbolInput.code = code;
@@ -2368,7 +2442,8 @@ bool request_hover_handlers::handleHoverRequest(
         symbolInput.notes.push_back("(Parameter)");
       }
       symbolInput.typeName = typeName;
-      symbolInput.indeterminateReason = typeEval.reasonCode;
+      symbolInput.indeterminateReason = typeName.empty() ? typeEval.reasonCode
+                                                         : std::string();
       symbolInput.definedAt = formatFileLineDisplay(uri, decl.line, uri);
       symbolInput.leadingDoc =
           extractLeadingDocumentationAtLine(doc->text, decl.line);
@@ -2437,11 +2512,18 @@ bool request_hover_handlers::handleHoverRequest(
       }
 
       std::string typeName;
+      std::string displayType;
+      const std::string definitionLineText =
+          getLineAt(doc->text, interactiveDefinition.line);
       findTypeOfIdentifierInDeclarationLineShared(
-          getLineAt(doc->text, interactiveDefinition.line), word, typeName);
+          definitionLineText, word, typeName);
+      findDisplayTypeOfIdentifierInDeclarationLineShared(definitionLineText,
+                                                         word, displayType);
+      const std::string codeType =
+          displayType.empty() ? typeName : displayType;
       HoverSymbolMarkdownInput symbolInput;
       symbolInput.code =
-          (typeName.empty() ? std::string() : (typeName + " ")) + word;
+          (codeType.empty() ? std::string() : (codeType + " ")) + word;
       symbolInput.typeName = typeName;
       symbolInput.definedAt =
           formatFileLineDisplay(uri, interactiveDefinition.line, uri);
@@ -2547,8 +2629,15 @@ bool request_hover_handlers::handleHoverRequest(
       }
 
       HoverSymbolMarkdownInput symbolInput;
+      std::string displayType;
+      if (!defText.empty() || ctx.readDocumentText(loc.uri, defText)) {
+        findDisplayTypeOfIdentifierInDeclarationLineShared(
+            getLineAt(defText, loc.line), word, displayType);
+      }
+      const std::string codeType =
+          displayType.empty() ? typeName : displayType;
       symbolInput.code =
-          (typeName.empty() ? std::string() : (typeName + " ")) + word;
+          (codeType.empty() ? std::string() : (codeType + " ")) + word;
       symbolInput.typeName = typeName;
       symbolInput.definedAt = formatFileLineDisplay(loc.uri, loc.line, uri);
       if (!defText.empty() || ctx.readDocumentText(loc.uri, defText)) {

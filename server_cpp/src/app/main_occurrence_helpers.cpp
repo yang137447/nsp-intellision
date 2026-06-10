@@ -54,6 +54,7 @@
 #include "server_request_handlers.hpp"
 #include "server_settings.hpp"
 #include "text_utils.hpp"
+#include "type_model.hpp"
 #include "uri_utils.hpp"
 #include "workspace_index.hpp"
 #include "workspace_summary_runtime.hpp"
@@ -531,9 +532,10 @@ bool findFxBlockDeclarationInLine(const std::string &line,
     return false;
 
   auto isBlockType = [](const std::string &t) {
-    return t == "texture" || t == "Texture" || t == "Texture2D" ||
-           t == "Texture3D" || t == "TextureCube" || t == "SamplerState" ||
-           t == "SamplerComparisonState" || t == "BlendState" ||
+    std::string family;
+    if (getTypeModelObjectFamily(t, family))
+      return true;
+    return t == "Texture" || t == "BlendState" ||
            t == "DepthStencilState" || t == "RasterizerState";
   };
 

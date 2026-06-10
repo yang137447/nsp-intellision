@@ -23,6 +23,8 @@
   - `contributes.grammars`
   - `contributes.snippets`
   - `contributes.configuration`
+- `syntaxes/hlsl.tmGrammar.json`
+  - TextMate 词法高亮 grammar；用于打开文件后的基础正则染色
 - `syntaxes/nsf.language-configuration.json`
   - 注释、配对、`wordPattern`、回车规则、folding markers
 - `snippets/nsf.code-snippets`
@@ -39,11 +41,13 @@
 - 表现为 editor 行为不触发时，先检查 manifest 挂接和文件路径。
 - 表现为触发后行为不理想时，先检查 language configuration。
 - 扩展名表现不一致时，同时检查语言注册、client 默认值、server 默认值和 README。
+- `hlsl.tmGrammar.json` 只提供 client 侧基础词法高亮 fallback；HLSL keyword / type / semantic 等语义事实仍以 server 资源和共享 registry 为准。
+- TextMate grammar 中的 keyword/type 正则允许作为近似高亮存在，但不得作为 hover、completion、definition、diagnostics、semantic tokens 或 workspace index 的事实来源。
 
 ## 当前能力
 
 - 语言模式注册：`.nsf/.hlsl`
-- grammar 挂接
+- grammar 挂接；基础 TextMate 高亮不等待 server，server semantic tokens 返回后再覆盖/增强语义颜色
 - 行注释 `//`
 - 块注释 `/* */`
 - `{}`、`[]`、`()`、`""` 自动配对和选中包裹

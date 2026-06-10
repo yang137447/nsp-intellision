@@ -3,8 +3,10 @@
 #include "language_registry.hpp"
 #include "lsp_helpers.hpp"
 #include "nsf_lexer.hpp"
+#include "scalar_type_model.hpp"
 #include "semantic_snapshot.hpp"
 #include "text_utils.hpp"
+#include "type_model.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -170,6 +172,13 @@ static bool factLocationMatchesToken(int factLine, int factCharacter,
                                      int tokenLine, int tokenCharacter) {
   return factLine >= 0 && factCharacter >= 0 && factLine == tokenLine &&
          factCharacter == tokenCharacter;
+}
+
+static bool isHlslTypeToken(const std::string &word) {
+  if (isHlslScalarVectorMatrixTypeName(word))
+    return true;
+  std::string family;
+  return getTypeModelObjectFamily(word, family);
 }
 
 struct SemanticTokenClassificationContext {
@@ -425,11 +434,6 @@ static void tokenizeLine(const std::string &line, int lineIndex,
                          const SemanticTokenClassificationContext &context,
                          size_t lineStartOffset, bool &inBlockComment,
                          std::vector<RawSemanticToken> &out) {
-  static const std::unordered_set<std::string> typeKeywords = {
-      "void",    "bool",    "int",     "uint",   "float",   "float2",
-      "float3",  "float4",  "float2x2","float3x3","float4x4",
-      "half",    "half2",   "half3",   "half4",  "Texture2D",
-      "Texture3D","SamplerState", "SamplerComparisonState"};
   static const std::string kOperatorChars = "+-*/%=&|^!~?:<>";
 
   bool expectTypeIdentifier = false;
@@ -547,8 +551,7 @@ static void tokenizeLine(const std::string &line, int lineIndex,
         tokType = tokenTypes.keywordType;
         if (word == "struct" || word == "cbuffer")
           expectTypeIdentifier = true;
-      } else if (typeKeywords.find(word) != typeKeywords.end() ||
-                 expectTypeIdentifier) {
+      } else if (isHlslTypeToken(word) || expectTypeIdentifier) {
         tokType = tokenTypes.typeType;
         expectTypeIdentifier = false;
       } else {
